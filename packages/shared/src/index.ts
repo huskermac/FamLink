@@ -1,17 +1,7 @@
-export type UserId = string;
-
-export interface FamilyMember {
-  id: UserId;
-  name: string;
-  email?: string;
-}
-
-export interface FamilyGroup {
-  id: string;
-  name: string;
-  members: FamilyMember[];
-}
-
-export function getPrimaryContact(group: FamilyGroup): FamilyMember | undefined {
-  return group.members[0];
-}
+export * from "./types/person";
+export * from "./types/family";
+export * from "./types/relationship";
+export * from "./types/event";
+export * from "./types/notification";
+export * from "./types/visibility";
+export * from "./types/roles";

@@ -1,0 +1,15 @@
+export enum NotificationChannel {
+  EMAIL = "EMAIL",
+  SMS = "SMS",
+  PUSH = "PUSH"
+}
+
+export enum NotificationType {
+  EVENT_INVITE = "EVENT_INVITE",
+  RSVP_RECEIVED = "RSVP_RECEIVED",
+  EVENT_REMINDER = "EVENT_REMINDER",
+  BIRTHDAY_REMINDER = "BIRTHDAY_REMINDER",
+  FAMILY_JOIN = "FAMILY_JOIN",
+  WEEKLY_DIGEST = "WEEKLY_DIGEST"
+}
+
