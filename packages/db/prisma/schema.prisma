@@ -8,3 +8,137 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Person {
+  id              String    @id @default(cuid())
+  userId          String?   @unique
+  firstName       String
+  lastName        String
+  preferredName   String?
+  dateOfBirth     DateTime? @db.Date
+  isMinor         Boolean   @default(false)
+  profilePhotoUrl String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  familyMemberships    FamilyMember[]
+  householdMemberships HouseholdMember[]
+  relationshipsFrom    Relationship[]   @relation("RelationshipFrom")
+  relationshipsTo      Relationship[]   @relation("RelationshipTo")
+  createdFamilies      FamilyGroup[]    @relation("FamilyCreator")
+  notificationPrefs    NotificationPreference[]
+  eventsCreated        Event[]
+
+  @@index([userId])
+}
+
+model FamilyGroup {
+  id                String    @id @default(cuid())
+  name              String
+  createdById       String
+  createdBy         Person    @relation("FamilyCreator", fields: [createdById], references: [id])
+  aiEnabled         Boolean   @default(true)
+  defaultVisibility String    @default("FAMILY")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  households    Household[]
+  members       FamilyMember[]
+  relationships Relationship[]
+  events        Event[]
+}
+
+model Household {
+  id            String      @id @default(cuid())
+  familyGroupId String
+  familyGroup   FamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
+  name          String
+  street        String?
+  city          String?
+  state         String?
+  zip           String?
+  country       String?     @default("US")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  members HouseholdMember[]
+
+  @@index([familyGroupId])
+}
+
+model FamilyMember {
+  id            String      @id @default(cuid())
+  familyGroupId String
+  familyGroup   FamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
+  personId      String
+  person        Person      @relation(fields: [personId], references: [id], onDelete: Cascade)
+  roles         String[]
+  permissions   String[]
+  joinedAt      DateTime    @default(now())
+
+  @@unique([familyGroupId, personId])
+  @@index([familyGroupId])
+  @@index([personId])
+}
+
+model HouseholdMember {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  personId    String
+  person      Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  role        String?
+  joinedAt    DateTime  @default(now())
+
+  @@unique([householdId, personId])
+  @@index([householdId])
+}
+
+model NotificationPreference {
+  id        String   @id @default(cuid())
+  personId  String
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  channel   String
+  notifType String
+  enabled   Boolean  @default(true)
+
+  @@unique([personId, channel, notifType])
+  @@index([personId])
+}
+
+model Relationship {
+  id            String      @id @default(cuid())
+  fromPersonId  String
+  fromPerson    Person      @relation("RelationshipFrom", fields: [fromPersonId], references: [id], onDelete: Cascade)
+  toPersonId    String
+  toPerson      Person      @relation("RelationshipTo", fields: [toPersonId], references: [id], onDelete: Cascade)
+  type          String
+  familyGroupId String
+  familyGroup   FamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
+  notes         String?     @db.Text
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([fromPersonId, toPersonId, familyGroupId])
+  @@index([fromPersonId])
+  @@index([toPersonId])
+  @@index([familyGroupId])
+}
+
+model Event {
+  id             String     @id @default(cuid())
+  familyGroupId  String
+  createdById    String
+  title          String
+  description    String?
+  startAt        DateTime
+  endAt          DateTime?
+  locationName   String?
+  locationAddr   String?
+  locationUrl    String?
+  visibility     String     @default("FAMILY")
+  isRecurring    Boolean    @default(false)
+  createdAt      DateTime   @default(now())
+
+  familyGroup FamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
+  createdBy   Person      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+}
