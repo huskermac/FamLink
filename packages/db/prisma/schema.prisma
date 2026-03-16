@@ -26,7 +26,6 @@ model Person {
   relationshipsTo      Relationship[]   @relation("RelationshipTo")
   createdFamilies      FamilyGroup[]    @relation("FamilyCreator")
   notificationPrefs    NotificationPreference[]
-  eventsCreated        Event[]
 
   @@index([userId])
 }
@@ -125,20 +124,74 @@ model Relationship {
 }
 
 model Event {
-  id             String     @id @default(cuid())
-  familyGroupId  String
-  createdById    String
-  title          String
-  description    String?
-  startAt        DateTime
-  endAt          DateTime?
-  locationName   String?
-  locationAddr   String?
-  locationUrl    String?
-  visibility     String     @default("FAMILY")
-  isRecurring    Boolean    @default(false)
-  createdAt      DateTime   @default(now())
+  id                String      @id @default(cuid())
+  familyGroupId     String
+  familyGroup       FamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
+  createdByPersonId String
+  title             String
+  description       String?     @db.Text
+  startAt           DateTime
+  endAt             DateTime?
+  locationName      String?
+  locationAddress   String?     @db.Text
+  locationMapUrl    String?
+  visibility        String      @default("FAMILY")
+  isRecurring       Boolean     @default(false)
+  recurrenceRule    String?
+  isBirthdayEvent   Boolean     @default(false)
+  birthdayPersonId  String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
-  familyGroup FamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
-  createdBy   Person      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  invitations  EventInvitation[]
+  rsvps        RSVP[]
+  potluckItems PotluckAssignment[]
+
+  @@index([familyGroupId])
+  @@index([startAt])
+}
+
+model EventInvitation {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  personId    String?
+  householdId String?
+  scope       String
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([eventId])
+  @@index([personId])
+}
+
+model RSVP {
+  id          String    @id @default(cuid())
+  eventId     String
+  event       Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  personId    String
+  status      String
+  guestToken  String?   @unique
+  guestEmail  String?
+  guestPhone  String?
+  respondedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([eventId, personId])
+  @@index([eventId])
+  @@index([guestToken])
+}
+
+model PotluckAssignment {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  personId  String?
+  item      String
+  quantity  Int?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@index([eventId])
 }
