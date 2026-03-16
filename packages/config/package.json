@@ -1,0 +1,11 @@
+{
+  "name": "@famlink/config",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.base.json"
+  }
+}
