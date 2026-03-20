@@ -1,4 +1,4 @@
-import { db } from "./index";
+import { db } from "./prisma";
 
 export async function checkDatabaseHealth(): Promise<boolean> {
   try {

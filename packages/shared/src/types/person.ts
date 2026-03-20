@@ -1,3 +1,9 @@
+export enum AgeGateLevel {
+  NONE = "NONE",
+  YOUNG_ADULT = "YOUNG_ADULT",
+  MINOR = "MINOR"
+}
+
 export interface Person {
   id: string;
   userId: string | null;
@@ -5,9 +11,9 @@ export interface Person {
   lastName: string;
   preferredName: string | null;
   dateOfBirth: string | null;
-  isMinor: boolean;
+  ageGateLevel: AgeGateLevel;
+  guardianPersonId: string | null;
   profilePhotoUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }
-
