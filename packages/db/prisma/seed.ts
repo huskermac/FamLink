@@ -31,29 +31,29 @@ async function main(): Promise<void> {
       lastName: string;
       dob: string;
       userId: string | null;
-      isMinor: boolean;
+      ageGateLevel: string;
+
     }> = [
-      { id: IDS.sarah, firstName: "Sarah", lastName: "Johnson", dob: "1980-03-15", userId: "clerk_sarah_dev", isMinor: false },
-      { id: IDS.tom, firstName: "Tom", lastName: "Johnson", dob: "1978-11-02", userId: "clerk_tom_dev", isMinor: false },
-      { id: IDS.emma, firstName: "Emma", lastName: "Johnson", dob: "2015-07-22", userId: null, isMinor: true },
-      { id: IDS.jack, firstName: "Jack", lastName: "Johnson", dob: "2013-04-10", userId: null, isMinor: true },
-      { id: IDS.margaret, firstName: "Margaret", lastName: "Johnson", dob: "1950-06-08", userId: "clerk_margaret_dev", isMinor: false },
-      { id: IDS.robert, firstName: "Robert", lastName: "Johnson", dob: "1948-09-14", userId: "clerk_robert_dev", isMinor: false },
-      { id: IDS.dave, firstName: "Dave", lastName: "Johnson", dob: "1975-12-30", userId: null, isMinor: false }
+      { id: IDS.sarah, firstName: "Sarah", lastName: "Johnson", dob: "1980-03-15", userId: "clerk_sarah_dev", ageGateLevel: "NONE" },
+      { id: IDS.tom, firstName: "Tom", lastName: "Johnson", dob: "1978-11-02", userId: "clerk_tom_dev", ageGateLevel: "NONE" },
+      { id: IDS.emma, firstName: "Emma", lastName: "Johnson", dob: "2015-07-22", userId: null, ageGateLevel: "MINOR" },
+      { id: IDS.jack, firstName: "Jack", lastName: "Johnson", dob: "2013-04-10", userId: null, ageGateLevel: "MINOR" },
+      { id: IDS.margaret, firstName: "Margaret", lastName: "Johnson", dob: "1950-06-08", userId: "clerk_margaret_dev", ageGateLevel: "NONE" },
+      { id: IDS.robert, firstName: "Robert", lastName: "Johnson", dob: "1948-09-14", userId: "clerk_robert_dev", ageGateLevel: "NONE" },
+      { id: IDS.dave, firstName: "Dave", lastName: "Johnson", dob: "1975-12-30", userId: null, ageGateLevel: "NONE" }
     ];
   
   for (const p of people) {
     await prisma.person.upsert({
       where: { id: p.id },
-      update: {},
+      update: {ageGateLevel: p.ageGateLevel},
       create: {
         id: p.id,
         firstName: p.firstName,
         lastName: p.lastName,
         dateOfBirth: new Date(p.dob),
         userId: p.userId,
-        isMinor: p.isMinor
-      }
+              }
     });
   }
 

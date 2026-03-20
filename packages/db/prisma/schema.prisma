@@ -15,7 +15,10 @@ model Person {
   lastName        String
   preferredName   String?
   dateOfBirth     DateTime? @db.Date
-  isMinor         Boolean   @default(false)
+  ageGateLevel     String    @default("NONE")
+  guardianPersonId String?
+  guardian         Person?   @relation("GuardianWard", fields: [guardianPersonId], references: [id])
+  wards            Person[]  @relation("GuardianWard")
   profilePhotoUrl String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
