@@ -15,9 +15,11 @@
     "@clerk/express": "^2.0.6",
     "@famlink/db": "*",
     "@famlink/shared": "*",
+    "@types/jsonwebtoken": "^9.0.10",
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.0",
     "svix": "^1.89.0",
     "zod": "^3.23.0"

@@ -22,6 +22,7 @@ setDefault("RESEND_API_KEY", "re_test_jest");
 setDefault("TWILIO_ACCOUNT_SID", "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
 setDefault("TWILIO_AUTH_TOKEN", "twilio_test_jest");
 setDefault("TWILIO_PHONE_NUMBER", "+15555551234");
+setDefault("GUEST_TOKEN_SECRET", "jest_guest_token_secret_32_chars!!");
 setDefault("PORT", "3001");
 setDefault("NODE_ENV", "test");
 setDefault("WEB_APP_URL", "http://localhost:3000");
