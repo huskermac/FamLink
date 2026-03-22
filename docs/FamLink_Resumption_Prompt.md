@@ -79,7 +79,7 @@ P1-03 was executed in Cursor and produced working output. Four items were identi
 
 4. **Clerk dashboard webhook** — Pending manual setup. Register `https://<deployed-host>/api/v1/webhooks/clerk` in Clerk dashboard, subscribe to `user.created` and `user.updated`, and copy the signing secret to `CLERK_WEBHOOK_SECRET` in Railway env vars. Not blocking P1-04; blocking end-to-end user sync in staging/prod.
 
-**P1-03 test status:** 9 test cases (3 in `requireAuth.test.ts`, 6 in `webhooks.test.ts`). **P1-04** adds tests under `src/tests/lib/`, `src/tests/middleware/`, and `src/tests/routes/guest.test.ts`. Re-run `npm test` with a valid Railway `TEST_DATABASE_URL` to confirm the full suite.
+**P1-03 test status:** 9 test cases (3 in `requireAuth.test.ts`, 6 in `webhooks.test.ts`). **P1-04** adds tests under `src/__tests__/lib/`, `src/__tests__/middleware/`, and `src/__tests__/routes/guest.test.ts`. Re-run `npm test` with a valid Railway `TEST_DATABASE_URL` to confirm the full suite.
 
 ---
 

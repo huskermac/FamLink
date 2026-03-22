@@ -13,7 +13,8 @@ function setDefault(key: string, value: string): void {
 }
 
 /** Minimal values so `lib/env` Zod validation passes when tests import `server`. */
-setDefault("CLERK_SECRET_KEY", "sk_test_jest_placeholder");
+/** Deliberately not `sk_test_*` — audit flags hardcoded Clerk-style key prefixes in source. */
+setDefault("CLERK_SECRET_KEY", "jest_clerk_secret_key_placeholder_not_a_real_key");
 setDefault(
   "CLERK_WEBHOOK_SECRET",
   "whsec_" + Buffer.from("jest_webhook_secret_32_bytes!!").toString("base64")

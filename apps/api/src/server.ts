@@ -13,7 +13,7 @@ export function createApp(): express.Application {
   app.use(corsMiddleware);
   app.use(helmet());
   app.use(
-    "/api/v1/webhooks",
+    "/api/v1/webhooks/clerk",
     express.raw({ type: "application/json", limit: "10mb" }),
     webhooksRouter
   );

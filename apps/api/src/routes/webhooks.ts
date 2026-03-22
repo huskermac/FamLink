@@ -26,7 +26,7 @@ function parseBody(req: Request): string {
   return typeof req.body === "string" ? req.body : JSON.stringify(req.body);
 }
 
-webhooksRouter.post("/clerk", async (req: Request, res: Response) => {
+webhooksRouter.post("/", async (req: Request, res: Response) => {
   try {
     const payload = parseBody(req);
     const wh = new Webhook(env.CLERK_WEBHOOK_SECRET);
