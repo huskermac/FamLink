@@ -1,7 +1,9 @@
 import { execSync } from "child_process";
 import path from "path";
+import { loadDotenvTest } from "./loadDotenvTest";
 
 export default async function globalSetup(): Promise<void> {
+  loadDotenvTest();
   const url = process.env.TEST_DATABASE_URL;
   if (!url) {
     throw new Error(
