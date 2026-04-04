@@ -1,3 +1,4 @@
+import "./loadEnv";
 import { env } from "./lib/env";
 import { createApp } from "./server";
 

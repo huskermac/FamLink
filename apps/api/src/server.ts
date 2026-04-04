@@ -5,6 +5,7 @@ import { errorHandler } from "./middleware/errorHandler";
 import { clerkAuth } from "./middleware/requireAuth";
 import { requestLogger } from "./middleware/requestLogger";
 import { router } from "./routes";
+import { healthRouter } from "./routes/health";
 import { webhooksRouter } from "./routes/webhooks";
 
 export function createApp(): express.Application {
@@ -19,6 +20,15 @@ export function createApp(): express.Application {
   );
   app.use(express.json({ limit: "10mb" }));
   app.use(requestLogger);
+  // Public health check — must run before Clerk or browsers get 307 handshake redirects
+  app.use(healthRouter);
+  app.get("/", (_req, res) => {
+    res.status(200).json({
+      service: "famlink-api",
+      health: "/health",
+      note: "FamLink web UI runs on WEB_APP_URL (e.g. http://localhost:3000), not this port."
+    });
+  });
   app.use(clerkAuth);
   app.use("/", router);
   app.use((_req, res) => {

@@ -1,24 +1,32 @@
-import * as ClerkExpress from "@clerk/express";
+import { getAuth } from "@clerk/express";
 import request from "supertest";
 import { createApp } from "../../server";
-import { TEST_CLERK_ID, mockClerkAuth } from "../helpers/auth";
+import { TEST_CLERK_ID } from "../helpers/auth";
+
+jest.mock("@clerk/express", () => ({
+  clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => {
+    next();
+  },
+  getAuth: jest.fn()
+}));
 
 describe("requireAuth", () => {
   const app = createApp();
+  const mockGetAuth = getAuth as jest.Mock;
 
-  afterEach(() => {
-    jest.restoreAllMocks();
+  beforeEach(() => {
+    mockGetAuth.mockReset();
   });
 
   it("returns 401 when no Authorization header is present", async () => {
-    jest.spyOn(ClerkExpress, "getAuth").mockReturnValue({ userId: null } as never);
+    mockGetAuth.mockReturnValue({ userId: null });
     const res = await request(app).get("/api/v1/persons/me");
     expect(res.status).toBe(401);
     expect(res.body.error).toBe("Unauthorized");
   });
 
   it("returns 401 when Clerk JWT is invalid or expired", async () => {
-    jest.spyOn(ClerkExpress, "getAuth").mockReturnValue({ userId: null } as never);
+    mockGetAuth.mockReturnValue({ userId: null });
     const res = await request(app)
       .get("/api/v1/persons/me")
       .set("Authorization", "Bearer invalid");
@@ -27,7 +35,7 @@ describe("requireAuth", () => {
   });
 
   it("attaches userId to req and succeeds for valid auth", async () => {
-    mockClerkAuth(TEST_CLERK_ID);
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
     const res = await request(app)
       .get("/api/v1/persons/me")
       .set("Authorization", "Bearer mock-token");

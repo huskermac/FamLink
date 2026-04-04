@@ -16,8 +16,11 @@ const tables = [
   "Person"
 ] as const;
 
-afterEach(async () => {
-  for (const table of tables) {
-    await db.$executeRawUnsafe(`TRUNCATE TABLE "${table}" CASCADE`);
-  }
-});
+afterEach(
+  async () => {
+    for (const table of tables) {
+      await db.$executeRawUnsafe(`TRUNCATE TABLE "${table}" CASCADE`);
+    }
+  },
+  60_000
+);
