@@ -2,6 +2,7 @@ import { getAuth } from "@clerk/express";
 import request from "supertest";
 import { createApp } from "../../server";
 import { TEST_CLERK_ID } from "../helpers/auth";
+import { seedTestPerson } from "../helpers/db";
 
 jest.mock("@clerk/express", () => ({
   clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => {
@@ -35,6 +36,7 @@ describe("requireAuth", () => {
   });
 
   it("attaches userId to req and succeeds for valid auth", async () => {
+    await seedTestPerson();
     mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
     const res = await request(app)
       .get("/api/v1/persons/me")

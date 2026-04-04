@@ -36,23 +36,25 @@ export async function seedTestFamily(adminPersonId: string): Promise<{
   familyGroup: Awaited<ReturnType<typeof db.familyGroup.create>>;
   membership: Awaited<ReturnType<typeof db.familyMember.create>>;
 }> {
-  const familyGroup = await db.familyGroup.create({
-    data: {
-      name: "Test Family",
-      createdById: adminPersonId,
-      aiEnabled: true,
-      defaultVisibility: "FAMILY"
-    }
+  return db.$transaction(async (tx) => {
+    const familyGroup = await tx.familyGroup.create({
+      data: {
+        name: "Test Family",
+        createdById: adminPersonId,
+        aiEnabled: true,
+        defaultVisibility: "FAMILY"
+      }
+    });
+    const membership = await tx.familyMember.create({
+      data: {
+        familyGroupId: familyGroup.id,
+        personId: adminPersonId,
+        roles: ["ADMIN", "ORGANIZER"],
+        permissions: []
+      }
+    });
+    return { familyGroup, membership };
   });
-  const membership = await db.familyMember.create({
-    data: {
-      familyGroupId: familyGroup.id,
-      personId: adminPersonId,
-      roles: ["ADMIN", "ORGANIZER"],
-      permissions: []
-    }
-  });
-  return { familyGroup, membership };
 }
 
 export async function seedTestEvent(

@@ -20,7 +20,7 @@ All architectural and product decisions are governed by two source-of-truth docu
 |---|---|---|
 | PRD | v0.1 corrected | Product requirements; personas; feature scope; roadmap |
 | ADR | v0.3 corrected | All locked technical decisions; open questions; build dependency map |
-| Phase 1 Cursor Prompt Library | **v0.2** | The active build document — use this version for all Phase 1 work |
+| Phase 1 Cursor Prompt Library | **v0.2** | Base prompts P1-01–P1-04; continuation through P1-12 is in `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md` (Restart Edition, April 2026) |
 
 ---
 
@@ -56,14 +56,29 @@ Working from **Phase 1 Cursor Prompt Library v0.2**.
 | P1-02 | Clerk integration in Next.js (middleware, ClerkProvider, sign-in/up pages) | **DONE** |
 | P1-03 | Clerk integration in Express API (JWT middleware + webhook sync) | **DONE — see notes below** |
 | P1-04 | Guest token system (Reluctant Member RSVP without account) | **DONE** — code in repo; run `npm test` with valid `TEST_DATABASE_URL` before commit |
-| P1-05 | Persons API | Pending |
-| P1-06 | Family Groups and Households API | Pending |
+| P1-05 | Persons API | **DONE** (committed — see P1-05 notes below) |
+| P1-06 | Family Groups and Households API | Pending — **next build prompt** |
 | P1-07 | Relationships API | Pending |
 | P1-08 | Event Hub API | Pending |
 | P1-09 | Shared Calendar API | Pending |
 | P1-10 | Invitation Service | Pending |
 | P1-11 | Notification Service | Pending |
 | P1-12 | Frontend — Auth + Onboarding UI | Pending |
+
+---
+
+## P1-05 Completion Notes (April 2026)
+
+Implemented per `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md` Section 4 (Persons API).
+
+- **Routes:** `apps/api/src/routes/persons.ts` — Zod-validated CRUD: `GET /me`, `GET /me/families`, `POST /`, `GET /:personId`, `PUT /:personId`; static routes registered before `/:personId`.
+- **Mount:** `apps/api/src/routes/index.ts` — `router.use("/api/v1/persons", requireAuth, personsRouter)`.
+- **Tests:** `apps/api/src/__tests__/routes/persons.test.ts` (plus updates to `requireAuth.test.ts`).
+- **Harness:** `jest.config.ts` — `testTimeout: 60_000` for Railway + seeds; `guest.test.ts` — `jest.mock("@clerk/express")` so guest tests do not require a valid Clerk publishable key at runtime; `seedTestFamily` uses `db.$transaction` in `__tests__/helpers/db.ts`.
+
+**Verification:** `npm test` in `apps/api` — 39 tests passing; `npm run type-check` at repo root — clean.
+
+**Optional:** Run the Claude Review Prompt for P1-05 from the prompt library when you return.
 
 ---
 
@@ -85,9 +100,10 @@ P1-03 was executed in Cursor and produced working output. Four items were identi
 
 ## Immediate Next Actions
 
-1. **Run `npm test`** in `apps/api/` with `TEST_DATABASE_URL` pointing at Railway `famlink_test` (see `apps/api/.env.test.example`). Expect **P1-03** (9) + **P1-04** (guest token + routes) tests; all must pass before the next prompt.
-2. **P1-04** — Implemented and committed: `lib/guestToken.ts`, `middleware/guestAuth.ts`, `routes/guest.ts` (`GET /api/v1/guest/event`, `POST /api/v1/guest/rsvp`), `GUEST_TOKEN_SECRET` in `env.ts` / `.env.example`. Run Claude review from the Prompt Library when convenient.
-3. **Next build prompt:** P1-05 (Persons API).
+1. **Pull latest** if you work from another machine: `main` should include **P1-05** (`feat: P1-05 persons API` or equivalent).
+2. **Next build prompt:** **P1-06 — Family Groups and Households API** (see `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`). Depends on P1-05.
+3. Before marking P1-06 complete: `npm test` in `apps/api/` (expects **39** tests with valid `TEST_DATABASE_URL` / `apps/api/.env.test`) and `npm run type-check` at repo root.
+4. **Clerk webhook** (P1-03 notes): still required in dashboard for production user sync; local dev continues to use ngrok per `docs/FamLink_New_Session_Checklist.md` if needed.
 
 ---
 

@@ -10,6 +10,13 @@ import {
   seedTestPerson
 } from "../helpers/db";
 
+jest.mock("@clerk/express", () => ({
+  clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => {
+    next();
+  },
+  getAuth: jest.fn(() => ({ userId: null }))
+}));
+
 describe("guest routes", () => {
   const app = createApp();
 
