@@ -13,6 +13,10 @@ const envSchema = z.object({
   TWILIO_AUTH_TOKEN: z.string().min(1),
   TWILIO_PHONE_NUMBER: z.string().min(1),
   GUEST_TOKEN_SECRET: z.string().min(1),
+  FIREBASE_PROJECT_ID: z.string().min(1),
+  FIREBASE_CLIENT_EMAIL: z.string().min(1),
+  /** PEM private key from the Firebase service account JSON (use \\n for newlines in .env). */
+  FIREBASE_PRIVATE_KEY: z.string().min(1),
   PORT: z.string().default("3001"),
   NODE_ENV: z.string().default("development"),
   WEB_APP_URL: z.string().url()

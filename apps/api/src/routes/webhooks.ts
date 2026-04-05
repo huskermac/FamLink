@@ -65,6 +65,8 @@ webhooksRouter.post("/", async (req: Request, res: Response) => {
       const firstName = (data.first_name ?? "").trim() || "User";
       const lastName = (data.last_name ?? "").trim() || "-";
       const profilePhotoUrl = data.image_url ?? null;
+      const primaryEmail =
+        data.email_addresses?.find((e) => e.email_address)?.email_address?.trim() ?? null;
 
       await db.person.upsert({
         where: { userId: clerkUserId },
@@ -73,12 +75,14 @@ webhooksRouter.post("/", async (req: Request, res: Response) => {
           firstName,
           lastName,
           ageGateLevel: "NONE",
-          profilePhotoUrl
+          profilePhotoUrl,
+          email: primaryEmail
         },
         update: {
           firstName,
           lastName,
-          profilePhotoUrl
+          profilePhotoUrl,
+          email: primaryEmail
         }
       });
     }

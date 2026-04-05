@@ -62,8 +62,8 @@ Working from **Phase 1 Cursor Prompt Library v0.2**.
 | P1-08 | Event Hub API | **DONE** (see P1-08 notes below) |
 | P1-09 | Shared Calendar API | **DONE** (see P1-09 notes below) |
 | P1-10 | Invitation Service | **DONE** (see P1-10 notes below) |
-| P1-11 | Notification Service | Pending — **next build prompt** |
-| P1-12 | Frontend — Auth + Onboarding UI | Pending |
+| P1-11 | Notification Service | **DONE** (see P1-11 notes below) |
+| P1-12 | Frontend — Auth + Onboarding UI | Pending — **next build prompt** |
 
 ---
 
@@ -90,7 +90,7 @@ Implemented per Section 4 (P1-07 — Relationships API) in `docs/FamLink_CursorP
 - **Mount order:** `apps/api/src/routes/index.ts` — `personRelationshipsRouter` before `personsRouter` on `/api/v1/persons`; `familyRelationshipsRouter` after `familiesRouter` on `/api/v1/families`; `relationshipsRouter` on `/api/v1/relationships`.
 - **Tests:** `apps/api/src/__tests__/routes/relationships.test.ts` — reciprocal PARENT/CHILD, CAREGIVER without reciprocal, 400 non-member, 409 duplicate, GET graph, GET person list, DELETE both edges.
 
-**Verification:** `npm test` in `apps/api` — **69** tests passing (full suite as of P1-10); `npm run type-check` at repo root — clean.
+**Verification:** `npm test` in `apps/api` — **73** tests passing (full suite as of P1-11); `npm run type-check` at repo root — clean.
 
 **Optional:** Claude Review Prompt for P1-07 from the prompt library.
 
@@ -104,7 +104,7 @@ Implemented per Section 4 (P1-08 — Event Hub API) in `docs/FamLink_CursorPromp
 - **Mount:** `index.ts` — `familyEventsRouter` on `/api/v1/families` (after relationship router); `eventsRouter` on `/api/v1/events`.
 - **Tests:** `apps/api/src/__tests__/routes/events.test.ts`.
 
-**Verification:** `npm test` in `apps/api` — **69** tests passing (full suite as of P1-10); `npm run type-check` at repo root — clean.
+**Verification:** `npm test` in `apps/api` — **73** tests passing (full suite as of P1-11); `npm run type-check` at repo root — clean.
 
 **Optional:** Claude Review Prompt for P1-08 from the prompt library.
 
@@ -119,9 +119,26 @@ Implemented per Section 4 (P1-09 — Shared Calendar API) in `docs/FamLink_Curso
 - **Mount:** `index.ts` — `calendarRouter` on `/api/v1/families` (with other family routers).
 - **Tests:** `apps/api/src/__tests__/lib/birthdayGenerator.test.ts`, `apps/api/src/__tests__/routes/calendar.test.ts`.
 
-**Verification:** `npm test` in `apps/api` — **69** tests passing (full suite as of P1-10); `npm run type-check` at repo root — clean.
+**Verification:** `npm test` in `apps/api` — **73** tests passing (full suite as of P1-11); `npm run type-check` at repo root — clean.
 
 **Optional:** Claude Review Prompt for P1-09 from the prompt library.
+
+---
+
+## P1-11 Completion Notes (April 2026)
+
+Implemented per Section 4 (P1-11 — Notification Service) in `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`.
+
+- **Lib:** `apps/api/src/lib/notificationService.ts` — `NotificationService.send()` loads `Person` + `NotificationPreference` rows; enforces channel defaults (EMAIL on; SMS only when `userId` is null; PUSH only when `fcmToken` set); returns `DeliveryResult[]` without throwing on partial failure; SMS truncated to 160 chars. Resend from `notifications@{RESEND_FROM_DOMAIN}`; Twilio + Firebase Admin (FCM) with `admin.apps.length` guard before `initializeApp`.
+- **Schema:** `Person.email`, `Person.phone`, `Person.fcmToken` (migration `20260405180000_person_notification_contact_fields`). Clerk webhook sets `email` from `email_addresses` on `user.created` / `user.updated`.
+- **Env:** `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` (PEM; `\n` escaped in `.env` supported). `loadTestEnv.ts` includes a throwaway PKCS#8 key for Jest. Documented in `apps/api/.env.example`.
+- **Methods:** `scheduleEventReminder(eventId, minutesBefore)` — RSVP `YES` only; `sendWeeklyDigest(familyGroupId)` — next 7 days events + `generateBirthdayEvents` (P1-09) for birthdays, email HTML digest.
+- **Deps:** `firebase-admin` in `apps/api/package.json`.
+- **Tests:** `apps/api/src/__tests__/lib/notificationService.test.ts`.
+
+**Verification:** `npm test` in `apps/api` — **73** tests passing; `npm run type-check` at repo root — clean.
+
+**Optional:** Claude Review Prompt for P1-11 from the prompt library.
 
 ---
 
@@ -135,7 +152,7 @@ Implemented per Section 4 (P1-10 — Invitation Service) in `docs/FamLink_Cursor
 - **Deps:** `resend`, `twilio` in `apps/api/package.json`.
 - **Tests:** `apps/api/src/__tests__/lib/invitationService.test.ts` (mocked providers).
 
-**Verification:** `npm test` in `apps/api` — **69** tests passing; `npm run type-check` at repo root — clean.
+**Verification:** `npm test` in `apps/api` — **73** tests passing (full suite as of P1-11); `npm run type-check` at repo root — clean.
 
 **Optional:** Claude Review Prompt for P1-10 from the prompt library.
 
@@ -159,9 +176,9 @@ P1-03 was executed in Cursor and produced working output. Four items were identi
 
 ## Immediate Next Actions
 
-1. **Pull latest** if you work from another machine: `main` should include through **P1-10** once committed (`feat: P1-10 invitation service` or equivalent).
-2. **Next build prompt:** **P1-11 — Notification Service** (see `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`).
-3. Before marking P1-11 complete: `npm test` in `apps/api/` (expects **69** tests with valid `TEST_DATABASE_URL` / `apps/api/.env.test`) and `npm run type-check` at repo root.
+1. **Pull latest** if you work from another machine: `main` should include through **P1-11** once committed (`feat: P1-11 notification service` or equivalent).
+2. **Next build prompt:** **P1-12 — Frontend: Auth + Onboarding UI** (see `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`).
+3. Before marking P1-12 complete: `npm test` in `apps/api/` (expects **73** tests with valid `TEST_DATABASE_URL` / `apps/api/.env.test`) and `npm run type-check` at repo root. Local API: set `FIREBASE_*` in `.env` / `.env.local` (see `apps/api/.env.example`).
 4. **Clerk webhook** (P1-03 notes): still required in dashboard for production user sync; local dev continues to use ngrok per `docs/FamLink_New_Session_Checklist.md` if needed.
 
 ---
