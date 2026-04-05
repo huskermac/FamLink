@@ -1,7 +1,7 @@
 {
   "name": "famlink",
   "version": "0.1.0",
-  "packageManager": "npm@10.9.2.3",
+  "packageManager": "npm@10.9.2",
   "private": true,
   "engines": {
     "node": "22.11.0",
