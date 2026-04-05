@@ -1,4 +1,4 @@
-# Railway deployment config for FamLink API
+# Railway deployment config for FamLink API — cache-bust: 2026-04-05
 # Docs: https://docs.railway.app/reference/config-as-code
 #
 # This file lives at the monorepo root. In the Railway dashboard, set:
