@@ -90,7 +90,7 @@ Implemented per Section 4 (P1-07 — Relationships API) in `docs/FamLink_CursorP
 - **Mount order:** `apps/api/src/routes/index.ts` — `personRelationshipsRouter` before `personsRouter` on `/api/v1/persons`; `familyRelationshipsRouter` after `familiesRouter` on `/api/v1/families`; `relationshipsRouter` on `/api/v1/relationships`.
 - **Tests:** `apps/api/src/__tests__/routes/relationships.test.ts` — reciprocal PARENT/CHILD, CAREGIVER without reciprocal, 400 non-member, 409 duplicate, GET graph, GET person list, DELETE both edges.
 
-**Verification:** `npm test` in `apps/api` — **54** tests passing; `npm run type-check` at repo root — clean.
+**Verification:** `npm test` in `apps/api` — **55** tests passing; `npm run type-check` at repo root — clean.
 
 **Optional:** Claude Review Prompt for P1-07 from the prompt library.
 
@@ -116,7 +116,7 @@ P1-03 was executed in Cursor and produced working output. Four items were identi
 
 1. **Pull latest** if you work from another machine: `main` should include through **P1-07** once committed (`feat: P1-07 relationships API` or equivalent).
 2. **Next build prompt:** **P1-08 — Event Hub API** (see `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`). Depends on P1-07.
-3. Before marking P1-08 complete: `npm test` in `apps/api/` (expects **54** tests with valid `TEST_DATABASE_URL` / `apps/api/.env.test`) and `npm run type-check` at repo root.
+3. Before marking P1-08 complete: `npm test` in `apps/api/` (expects **55** tests with valid `TEST_DATABASE_URL` / `apps/api/.env.test`) and `npm run type-check` at repo root.
 4. **Clerk webhook** (P1-03 notes): still required in dashboard for production user sync; local dev continues to use ngrok per `docs/FamLink_New_Session_Checklist.md` if needed.
 
 ---

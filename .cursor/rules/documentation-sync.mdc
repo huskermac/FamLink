@@ -1,0 +1,15 @@
+---
+description: Keep project docs aligned when decisions or code change canonical numbers or facts
+alwaysApply: true
+---
+
+# Documentation sync
+
+When the user makes a decision, or implementation changes facts that are documented elsewhere (test counts, endpoint lists, phase status, verification commands, dates, etc.), **update the appropriate docs in the same change** so the repo stays internally consistent.
+
+Typical targets include:
+
+- `docs/FamLink_Resumption_Prompt.md` — phase status, test counts, “next prompt,” verification notes
+- Other `docs/*.md` files when they duplicate or reference those facts
+
+Do not leave stale numbers or contradictions between the codebase and handoff docs when the user has explicitly chosen a new canonical value.
