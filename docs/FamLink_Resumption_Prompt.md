@@ -57,9 +57,9 @@ Working from **Phase 1 Cursor Prompt Library v0.2**.
 | P1-03 | Clerk integration in Express API (JWT middleware + webhook sync) | **DONE — see notes below** |
 | P1-04 | Guest token system (Reluctant Member RSVP without account) | **DONE** — code in repo; run `npm test` with valid `TEST_DATABASE_URL` before commit |
 | P1-05 | Persons API | **DONE** (committed — see P1-05 notes below) |
-| P1-06 | Family Groups and Households API | Pending — **next build prompt** |
-| P1-07 | Relationships API | Pending |
-| P1-08 | Event Hub API | Pending |
+| P1-06 | Family Groups and Households API | **DONE** |
+| P1-07 | Relationships API | **DONE** (see P1-07 notes below) |
+| P1-08 | Event Hub API | Pending — **next build prompt** |
 | P1-09 | Shared Calendar API | Pending |
 | P1-10 | Invitation Service | Pending |
 | P1-11 | Notification Service | Pending |
@@ -82,6 +82,20 @@ Implemented per `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md` Sect
 
 ---
 
+## P1-07 Completion Notes (April 2026)
+
+Implemented per Section 4 (P1-07 — Relationships API) in `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`.
+
+- **Routes:** `apps/api/src/routes/relationships.ts` — `familyRelationshipsRouter` (POST/GET `/:familyId/relationships`), `personRelationshipsRouter` (GET `/:personId/relationships`), `relationshipsRouter` (DELETE `/:relationshipId`). Uses `RECIPROCAL_TYPES` from `@famlink/db` (exported in `packages/db/src/index.ts`; rebuild `@famlink/db` after changing exports).
+- **Mount order:** `apps/api/src/routes/index.ts` — `personRelationshipsRouter` before `personsRouter` on `/api/v1/persons`; `familyRelationshipsRouter` after `familiesRouter` on `/api/v1/families`; `relationshipsRouter` on `/api/v1/relationships`.
+- **Tests:** `apps/api/src/__tests__/routes/relationships.test.ts` — reciprocal PARENT/CHILD, CAREGIVER without reciprocal, 400 non-member, 409 duplicate, GET graph, GET person list, DELETE both edges.
+
+**Verification:** `npm test` in `apps/api` — **54** tests passing; `npm run type-check` at repo root — clean.
+
+**Optional:** Claude Review Prompt for P1-07 from the prompt library.
+
+---
+
 ## P1-03 Completion Notes
 
 P1-03 was executed in Cursor and produced working output. Four items were identified and resolved:
@@ -100,9 +114,9 @@ P1-03 was executed in Cursor and produced working output. Four items were identi
 
 ## Immediate Next Actions
 
-1. **Pull latest** if you work from another machine: `main` should include **P1-05** (`feat: P1-05 persons API` or equivalent).
-2. **Next build prompt:** **P1-06 — Family Groups and Households API** (see `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`). Depends on P1-05.
-3. Before marking P1-06 complete: `npm test` in `apps/api/` (expects **39** tests with valid `TEST_DATABASE_URL` / `apps/api/.env.test`) and `npm run type-check` at repo root.
+1. **Pull latest** if you work from another machine: `main` should include through **P1-07** once committed (`feat: P1-07 relationships API` or equivalent).
+2. **Next build prompt:** **P1-08 — Event Hub API** (see `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`). Depends on P1-07.
+3. Before marking P1-08 complete: `npm test` in `apps/api/` (expects **54** tests with valid `TEST_DATABASE_URL` / `apps/api/.env.test`) and `npm run type-check` at repo root.
 4. **Clerk webhook** (P1-03 notes): still required in dashboard for production user sync; local dev continues to use ngrok per `docs/FamLink_New_Session_Checklist.md` if needed.
 
 ---
