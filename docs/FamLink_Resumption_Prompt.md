@@ -63,7 +63,7 @@ Working from **Phase 1 Cursor Prompt Library v0.2**.
 | P1-09 | Shared Calendar API | **DONE** (see P1-09 notes below) |
 | P1-10 | Invitation Service | **DONE** (see P1-10 notes below) |
 | P1-11 | Notification Service | **DONE** (see P1-11 notes below) |
-| P1-12 | Frontend — Auth + Onboarding UI | Pending — **next build prompt** |
+| P1-12 | Frontend — Auth + Onboarding UI | **DONE** (see P1-12 notes below) |
 
 ---
 
@@ -142,6 +142,24 @@ Implemented per Section 4 (P1-11 — Notification Service) in `docs/FamLink_Curs
 
 ---
 
+## P1-12 Completion Notes (April 2026)
+
+Implemented per **P1-12 — Frontend: Auth + Onboarding UI** in `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`.
+
+- **API:** `POST /api/v1/persons` links the first `Person` to the Clerk user (`userId`); additional POSTs create invitees with `userId: null` (tests in `apps/api/src/__tests__/routes/persons.test.ts`).
+- **Web lib:** `apps/web/lib/api.ts` — `apiFetch` with `Authorization: Bearer` and `NEXT_PUBLIC_API_URL`.
+- **Onboarding:** `apps/web/app/onboarding/page.tsx` — client wizard: `GET /me/families` → redirect to `/dashboard` if any; `GET /me` for profile prefill and `personId`; steps Profile → Family → Household → Invite (`app/onboarding/steps/*`). UI primitives under `apps/web/components/ui/`.
+- **Dashboard:** `apps/web/app/dashboard/page.tsx` — server page using `auth()` + `apiFetch`: welcome line, primary family name, 30-day upcoming event count, quick links (placeholders / onboarding for invites).
+- **Env:** `NEXT_PUBLIC_API_URL` in `apps/web/.env.example` (e.g. `http://localhost:3001`).
+
+**Invite step:** Email/phone are collected for UX only; current `Person` model stores invitees without contact fields on the person row (known gap until extended).
+
+**Verification:** `npm run type-check` in `apps/web` — clean. Run `npm run build` in `apps/web` locally; if the build fails on `/404` with `<Html> should not be imported outside of pages/_document`, that error is unrelated to P1-12 files (no `next/document` imports in app source) — investigate dependencies or Next config.
+
+**Optional:** Claude Review Prompt for P1-12 from the prompt library.
+
+---
+
 ## P1-10 Completion Notes (April 2026)
 
 Implemented per Section 4 (P1-10 — Invitation Service) in `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`.
@@ -176,9 +194,9 @@ P1-03 was executed in Cursor and produced working output. Four items were identi
 
 ## Immediate Next Actions
 
-1. **Pull latest** if you work from another machine: `main` should include through **P1-11** once committed (`feat: P1-11 notification service` or equivalent).
-2. **Next build prompt:** **P1-12 — Frontend: Auth + Onboarding UI** (see `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`).
-3. Before marking P1-12 complete: `npm test` in `apps/api/` (expects **73** tests with valid `TEST_DATABASE_URL` / `apps/api/.env.test`) and `npm run type-check` at repo root. Local API: set `FIREBASE_*` in `.env` / `.env.local` (see `apps/api/.env.example`).
+1. **Pull latest** if you work from another machine: `main` should include through **P1-12** once committed (`feat: P1-12 onboarding UI` or equivalent).
+2. **Phase 1 — Cursor prompt library** through P1-12 is complete for the implemented slice; follow the PRD/ADR for the next phase or backlog items.
+3. Regression: `npm test` in `apps/api/` (expects **73** tests with valid `TEST_DATABASE_URL` / `apps/api/.env.test`) and `npm run type-check` at repo root. Web: `npm run type-check` and `npm run build` in `apps/web` (resolve any existing Next prerender issues if build fails).
 4. **Clerk webhook** (P1-03 notes): still required in dashboard for production user sync; local dev continues to use ngrok per `docs/FamLink_New_Session_Checklist.md` if needed.
 
 ---

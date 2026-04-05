@@ -74,6 +74,21 @@ describe("persons routes", () => {
   });
 
   describe("POST /api/v1/persons", () => {
+    it("links first Person to Clerk user when requester has no Person yet", async () => {
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .post("/api/v1/persons")
+        .set("Authorization", "Bearer mock")
+        .send({
+          firstName: "New",
+          lastName: "Organizer",
+          ageGateLevel: "NONE"
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.userId).toBe(TEST_USER_2_CLERK_ID);
+      expect(res.body.firstName).toBe("New");
+    });
+
     it("creates Person with userId null", async () => {
       mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
       await seedTestPerson();

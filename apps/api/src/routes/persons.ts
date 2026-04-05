@@ -165,6 +165,11 @@ personsRouter.post("/", async (req, res) => {
     return;
   }
 
+  const { userId } = authed(req);
+  const requesterPerson = await personForClerkUserId(userId);
+  /** First Person for this Clerk user (onboarding) — link account. Otherwise create a family member without login (userId null). */
+  const linkToClerk = requesterPerson === null;
+
   const created = await db.person.create({
     data: {
       firstName: data.firstName,
@@ -174,7 +179,7 @@ personsRouter.post("/", async (req, res) => {
       ageGateLevel: data.ageGateLevel ?? "NONE",
       guardianPersonId: data.guardianPersonId,
       profilePhotoUrl: data.profilePhotoUrl,
-      userId: null
+      userId: linkToClerk ? userId : null
     }
   });
 
