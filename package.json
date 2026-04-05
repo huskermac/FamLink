@@ -9,7 +9,8 @@
   },
   "scripts": {
     "dev": "turbo dev",
-    "build": "turbo build",
+    "build": "npx turbo build --filter=@famlink/api",
+    "start": "(cd packages/db && npx prisma migrate deploy) && node apps/api/dist/index.js",
     "lint": "turbo lint",
     "test": "turbo test",
     "type-check": "turbo type-check",
