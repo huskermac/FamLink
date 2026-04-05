@@ -14,8 +14,9 @@ header{background:#fff;border-bottom:1px solid #e5e3da;padding:10px 20px;display
 #bc span{color:#1a1a18;font-weight:500}
 #bc a{color:#534AB7;text-decoration:none}
 #bc a:hover{text-decoration:underline}
-#hint{font-size:12px;color:#999;padding:8px 20px 0;min-height:20px}
-main{padding:20px;max-width:740px;margin:0 auto}
+#hint{font-size:12px;color:#999;padding:8px 20px 4px;min-height:24px;max-width:780px;margin:0 auto;line-height:1.5;transition:all 0.15s}
+#hint.active{font-size:13px;color:#333;background:#f3f1e8;border:1px solid #dddad0;border-radius:7px;padding:10px 14px;margin:8px 20px 0}
+main{padding:16px 20px 20px;max-width:740px;margin:0 auto}
 main svg{display:block;width:100%;height:auto}
 svg text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 svg .t{font-size:14px;font-weight:500}
@@ -34,7 +35,7 @@ g.cl:hover>rect{filter:brightness(0.88)}
 <main id="d"></main>
 
 <script>
-// ── Palette ────────────────────────────────────────────────────────────
+// ── Palette ─────────────────────────────────────────────────────────────
 const P = {
   purple:['#EEEDFE','#534AB7','#3C3489','#534AB7'],
   teal:  ['#E1F5EE','#0F6E56','#085041','#0F6E56'],
@@ -44,61 +45,130 @@ const P = {
   coral: ['#FAECE7','#993C1D','#712B13','#993C1D'],
 };
 
-// ── Primitives ─────────────────────────────────────────────────────────
+// ── Descriptions (hover to reveal) ──────────────────────────────────────
+const DESCS = {
+  // Home
+  'web-browser':   {t:'Web browser',           b:'The famlink.com website. Pages are rendered on the server before reaching your browser — similar to how ColdFusion generates HTML before sending it to the user.'},
+  'mobile-app':    {t:'Mobile app',            b:'The iOS/Android app built with Expo/React Native. Uses the same JavaScript codebase as the website but renders native mobile controls. Talks directly to the Express API — no web layer in between.'},
+  'nextjs':        {t:'Next.js 14',            b:'The server-side web layer hosted on Vercel. Handles routing and page rendering — like ColdFusion\'s Application.cfc combined with your .cfm templates, but for React components.'},
+  'express':       {t:'Express API',           b:'The backend engine — every request from web or mobile passes through here first. Like Application.cfc in ColdFusion: manages routing, authentication checks, validation, and database access.'},
+  'postgres':      {t:'PostgreSQL',            b:'Your primary relational database. Stores all persistent data: users, families, events, RSVPs, relationships. Same concept as CF datasources — PostgreSQL is just the database engine.'},
+  'redis':         {t:'Redis',                 b:'Fast in-memory data store — like ColdFusion\'s Application scope. Stores session tokens, AI rate limit counters (20/user/day), and cached API responses for instant retrieval without hitting the database.'},
+  'gh-actions':    {t:'GitHub Actions',        b:'Automated CI/CD pipeline. When you push code to GitHub, Actions runs your test suite and deploys to Vercel and Railway automatically — no manual deploy steps needed.'},
+  'clerk':         {t:'Clerk',                 b:'Handles all authentication externally: Google/Apple sign-in, session management, and the guest token system for Reluctant Members. No custom login code to write or maintain.'},
+  'resend':        {t:'Resend',                b:'Transactional email service. Sends invitations, RSVP confirmations, birthday reminders, and weekly digests. Like cfmail in ColdFusion but as a managed service with delivery guarantees.'},
+  'twilio':        {t:'Twilio',                b:'SMS messaging service. Powers the one-click RSVP links — family members can respond without creating an account. Critical for the Reluctant Member (Uncle Dave) persona.'},
+  'firebase':      {t:'Firebase FCM',          b:'Push notification delivery to iOS and Android devices. Sends real-time alerts when events are created or RSVPs received. Most valuable for Organizer and Co-Parent personas.'},
+  'anthropic':     {t:'Anthropic Claude',      b:'Primary AI model (Claude Sonnet). Powers the FamLink assistant with full family context injected on every call: who\'s connected, upcoming events, pending RSVPs, member preferences.'},
+  'openai':        {t:'OpenAI GPT-4o',         b:'Fallback AI model. Used if Claude is unavailable or for faster, lower-cost tasks. The Vercel AI SDK lets you swap models without changing any application code.'},
+  // Clerk detail
+  'ck-browser':    {t:'Browser sign-up',       b:'User fills out the Clerk-hosted sign-up form. Clerk creates the account, then immediately calls your API server-to-server to create a matching Person record in your PostgreSQL database.'},
+  'ck-webhook':    {t:'Webhook endpoint',      b:'A server-to-server call — Clerk\'s servers POST directly to your Express API, bypassing the browser entirely. Your API verifies the call is genuine using CLERK_WEBHOOK_SECRET before processing it.'},
+  'ck-svix':       {t:'Svix.verify()',          b:'Clerk signs every webhook payload using Svix. Your API calls Svix.verify() to confirm the payload is genuinely from Clerk — not a spoofed request from another source.'},
+  'ck-person':     {t:'Person upsert',         b:'Creates or updates the Person record in your database. Sets ageGateLevel to NONE by default. This is how your app tracks users beyond what Clerk itself stores.'},
+  'ck-global-mw':  {t:'clerkAuth middleware',  b:'Global middleware that runs before every request — like Application.cfc onRequestStart() in ColdFusion. Decodes the Clerk JWT and attaches userId to the request object if a valid token is present.'},
+  'ck-require-mw': {t:'requireAuth middleware',b:'Route-level guard. Checks that userId exists on the request — if not, returns 401 Unauthorized. Like a ColdFusion component that throws an exception when the user isn\'t logged in.'},
+  'ck-guest-gen':  {t:'generateGuestToken',    b:'Creates a signed 48-hour JWT tied to a specific person + event combination. No Clerk account needed — just a link. This is the mechanism that lets Uncle Dave RSVP without signing up.'},
+  'ck-guest-mw':   {t:'requireGuestToken',     b:'Validates the guest token on public RSVP routes using a separate GUEST_TOKEN_SECRET (completely separate from Clerk keys). Attaches guest identity to req.guest so the route handler knows who\'s responding.'},
+  // Railway detail
+  'rw-cors':       {t:'cors',                  b:'Controls which domains can make requests to your API. Blocks calls from unauthorized origins — prevents other websites from silently calling your backend on a user\'s behalf.'},
+  'rw-helmet':     {t:'helmet',                b:'Sets HTTP security headers automatically. Prevents common browser-based attacks (clickjacking, MIME sniffing) with a single line — free security hardening with no custom code.'},
+  'rw-raw':        {t:'express.raw()',          b:'Parses Clerk webhook requests as raw bytes before any other processing. Required because Svix signature verification needs the original unmodified payload — not a parsed JSON object.'},
+  'rw-json':       {t:'express.json()',         b:'Parses all other request bodies from JSON into JavaScript objects. Like ColdFusion automatically making form fields available in the FORM scope — after this, req.body is ready to use.'},
+  'rw-morgan':     {t:'Morgan logger',         b:'Logs every HTTP request to the console: method, URL, status code, response time. Helpful for spotting slow endpoints and debugging unexpected errors during development.'},
+  'rw-clerk-mw':   {t:'clerkAuth',             b:'Makes Clerk auth context available on every request. Doesn\'t block unauthenticated calls — just attaches userId if a valid token is present. The requireAuth middleware does the actual blocking downstream.'},
+  'rw-routes':     {t:'Route groups',          b:'7 route groups at MVP, each handling a feature area. Like separate ColdFusion .cfc components — each handles one resource type (persons, events, RSVPs, etc.).'},
+  'rw-404':        {t:'404 handler',           b:'Catches any request that didn\'t match a defined route. Returns a clean JSON 404 response instead of an Express default error page — consistent error format for the client.'},
+  'rw-error':      {t:'errorHandler',          b:'Global error handler — the last middleware in the chain. Catches any unhandled errors and returns a consistent JSON error format so the client always gets a predictable, parseable response.'},
+  'rw-postgres':   {t:'PostgreSQL core tables',b:'7 tables at MVP accessed via Prisma ORM: persons, family_groups, households, relationships (the graph edges), events, invitations, rsvps, potluck_assignments, notification_preferences.'},
+  'rw-redis':      {t:'Redis',                 b:'4 uses at MVP: Clerk session cache, AI rate limit counters (20 queries/user/day), API response cache, and the Socket.io adapter for broadcasting real-time events across server instances.'},
+  'rw-ai-stream':  {t:'AI streaming',          b:'Streams AI responses word-by-word via Socket.io as they\'re generated. The assistant feels responsive rather than making users stare at a spinner waiting for the complete response.'},
+  'rw-rsvp-live':  {t:'Live RSVP updates',     b:'Pushes RSVP count changes to the organizer\'s dashboard in real time via Socket.io. No page refresh needed — the tally updates the moment a family member responds.'},
+  'rw-stream-io':  {t:'Stream.io (Phase 2)',   b:'Full family group chat — deferred until after MVP. For MVP, Socket.io handles only AI response streaming and live RSVP dashboard updates.'},
+  // Notifications detail
+  'nf-event':      {t:'Event created',         b:'Triggered when an organizer saves a new event. Kicks off the invitation flow — notifies all invited members via their preferred channels (email, SMS, push).'},
+  'nf-rsvp':       {t:'RSVP received',         b:'Triggered when a family member responds to an event. Notifies the organizer in real time and optionally sends a confirmation to the person who RSVPed.'},
+  'nf-birthday':   {t:'Birthday reminder',     b:'Auto-generated reminders from the birthday calendar — sent 7 days before and day-of. Delivery based on each member\'s notification preferences.'},
+  'nf-digest':     {t:'Weekly digest',         b:'Scheduled Sunday morning summary of upcoming family events. Critical for Grandparent and Reluctant Member personas who won\'t proactively open the app.'},
+  'nf-service':    {t:'Notification service',  b:'The coordinator for all notification sends. Before every send it checks the user\'s NotificationPreference record. Disabled channels are silently skipped — partial delivery (e.g. email only) is a valid, expected outcome.'},
+  'nf-resend':     {t:'Resend — email',        b:'Primary channel for Grandparent and Reluctant Member personas — everyone has email. Handles invitations, RSVP confirmations, digests, and birthday reminders.'},
+  'nf-twilio':     {t:'Twilio — SMS',          b:'160-character limit means messages are short and action-focused — typically just a link. Most critical for Reluctant Member: zero-friction RSVP without needing an account or the app.'},
+  'nf-fcm':        {t:'Firebase FCM — push',   b:'Real-time push alerts to iOS and Android. Most valuable for Organizer and Co-Parent — people who want instant awareness of RSVP activity without checking the app manually.'},
+  'nf-prefs':      {t:'Preference enforcement',b:'NotificationPreference table: one row per user, three boolean flags (email, SMS, push). Default is all three enabled. Checked before every send — the system never overrides a user\'s choice.'},
+  // AI detail
+  'ai-query':      {t:'User query',            b:'A question or request sent to POST /api/v1/assistant/chat. The raw query is never sent to the AI alone — family context is assembled from the database and injected into the prompt first.'},
+  'ai-graph':      {t:'Family graph',          b:'Members, relationship types, and household data pulled from PostgreSQL and injected into the AI prompt. The model knows who\'s in the family before generating a response.'},
+  'ai-events':     {t:'Upcoming events',       b:'Next 30 days of events and invitation status fetched from the database. The AI sees who\'s been invited, who\'s RSVPed, and what\'s still outstanding — all before it reads your question.'},
+  'ai-pending':    {t:'Pending actions',       b:'Open items: unresponded RSVPs, overdue potluck assignments, unacknowledged invitations. The AI can proactively surface these without being asked.'},
+  'ai-prefs':      {t:'Preferences',           b:'User notification preferences and family settings. The AI respects these when suggesting actions — e.g. won\'t recommend SMS for a user who has SMS disabled.'},
+  'ai-sdk':        {t:'Vercel AI SDK',         b:'An abstraction layer that lets your code talk to any AI model through a single interface — like a ColdFusion datasource that works with multiple database engines. Swap Claude for GPT-4o without changing application code.'},
+  'ai-router':     {t:'Model router',          b:'Selects the right model per request: Claude Sonnet for complex family tasks, GPT-4o as fallback, Haiku/GPT-4o-mini for bulk operations and draft generation.'},
+  'ai-sonnet':     {t:'Claude Sonnet',         b:'Primary model. Best for complex, context-rich tasks: drafting invitations, summarizing RSVP status, answering questions about family relationships. Full family context injected on every call.'},
+  'ai-gpt4o':      {t:'GPT-4o',                b:'Fallback model. Used when Claude is unavailable or when response speed matters more than maximum reasoning depth. Comparable quality for most family assistant tasks.'},
+  'ai-mini':       {t:'Haiku / GPT-4o-mini',   b:'Lightweight, fast, low-cost models for high-volume tasks: generating reminder drafts, batch suggestions, proactive nudges. Prioritizes speed and cost over maximum capability.'},
+};
+
+// ── Primitives ───────────────────────────────────────────────────────────
 const DEFS = `<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>`;
 
-function bx(x,y,w,h,p,title,sub,onclick){
+function bx(x,y,w,h,p,title,sub,onclick,desc){
   const [bg,sk,tc,sc]=P[p];
-  const cl=onclick?` class="cl" onclick="${onclick}"`:'';
+  const hasInteract=onclick||desc;
+  const cl=hasInteract?' class="cl"':'';
+  const oc=onclick?` onclick="${onclick}"`:'';
+  const de=desc?` onmouseenter="showInfo('${desc}')" onmouseleave="hideInfo()"`:'';
   const ty=sub?y+Math.round(h*0.35):y+Math.round(h/2);
   const sy=y+Math.round(h*0.68);
-  return `<g${cl}><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="${bg}" stroke="${sk}" stroke-width="0.5"/>
+  return `<g${cl}${oc}${de}><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="${bg}" stroke="${sk}" stroke-width="0.5"/>
     <text class="t" fill="${tc}" x="${x+Math.round(w/2)}" y="${ty}" text-anchor="middle" dominant-baseline="central">${title}</text>
     ${sub?`<text class="ts" fill="${sc}" x="${x+Math.round(w/2)}" y="${sy}" text-anchor="middle" dominant-baseline="central">${sub}</text>`:''}
   </g>`;
 }
 const ar=(x1,y1,x2,y2,c='#bbb')=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="1.5" fill="none" marker-end="url(#ah)"/>`;
 const ln=(x1,y1,x2,y2,c='#ccc')=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="1.5" fill="none"/>`;
-const zn=(x,y,w,h,lbl,onclick)=>{
-  const cl=onclick?` class="cl" onclick="${onclick}"`:'';
-  return `<g${cl}><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="none" stroke="#c8c6be" stroke-width="0.8" stroke-dasharray="6 3"/>
+const zn=(x,y,w,h,lbl,onclick,desc)=>{
+  const hasInteract=onclick||desc;
+  const cl=hasInteract?' class="cl"':'';
+  const oc=onclick?` onclick="${onclick}"`:'';
+  const de=desc?` onmouseenter="showInfo('${desc}')" onmouseleave="hideInfo()"`:'';
+  return `<g${cl}${oc}${de}><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="none" stroke="#c8c6be" stroke-width="0.8" stroke-dasharray="6 3"/>
     <text class="tn" fill="#aaa" x="${x+13}" y="${y+15}" dominant-baseline="central">${lbl}</text></g>`;
 };
 const nt=(x,y,txt,c='#aaa')=>`<text class="tn" fill="${c}" x="${x}" y="${y}" dominant-baseline="central">${txt}</text>`;
 const tx=(x,y,txt,c,cls='ts',anchor='middle')=>`<text class="${cls}" fill="${c}" x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="central">${txt}</text>`;
 
-// ── Views ───────────────────────────────────────────────────────────────
+// ── Views ────────────────────────────────────────────────────────────────
 const VIEWS = {
 
-// ── HOME ─────────────────────────────────────────────────────────────
+// ── HOME ──────────────────────────────────────────────────────────────
 home:{
   label:'System architecture',
-  hint:'Click any service marked › to drill into detail.',
+  hint:'Click any service marked › to drill into detail. Hover any box for a plain-English description.',
   svg(){return `<svg viewBox="0 0 680 540" xmlns="http://www.w3.org/2000/svg">${DEFS}
   ${tx(190,13,'Infrastructure','#bbb')}
   ${tx(519,13,'External services','#bbb')}
-  ${bx(20,22,150,44,'gray','Web browser','Next.js app')}
-  ${bx(188,22,150,44,'gray','Mobile app','Expo / React Native')}
+  ${bx(20,22,150,44,'gray','Web browser','Next.js app',null,'web-browser')}
+  ${bx(188,22,150,44,'gray','Mobile app','Expo / React Native',null,'mobile-app')}
   ${ar(160,66,160,80)}
   ${zn(20,80,320,76,'Vercel')}
-  ${bx(110,96,160,52,'purple','Next.js 14','App Router · SSR')}
+  ${bx(110,96,160,52,'purple','Next.js 14','App Router · SSR',null,'nextjs')}
   ${ar(160,156,160,174)}
   ${zn(20,174,320,178,'Railway  ›','go(\'railway\')')}
-  ${bx(40,198,148,52,'purple','Express API','Node.js + TypeScript','go(\'railway\')')}
-  ${bx(40,268,130,52,'purple','PostgreSQL','Primary database','go(\'railway\')')}
-  ${bx(188,268,130,52,'purple','Redis','Cache + sessions','go(\'railway\')')}
+  ${bx(40,198,148,52,'purple','Express API','Node.js + TypeScript','go(\'railway\')','express')}
+  ${bx(40,268,130,52,'purple','PostgreSQL','Primary database','go(\'railway\')','postgres')}
+  ${bx(188,268,130,52,'purple','Redis','Cache + sessions','go(\'railway\')','redis')}
   ${ar(160,352,160,370)}
-  ${bx(80,370,160,44,'gray','GitHub Actions','CI/CD pipeline')}
+  ${bx(80,370,160,44,'gray','GitHub Actions','CI/CD pipeline',null,'gh-actions')}
   ${ar(342,108,380,108)}
   ${ar(342,224,380,224)}
   ${ar(342,300,380,300)}
   ${ar(342,354,380,354)}
-  ${bx(382,80,276,56,'teal','Clerk  ›','Auth · OAuth · guest tokens','go(\'clerk\')')}
-  ${bx(382,152,276,44,'teal','Resend  ›','Transactional email','go(\'notifications\')')}
-  ${bx(382,212,276,44,'teal','Twilio  ›','SMS delivery','go(\'notifications\')')}
-  ${bx(382,272,276,44,'teal','Firebase FCM  ›','Push notifications','go(\'notifications\')')}
-  ${bx(382,332,276,44,'teal','Anthropic Claude  ›','AI primary — Sonnet','go(\'ai\')')}
-  ${bx(382,392,276,44,'teal','OpenAI GPT-4o  ›','AI fallback model','go(\'ai\')')}
+  ${bx(382,80,276,56,'teal','Clerk  ›','Auth · OAuth · guest tokens','go(\'clerk\')','clerk')}
+  ${bx(382,152,276,44,'teal','Resend  ›','Transactional email','go(\'notifications\')','resend')}
+  ${bx(382,212,276,44,'teal','Twilio  ›','SMS delivery','go(\'notifications\')','twilio')}
+  ${bx(382,272,276,44,'teal','Firebase FCM  ›','Push notifications','go(\'notifications\')','firebase')}
+  ${bx(382,332,276,44,'teal','Anthropic Claude  ›','AI primary — Sonnet','go(\'ai\')','anthropic')}
+  ${bx(382,392,276,44,'teal','OpenAI GPT-4o  ›','AI fallback model','go(\'ai\')','openai')}
   <g opacity="0.35">
   ${bx(382,452,276,38,'gray','Cloudflare R2 — Phase 2','')}
   ${bx(382,498,276,38,'gray','Stripe — Phase 3','')}
@@ -106,15 +176,15 @@ home:{
   </svg>`}
 },
 
-// ── CLERK ────────────────────────────────────────────────────────────
+// ── CLERK ─────────────────────────────────────────────────────────────
 clerk:{
   label:'Clerk — authentication flows',
-  hint:'Three separate mechanisms, each with its own secret key. The webhook is a direct server-to-server call from Clerk to your Express API.',
+  hint:'Three completely separate auth flows, each with its own secret key. Like three different visitors entering through different doors, each verified a different way. Hover any box for details.',
   svg(){return `<svg viewBox="0 0 680 468" xmlns="http://www.w3.org/2000/svg">${DEFS}
 
   ${zn(20,18,640,202,'① Sign-up  &  webhook sync')}
   ${tx(340,36,'Browser-initiated sign-up','#bbb')}
-  ${bx(40,48,100,44,'gray','Browser','user sign-up')}
+  ${bx(40,48,100,44,'gray','Browser','user sign-up',null,'ck-browser')}
   ${ar(140,70,158,70)}
   ${bx(160,48,130,44,'purple','Next.js','/sign-up page')}
   ${ar(290,70,308,70)}
@@ -124,19 +194,19 @@ clerk:{
   ${ar(390,92,390,116,'#854F0B')}
 
   ${tx(340,114,'Server-to-server webhook call','#bbb')}
-  ${bx(200,120,195,52,'amber','Webhook endpoint','POST /api/v1/webhooks/clerk')}
+  ${bx(200,120,195,52,'amber','Webhook endpoint','POST /api/v1/webhooks/clerk',null,'ck-webhook')}
   ${ar(395,146,413,146,'#854F0B')}
-  ${bx(415,120,106,52,'blue','Svix.verify()','check signature')}
+  ${bx(415,120,106,52,'blue','Svix.verify()','check signature',null,'ck-svix')}
   ${ar(521,146,538,146)}
-  ${bx(540,120,118,52,'teal','Person upsert','ageGateLevel: NONE')}
+  ${bx(540,120,118,52,'teal','Person upsert','ageGateLevel: NONE',null,'ck-person')}
   ${nt(200,186,'secret used here:  CLERK_WEBHOOK_SECRET  (different from the JWT secret CLERK_SECRET_KEY)','#c8a060')}
 
   ${zn(20,228,640,80,'② Authenticated request — signed-in user')}
   ${bx(40,244,110,44,'gray','API request','JWT in header')}
   ${ar(150,266,168,266)}
-  ${bx(170,244,140,44,'purple','clerkAuth','global middleware')}
+  ${bx(170,244,140,44,'purple','clerkAuth','global middleware',null,'ck-global-mw')}
   ${ar(310,266,328,266)}
-  ${bx(330,244,128,44,'purple','requireAuth','checks userId')}
+  ${bx(330,244,128,44,'purple','requireAuth','checks userId',null,'ck-require-mw')}
   ${ar(458,266,476,266)}
   ${bx(478,244,160,44,'purple','Route handler','req.userId attached')}
   ${nt(170,298,'secret used here:  CLERK_SECRET_KEY  (verifies Clerk JWT)','#888')}
@@ -144,11 +214,11 @@ clerk:{
   ${zn(20,318,640,76,'③ Guest token — Reluctant Member (no Clerk account required)')}
   ${bx(40,334,118,44,'gray','Guest invite','personId + eventId')}
   ${ar(158,356,176,356)}
-  ${bx(178,334,150,44,'amber','generateGuestToken','signed JWT · 48h expiry')}
+  ${bx(178,334,150,44,'amber','generateGuestToken','signed JWT · 48h expiry',null,'ck-guest-gen')}
   ${ar(328,356,346,356)}
   ${bx(348,334,118,44,'blue','Email / SMS','RSVP link + token')}
   ${ar(466,356,484,356)}
-  ${bx(486,334,168,44,'purple','requireGuestToken','verify · attach req.guest')}
+  ${bx(486,334,168,44,'purple','requireGuestToken','verify · attach req.guest',null,'ck-guest-mw')}
   ${nt(178,386,'secret used here:  GUEST_TOKEN_SECRET  (entirely separate from Clerk — set in env.ts)','#888')}
 
   ${nt(20,450,'Three flows · three secrets · three verification methods. None of the secrets are interchangeable.','#ccc')}
@@ -158,23 +228,24 @@ clerk:{
 // ── RAILWAY ───────────────────────────────────────────────────────────
 railway:{
   label:'Railway — backend internals',
-  hint:'Every request through the Express API passes this middleware stack in exact order.',
+  hint:'Every request passes through this Express middleware stack in exact order — like Application.cfc onRequestStart() running a checklist before each request reaches the route handler. Hover any item for details.',
   svg(){
     const mwItems=[
-      ['1.  cors','#5F5E5A','#F1EFE8','#e5e3da'],
-      ['2.  helmet','#5F5E5A','#F1EFE8','#e5e3da'],
-      ['3.  express.raw()  ← webhooks/clerk only','#854F0B','#FAEEDA','#854F0B'],
-      ['4.  express.json()','#5F5E5A','#F1EFE8','#e5e3da'],
-      ['5.  Morgan logger','#5F5E5A','#F1EFE8','#e5e3da'],
-      ['6.  clerkAuth  ← makes auth context available','#534AB7','#EEEDFE','#534AB7'],
-      ['7.  Routes  →  /api/v1/*','#085041','#E1F5EE','#0F6E56'],
-      ['8.  404 handler','#5F5E5A','#F1EFE8','#e5e3da'],
-      ['9.  errorHandler','#5F5E5A','#F1EFE8','#e5e3da'],
+      ['1.  cors','#5F5E5A','#F1EFE8','#e5e3da','rw-cors'],
+      ['2.  helmet','#5F5E5A','#F1EFE8','#e5e3da','rw-helmet'],
+      ['3.  express.raw()  ← webhooks/clerk only','#854F0B','#FAEEDA','#854F0B','rw-raw'],
+      ['4.  express.json()','#5F5E5A','#F1EFE8','#e5e3da','rw-json'],
+      ['5.  Morgan logger','#5F5E5A','#F1EFE8','#e5e3da','rw-morgan'],
+      ['6.  clerkAuth  ← makes auth context available','#534AB7','#EEEDFE','#534AB7','rw-clerk-mw'],
+      ['7.  Routes  →  /api/v1/*','#085041','#E1F5EE','#0F6E56','rw-routes'],
+      ['8.  404 handler','#5F5E5A','#F1EFE8','#e5e3da','rw-404'],
+      ['9.  errorHandler','#5F5E5A','#F1EFE8','#e5e3da','rw-error'],
     ];
-    const mwSvg=mwItems.map(([label,tc,bg,sk],i)=>{
+    const mwSvg=mwItems.map(([label,tc,bg,sk,desc],i)=>{
       const y=50+i*26;
-      return `<rect x="36" y="${y}" width="264" height="21" rx="4" fill="${bg}" stroke="${sk}" stroke-width="0.5"/>
-        <text class="ts" fill="${tc}" x="46" y="${y+10}" dominant-baseline="central">${label}</text>`;
+      const de=desc?` onmouseenter="showInfo('${desc}')" onmouseleave="hideInfo()"`:''
+      return `<g class="cl"${de}><rect x="36" y="${y}" width="264" height="21" rx="4" fill="${bg}" stroke="${sk}" stroke-width="0.5"/>
+        <text class="ts" fill="${tc}" x="46" y="${y+10}" dominant-baseline="central">${label}</text></g>`;
     }).join('');
     const routes=['/api/v1/persons','/api/v1/families  +  /households','/api/v1/relationships','/api/v1/events','/api/v1/calendar','/api/v1/guest/*   ← public, no auth','/api/v1/webhooks/clerk   ← Svix-verified'];
     const tables=['persons  (userId, ageGateLevel, guardianPersonId)','family_groups,  households','family_members,  household_members','relationships  (graph edges — RECIPROCAL_TYPES)','events,  event_invitations','rsvps,  potluck_assignments','notification_preferences'];
@@ -186,18 +257,18 @@ railway:{
     ${tx(170,302,'Route groups','#3C3489','t','middle')}
     ${routes.map((r,i)=>`<text class="ts" fill="#534AB7" x="38" y="${318+i*18}" dominant-baseline="central">${r}</text>`).join('')}
 
-    ${zn(340,16,320,204,'PostgreSQL — core tables')}
+    ${zn(340,16,320,204,'PostgreSQL — core tables',null,'rw-postgres')}
     ${tx(500,36,'Prisma 5.16.0  (pinned)','#085041','t')}
     ${tables.map((t,i)=>`<text class="ts" fill="#0F6E56" x="354" y="${56+i*22}" dominant-baseline="central">${t}</text>`).join('')}
 
-    ${zn(340,232,320,84,'Redis')}
+    ${zn(340,232,320,84,'Redis',null,'rw-redis')}
     ${tx(500,250,'Usage','#633806','t')}
     ${redis.map((r,i)=>`<text class="ts" fill="#854F0B" x="354" y="${268+i*18}" dominant-baseline="central">${r}</text>`).join('')}
 
     ${zn(20,334,640,80,'Socket.io — real-time layer  (MVP)')}
-    ${bx(40,352,192,46,'purple','AI streaming','word-by-word responses')}
-    ${bx(256,352,190,46,'teal','Live RSVP updates','organiser dashboard')}
-    ${bx(466,352,168,46,'gray','Stream.io — Phase 2','full family chat')}
+    ${bx(40,352,192,46,'purple','AI streaming','word-by-word responses',null,'rw-ai-stream')}
+    ${bx(256,352,190,46,'teal','Live RSVP updates','organiser dashboard',null,'rw-rsvp-live')}
+    ${bx(466,352,168,46,'gray','Stream.io — Phase 2','full family chat',null,'rw-stream-io')}
 
     ${zn(20,426,640,36,'Phase 2+')}
     ${nt(34,444,'Cloudflare R2 (media storage)   ·   Stripe (subscriptions)   ·   Neo4j / AWS Neptune (graph DB evaluation)','#bbb')}
@@ -208,71 +279,82 @@ railway:{
 // ── NOTIFICATIONS ─────────────────────────────────────────────────────
 notifications:{
   label:'Notification service',
-  hint:'All three channels are required at MVP. Preference enforcement runs before every send — a disabled channel is silently skipped.',
-  svg(){return `<svg viewBox="0 0 680 348" xmlns="http://www.w3.org/2000/svg">${DEFS}
+  hint:'Like a cfmail call that first checks user preferences — but split across three delivery channels. A disabled channel is silently skipped; partial delivery (email only, for example) is a valid outcome. Hover any box for details.',
+  svg(){
+    const teal=P.teal, amber=P.amber, blue=P.blue;
+    return `<svg viewBox="0 0 680 348" xmlns="http://www.w3.org/2000/svg">${DEFS}
   ${tx(340,13,'Trigger events','#bbb')}
-  ${bx(20,20,140,44,'gray','Event created','')}
-  ${bx(178,20,140,44,'gray','RSVP received','')}
-  ${bx(336,20,140,44,'gray','Birthday reminder','')}
-  ${bx(494,20,162,44,'gray','Weekly digest','')}
+  ${bx(20,20,140,44,'gray','Event created','',null,'nf-event')}
+  ${bx(178,20,140,44,'gray','RSVP received','',null,'nf-rsvp')}
+  ${bx(336,20,140,44,'gray','Birthday reminder','',null,'nf-birthday')}
+  ${bx(494,20,162,44,'gray','Weekly digest','',null,'nf-digest')}
   ${ln(90,64,90,74)} ${ln(248,64,248,74)} ${ln(406,64,406,74)} ${ln(575,64,575,74)}
   ${ln(90,74,575,74)}
   ${ar(340,74,340,88)}
-  ${bx(200,88,280,52,'purple','Notification service','preference check per user · apps/api/src/lib/')}
+  ${bx(200,88,280,52,'purple','Notification service','preference check · apps/api/src/lib/',null,'nf-service')}
   ${ar(270,140,130,162)} ${ar(340,140,340,162)} ${ar(410,140,550,162)}
 
-  <rect x="20" y="162" width="210" height="96" rx="8" fill="${P.teal[0]}" stroke="${P.teal[1]}" stroke-width="0.5"/>
-  ${tx(125,180,'Resend','#085041','t')}
-  ${tx(125,196,'Transactional email','#0F6E56','ts')}
-  ${nt(34,218,'invitations · RSVPs · digests','#0F6E56')}
-  ${nt(34,234,'birthday reminders','#0F6E56')}
-  ${nt(34,250,'→ Reluctant Member  ✦  Grandparent','#085041')}
+  <g class="cl" onmouseenter="showInfo('nf-resend')" onmouseleave="hideInfo()">
+    <rect x="20" y="162" width="210" height="96" rx="8" fill="${teal[0]}" stroke="${teal[1]}" stroke-width="0.5"/>
+    ${tx(125,180,'Resend','#085041','t')}
+    ${tx(125,196,'Transactional email','#0F6E56','ts')}
+    ${nt(34,218,'invitations · RSVPs · digests','#0F6E56')}
+    ${nt(34,234,'birthday reminders','#0F6E56')}
+    ${nt(34,250,'→ Reluctant Member  ✦  Grandparent','#085041')}
+  </g>
 
-  <rect x="246" y="162" width="188" height="96" rx="8" fill="${P.amber[0]}" stroke="${P.amber[1]}" stroke-width="0.5"/>
-  ${tx(340,180,'Twilio','#633806','t')}
-  ${tx(340,196,'SMS — 160 char limit','#854F0B','ts')}
-  ${nt(260,218,'one-click RSVP link in body','#854F0B')}
-  ${nt(260,234,'day-of event reminders','#854F0B')}
-  ${nt(260,250,'→ Reluctant Member  ✦✦','#633806')}
+  <g class="cl" onmouseenter="showInfo('nf-twilio')" onmouseleave="hideInfo()">
+    <rect x="246" y="162" width="188" height="96" rx="8" fill="${amber[0]}" stroke="${amber[1]}" stroke-width="0.5"/>
+    ${tx(340,180,'Twilio','#633806','t')}
+    ${tx(340,196,'SMS — 160 char limit','#854F0B','ts')}
+    ${nt(260,218,'one-click RSVP link in body','#854F0B')}
+    ${nt(260,234,'day-of event reminders','#854F0B')}
+    ${nt(260,250,'→ Reluctant Member  ✦✦','#633806')}
+  </g>
 
-  <rect x="450" y="162" width="210" height="96" rx="8" fill="${P.blue[0]}" stroke="${P.blue[1]}" stroke-width="0.5"/>
-  ${tx(555,180,'Firebase FCM','#0C447C','t')}
-  ${tx(555,196,'Push — iOS + Android','#185FA5','ts')}
-  ${nt(464,218,'real-time alerts','#185FA5')}
-  ${nt(464,234,'new event · RSVP received','#185FA5')}
-  ${nt(464,250,'→ Organizer  ✦✦  Co-Parent  ✦✦','#0C447C')}
+  <g class="cl" onmouseenter="showInfo('nf-fcm')" onmouseleave="hideInfo()">
+    <rect x="450" y="162" width="210" height="96" rx="8" fill="${blue[0]}" stroke="${blue[1]}" stroke-width="0.5"/>
+    ${tx(555,180,'Firebase FCM','#0C447C','t')}
+    ${tx(555,196,'Push — iOS + Android','#185FA5','ts')}
+    ${nt(464,218,'real-time alerts','#185FA5')}
+    ${nt(464,234,'new event · RSVP received','#185FA5')}
+    ${nt(464,250,'→ Organizer  ✦✦  Co-Parent  ✦✦','#0C447C')}
+  </g>
 
-  ${zn(20,272,640,66,'Preference enforcement — NotificationPreference table')}
-  ${nt(34,292,'Each user controls their own preferences per channel. notificationService.ts checks before every send.','#888')}
-  ${nt(34,310,'If preference is disabled: channel call is skipped entirely. Partial delivery (e.g. email only) is a valid outcome.','#aaa')}
-  ${nt(34,326,'Default: all three channels on. Test suite confirms preference=false skips the channel call.','#bbb')}
-  </svg>`}
+  <g onmouseenter="showInfo('nf-prefs')" onmouseleave="hideInfo()" style="cursor:default">
+    ${zn(20,272,640,66,'Preference enforcement — NotificationPreference table')}
+    ${nt(34,292,'Each user controls their own preferences per channel. notificationService.ts checks before every send.','#888')}
+    ${nt(34,310,'If preference is disabled: channel call is skipped entirely. Partial delivery (e.g. email only) is a valid outcome.','#aaa')}
+    ${nt(34,326,'Default: all three channels on. Test suite confirms preference=false skips the channel call.','#bbb')}
+  </g>
+  </svg>`;
+  }
 },
 
 // ── AI ────────────────────────────────────────────────────────────────
 ai:{
   label:'AI provider routing',
-  hint:'Vercel AI SDK abstracts all model providers. Swap models without changing application code.',
+  hint:'Family context is assembled from your database and injected into every AI request before the model sees the question — like passing variables into a ColdFusion component. The Vercel AI SDK lets you swap models without changing application code. Hover any box for details.',
   svg(){return `<svg viewBox="0 0 680 404" xmlns="http://www.w3.org/2000/svg">${DEFS}
-  ${bx(250,20,180,52,'gray','User query','/api/v1/assistant/chat')}
+  ${bx(250,20,180,52,'gray','User query','/api/v1/assistant/chat',null,'ai-query')}
   ${ar(340,72,340,92)}
 
   ${zn(20,92,640,114,'Context assembler — family data injected into every AI request')}
-  ${bx(36,110,144,78,'teal','Family graph','members · relationships')}
-  ${bx(196,110,144,78,'teal','Upcoming events','next 30 days')}
-  ${bx(356,110,144,78,'teal','Pending actions','unRSVPed · overdue')}
-  ${bx(516,110,130,78,'teal','Preferences','member settings')}
+  ${bx(36,110,144,78,'teal','Family graph','members · relationships',null,'ai-graph')}
+  ${bx(196,110,144,78,'teal','Upcoming events','next 30 days',null,'ai-events')}
+  ${bx(356,110,144,78,'teal','Pending actions','unRSVPed · overdue',null,'ai-pending')}
+  ${bx(516,110,130,78,'teal','Preferences','member settings',null,'ai-prefs')}
 
   ${ar(340,206,340,222)}
-  ${bx(220,222,240,52,'purple','Vercel AI SDK','model-agnostic abstraction')}
+  ${bx(220,222,240,52,'purple','Vercel AI SDK','model-agnostic abstraction',null,'ai-sdk')}
   ${ar(340,274,340,292)}
-  ${bx(230,292,220,44,'purple','Model router','per-request selection')}
+  ${bx(230,292,220,44,'purple','Model router','per-request selection',null,'ai-router')}
 
   ${ar(305,336,195,356)} ${ar(340,336,340,356)} ${ar(375,336,485,356)}
 
-  ${bx(36,356,198,44,'teal','Anthropic Sonnet','primary · family context tasks')}
-  ${bx(250,356,180,44,'amber','GPT-4o','fallback · latency-sensitive')}
-  ${bx(446,356,196,44,'gray','Haiku / GPT-4o-mini','bulk · proactive · drafts')}
+  ${bx(36,356,198,44,'teal','Anthropic Sonnet','primary · family context tasks',null,'ai-sonnet')}
+  ${bx(250,356,180,44,'amber','GPT-4o','fallback · latency-sensitive',null,'ai-gpt4o')}
+  ${bx(446,356,196,44,'gray','Haiku / GPT-4o-mini','bulk · proactive · drafts',null,'ai-mini')}
 
   ${zn(20,314,640,26,'')}
   ${nt(20,386,'Rate limit: 20 AI queries / user / day (beta) · Max iteration limits on all agentic calls · No recursive tool calls · Propose-confirm for all actions','#ccc')}
@@ -281,7 +363,22 @@ ai:{
 
 };
 
-// ── Navigation ───────────────────────────────────────────────────────
+// ── Info panel ───────────────────────────────────────────────────────────
+function showInfo(key){
+  const d=DESCS[key];
+  if(!d) return;
+  const h=document.getElementById('hint');
+  h.innerHTML=`<strong>${d.t}:</strong> ${d.b}`;
+  h.classList.add('active');
+}
+function hideInfo(){
+  const id=stack[stack.length-1];
+  const h=document.getElementById('hint');
+  h.innerHTML=VIEWS[id].hint||'';
+  h.classList.remove('active');
+}
+
+// ── Navigation ───────────────────────────────────────────────────────────
 let stack=['home'];
 function go(id){if(VIEWS[id]){stack.push(id);render();}}
 function navBack(){if(stack.length>1){stack.pop();render();}}
@@ -290,6 +387,7 @@ function render(){
   const v=VIEWS[id];
   document.getElementById('d').innerHTML=v.svg();
   document.getElementById('hint').textContent=v.hint||'';
+  document.getElementById('hint').classList.remove('active');
   const bc=document.getElementById('bc');
   bc.innerHTML=stack.map((sid,i)=>{
     const lbl=VIEWS[sid].label;

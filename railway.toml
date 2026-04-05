@@ -1,0 +1,20 @@
+# Railway deployment config for FamLink API
+# Docs: https://docs.railway.app/reference/config-as-code
+#
+# This file lives at the monorepo root. In the Railway dashboard, set:
+#   Root Directory  →  / (repo root)
+#   Service         →  apps/api
+
+[build]
+builder      = "nixpacks"
+# Installs all workspace deps, then builds @famlink/db + @famlink/shared + @famlink/api
+# (turbo.json "dependsOn": ["^build"] ensures dependencies build first)
+buildCommand = "npm install && npx turbo build --filter=@famlink/api"
+
+[deploy]
+# Run Prisma migrations against the live DB, then start the compiled API
+startCommand         = "(cd packages/db && npx prisma migrate deploy) && node apps/api/dist/index.js"
+healthcheckPath      = "/health"
+healthcheckTimeout   = 300
+restartPolicyType    = "on_failure"
+restartPolicyMaxRetries = 3
