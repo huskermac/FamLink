@@ -7,6 +7,10 @@ import {
   hasAdminRole,
   hasPermission
 } from "../lib/familyAccess";
+import {
+  ERROR_PERSON_BEFORE_CREATE_FAMILY,
+  ERROR_PERSON_RECORD_REQUIRED
+} from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
 export const familiesRouter = Router();
@@ -87,7 +91,7 @@ familiesRouter.post("/", async (req, res) => {
   const { userId } = authed(req);
   const person = await personForClerkUserId(userId);
   if (!person) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_BEFORE_CREATE_FAMILY });
     return;
   }
 
@@ -149,7 +153,7 @@ familiesRouter.post("/:familyId/members", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -211,7 +215,7 @@ familiesRouter.delete("/:familyId/members/:personId", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -272,7 +276,7 @@ familiesRouter.post("/:familyId/households", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -328,7 +332,7 @@ familiesRouter.get("/:familyId", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -409,7 +413,7 @@ familiesRouter.put("/:familyId", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 

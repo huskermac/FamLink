@@ -1,7 +1,16 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { db, RECIPROCAL_TYPES } from "@famlink/db";
+import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
+
+/** Thrown inside POST transaction when an edge already exists (avoids Prisma P2002 log on duplicate). */
+class DuplicateRelationshipConflict extends Error {
+  override readonly name = "DuplicateRelationshipConflict";
+  constructor() {
+    super("Relationship already exists");
+  }
+}
 
 /** All 19 directed relationship types (ADR-04 registry). */
 const RelationshipTypeSchema = z.enum([
@@ -129,7 +138,7 @@ familyRelationshipsRouter.post("/:familyId/relationships", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -158,6 +167,25 @@ familyRelationshipsRouter.post("/:familyId/relationships", async (req, res) => {
 
   try {
     const result = await db.$transaction(async (tx) => {
+      const existingPrimary = await tx.relationship.findFirst({
+        where: { fromPersonId, toPersonId, familyGroupId: familyId }
+      });
+      if (existingPrimary) {
+        throw new DuplicateRelationshipConflict();
+      }
+      if (reciprocalType !== null) {
+        const existingReciprocal = await tx.relationship.findFirst({
+          where: {
+            fromPersonId: toPersonId,
+            toPersonId: fromPersonId,
+            familyGroupId: familyId
+          }
+        });
+        if (existingReciprocal) {
+          throw new DuplicateRelationshipConflict();
+        }
+      }
+
       const relationship = await tx.relationship.create({
         data: {
           fromPersonId,
@@ -189,6 +217,10 @@ familyRelationshipsRouter.post("/:familyId/relationships", async (req, res) => {
       reciprocal: result.reciprocal ? serializeRelationship(result.reciprocal) : null
     });
   } catch (e: unknown) {
+    if (e instanceof DuplicateRelationshipConflict) {
+      res.status(409).json({ error: "Relationship already exists" });
+      return;
+    }
     const code = typeof e === "object" && e !== null && "code" in e ? (e as { code: string }).code : "";
     if (code === "P2002") {
       res.status(409).json({ error: "Relationship already exists" });
@@ -209,7 +241,7 @@ familyRelationshipsRouter.get("/:familyId/relationships", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -268,7 +300,7 @@ personRelationshipsRouter.get("/:personId/relationships", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -325,7 +357,7 @@ relationshipsRouter.delete("/:relationshipId", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 

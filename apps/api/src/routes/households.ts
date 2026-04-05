@@ -2,6 +2,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { db } from "@famlink/db";
 import { hasAdminRole } from "../lib/familyAccess";
+import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
 export const householdsRouter = Router();
@@ -63,7 +64,7 @@ householdsRouter.put("/:householdId", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -130,7 +131,7 @@ householdsRouter.post("/:householdId/members", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -204,7 +205,7 @@ householdsRouter.delete("/:householdId/members/:personId", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Complete onboarding before creating a family" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 

@@ -18,14 +18,15 @@ export const CreatePersonSchema = z.object({
   preferredName: z.string().min(1).optional(),
   dateOfBirth: isoDateOnly,
   ageGateLevel: ageGateEnum.optional().default("NONE"),
-  guardianPersonId: z.string().cuid().optional(),
+  /** Prisma `@default(cuid())` ids must not use Zod `cuid()` — formats can differ. */
+  guardianPersonId: z.string().min(1).optional(),
   profilePhotoUrl: z.string().url().optional()
 });
 
 export const UpdatePersonSchema = CreatePersonSchema.partial();
 
 const personIdParamSchema = z.object({
-  personId: z.string().cuid()
+  personId: z.string().min(1)
 });
 
 function parseDateOnly(s: string | undefined): Date | undefined {
@@ -297,6 +298,12 @@ personsRouter.put("/:personId", async (req, res) => {
     data: updateData
   });
 
-  const includeGuardian = true;
+  const isGuardian = updated.guardianPersonId === requester.id;
+  const isAdminForGuardianField = await isAdminOfSharedFamilyWithTarget(
+    requester.id,
+    updated.id
+  );
+  const includeGuardian = isGuardian || isAdminForGuardianField;
+
   res.json(serializePerson(updated, includeGuardian));
 });
