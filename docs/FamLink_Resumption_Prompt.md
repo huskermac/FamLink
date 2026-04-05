@@ -60,8 +60,8 @@ Working from **Phase 1 Cursor Prompt Library v0.2**.
 | P1-06 | Family Groups and Households API | **DONE** |
 | P1-07 | Relationships API | **DONE** (see P1-07 notes below) |
 | P1-08 | Event Hub API | **DONE** (see P1-08 notes below) |
-| P1-09 | Shared Calendar API | Pending — **next build prompt** |
-| P1-10 | Invitation Service | Pending |
+| P1-09 | Shared Calendar API | **DONE** (see P1-09 notes below) |
+| P1-10 | Invitation Service | Pending — **next build prompt** |
 | P1-11 | Notification Service | Pending |
 | P1-12 | Frontend — Auth + Onboarding UI | Pending |
 
@@ -90,7 +90,7 @@ Implemented per Section 4 (P1-07 — Relationships API) in `docs/FamLink_CursorP
 - **Mount order:** `apps/api/src/routes/index.ts` — `personRelationshipsRouter` before `personsRouter` on `/api/v1/persons`; `familyRelationshipsRouter` after `familiesRouter` on `/api/v1/families`; `relationshipsRouter` on `/api/v1/relationships`.
 - **Tests:** `apps/api/src/__tests__/routes/relationships.test.ts` — reciprocal PARENT/CHILD, CAREGIVER without reciprocal, 400 non-member, 409 duplicate, GET graph, GET person list, DELETE both edges.
 
-**Verification:** `npm test` in `apps/api` — **61** tests passing (full suite as of P1-08); `npm run type-check` at repo root — clean.
+**Verification:** `npm test` in `apps/api` — **66** tests passing (full suite as of P1-09); `npm run type-check` at repo root — clean.
 
 **Optional:** Claude Review Prompt for P1-07 from the prompt library.
 
@@ -104,9 +104,24 @@ Implemented per Section 4 (P1-08 — Event Hub API) in `docs/FamLink_CursorPromp
 - **Mount:** `index.ts` — `familyEventsRouter` on `/api/v1/families` (after relationship router); `eventsRouter` on `/api/v1/events`.
 - **Tests:** `apps/api/src/__tests__/routes/events.test.ts`.
 
-**Verification:** `npm test` in `apps/api` — **61** tests passing; `npm run type-check` at repo root — clean.
+**Verification:** `npm test` in `apps/api` — **66** tests passing (full suite as of P1-09); `npm run type-check` at repo root — clean.
 
 **Optional:** Claude Review Prompt for P1-08 from the prompt library.
+
+---
+
+## P1-09 Completion Notes (April 2026)
+
+Implemented per Section 4 (P1-09 — Shared Calendar API) in `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`.
+
+- **Lib:** `apps/api/src/lib/birthdayGenerator.ts` — `SyntheticBirthdayEvent`, `birthdayMonthDayInYear` (Feb 29 → Feb 28 in non-leap years), `generateBirthdayEvents` (in-memory only; ids `birthday-{personId}-{year}`).
+- **Routes:** `apps/api/src/routes/calendar.ts` — `GET /:familyId/calendar?month=YYYY-MM`, `GET /:familyId/calendar/upcoming?days=` (default 30, max 90), `GET /:familyId/calendar/birthdays`. More specific paths registered before `/:familyId/calendar`.
+- **Mount:** `index.ts` — `calendarRouter` on `/api/v1/families` (with other family routers).
+- **Tests:** `apps/api/src/__tests__/lib/birthdayGenerator.test.ts`, `apps/api/src/__tests__/routes/calendar.test.ts`.
+
+**Verification:** `npm test` in `apps/api` — **66** tests passing; `npm run type-check` at repo root — clean.
+
+**Optional:** Claude Review Prompt for P1-09 from the prompt library.
 
 ---
 
@@ -128,9 +143,9 @@ P1-03 was executed in Cursor and produced working output. Four items were identi
 
 ## Immediate Next Actions
 
-1. **Pull latest** if you work from another machine: `main` should include through **P1-08** once committed (`feat: P1-08 event hub API` or equivalent).
-2. **Next build prompt:** **P1-09 — Shared Calendar API** (see `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`). Depends on P1-08.
-3. Before marking P1-09 complete: `npm test` in `apps/api/` (expects **61** tests with valid `TEST_DATABASE_URL` / `apps/api/.env.test`) and `npm run type-check` at repo root.
+1. **Pull latest** if you work from another machine: `main` should include through **P1-09** once committed (`feat: P1-09 shared calendar API` or equivalent).
+2. **Next build prompt:** **P1-10 — Invitation Service** (see `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md`). Depends on P1-04 and P1-08.
+3. Before marking P1-10 complete: `npm test` in `apps/api/` (expects **66** tests with valid `TEST_DATABASE_URL` / `apps/api/.env.test`) and `npm run type-check` at repo root.
 4. **Clerk webhook** (P1-03 notes): still required in dashboard for production user sync; local dev continues to use ngrok per `docs/FamLink_New_Session_Checklist.md` if needed.
 
 ---
