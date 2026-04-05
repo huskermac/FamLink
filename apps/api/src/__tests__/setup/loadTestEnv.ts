@@ -36,6 +36,7 @@ setDefault(
   "whsec_" + Buffer.from("jest_webhook_secret_32_bytes!!").toString("base64")
 );
 setDefault("RESEND_API_KEY", "re_test_jest");
+setDefault("RESEND_FROM_DOMAIN", "example.com");
 setDefault("TWILIO_ACCOUNT_SID", "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
 setDefault("TWILIO_AUTH_TOKEN", "twilio_test_jest");
 setDefault("TWILIO_PHONE_NUMBER", "+15555551234");

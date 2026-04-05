@@ -7,6 +7,8 @@ const envSchema = z.object({
   CLERK_PUBLISHABLE_KEY: z.string().min(1),
   CLERK_WEBHOOK_SECRET: z.string().min(1),
   RESEND_API_KEY: z.string().min(1),
+  /** Verified sending domain in Resend (e.g. `mail.yourdomain.com`) — used as `invites@{domain}`. */
+  RESEND_FROM_DOMAIN: z.string().min(1),
   TWILIO_ACCOUNT_SID: z.string().min(1),
   TWILIO_AUTH_TOKEN: z.string().min(1),
   TWILIO_PHONE_NUMBER: z.string().min(1),
