@@ -224,5 +224,39 @@ describe("persons routes", () => {
       expect(res.status).toBe(200);
       expect(res.body.preferredName).toBe("Nick");
     });
+
+    it("omits guardianPersonId on self-PUT when requester is not guardian or admin/organizer", async () => {
+      const parent = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(parent.id);
+      const teen = await db.person.create({
+        data: {
+          firstName: "Teen",
+          lastName: "User",
+          ageGateLevel: "MINOR",
+          userId: TEST_USER_2_CLERK_ID,
+          guardianPersonId: parent.id
+        }
+      });
+      await db.familyMember.create({
+        data: {
+          familyGroupId: familyGroup.id,
+          personId: teen.id,
+          roles: ["MEMBER"],
+          permissions: []
+        }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .put(`/api/v1/persons/${teen.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ preferredName: "T" });
+      expect(res.status).toBe(200);
+      expect(res.body.preferredName).toBe("T");
+      expect(res.body.guardianPersonId).toBeUndefined();
+
+      const still = await db.person.findUnique({ where: { id: teen.id } });
+      expect(still?.guardianPersonId).toBe(parent.id);
+    });
   });
 });
