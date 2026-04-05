@@ -18,8 +18,8 @@ All architectural and product decisions are governed by two source-of-truth docu
 
 | Document | Version | Notes |
 |---|---|---|
-| PRD | v0.1 corrected | Product requirements; personas; feature scope; roadmap |
-| ADR | v0.3 corrected | All locked technical decisions; open questions; build dependency map |
+| PRD | v0.1 | Product requirements; personas; feature scope; roadmap |
+| ADR | v0.3 | All locked technical decisions; open questions; build dependency map |
 | Phase 1 Cursor Prompt Library | **v0.2** | Base prompts P1-01–P1-04; continuation through P1-12 is in `docs/FamLink_CursorPromptLibrary_Phase1_P1-05_to_P1-12.md` (Restart Edition, April 2026) |
 
 ---
@@ -179,7 +179,7 @@ P1-03 was executed in Cursor and produced working output. Four items were identi
 
 ## Key Rules for All Development Work
 
-- **ADR v0.3 corrected** is the authority. If Cursor suggests a different library or pattern, reject it and reference the ADR.
+- **ADR v0.3** is the authority. If Cursor suggests a different library or pattern, reject it and reference the ADR.
 - **TypeScript strict mode** is non-negotiable. Zero `tsc --noEmit` errors before any prompt is marked complete.
 - **`npm test` must pass** with zero failures before moving to the next prompt.
 - **Prisma is pinned at 5.16.0.** Do not upgrade.
