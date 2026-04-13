@@ -89,8 +89,8 @@ guestRouter.get("/event", requireGuestToken, async (req, res) => {
         eventId_personId: { eventId: event.id, personId: guest.personId }
       }
     }),
-    db.potluckAssignment.findFirst({
-      where: { eventId: event.id, personId: guest.personId }
+    db.eventItem.findFirst({
+      where: { eventId: event.id, assignedToPersonId: guest.personId }
     })
   ]);
 
@@ -138,9 +138,9 @@ guestRouter.get("/event", requireGuestToken, async (req, res) => {
       ? { status: myRsvp.status, respondedAt: myRsvp.respondedAt?.toISOString() ?? null }
       : null,
     attendees,
-    potluckAssignment: potluck
+    eventItem: potluck
       ? {
-          item: potluck.item,
+          name: potluck.name,
           quantity: potluck.quantity,
           notes: potluck.notes
         }

@@ -31,6 +31,8 @@ model Person {
   relationshipsTo      Relationship[]   @relation("RelationshipTo")
   createdFamilies      FamilyGroup[]    @relation("FamilyCreator")
   notificationPrefs    NotificationPreference[]
+  createdEventItems    EventItem[]      @relation("EventItemCreator")
+  assignedEventItems   EventItem[]      @relation("EventItemAssignee")
 
   @@index([userId])
 }
@@ -148,9 +150,9 @@ model Event {
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
-  invitations  EventInvitation[]
-  rsvps        RSVP[]
-  potluckItems PotluckAssignment[]
+  invitations EventInvitation[]
+  rsvps       RSVP[]
+  eventItems  EventItem[]
 
   @@index([familyGroupId])
   @@index([startAt])
@@ -188,17 +190,37 @@ model RSVP {
   @@index([guestToken])
 }
 
-model PotluckAssignment {
-  id        String   @id @default(cuid())
-  eventId   String
-  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  personId  String?
-  item      String
-  quantity  Int?
-  notes     String?
-  createdAt DateTime @default(now())
+enum EventItemStatus {
+  UNCLAIMED
+  CLAIMED
+  PROVIDED
+  CANCELLED
+}
+
+enum EventItemVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+model EventItem {
+  id                 String              @id @default(cuid())
+  eventId            String
+  event              Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdByPersonId  String
+  createdBy          Person              @relation("EventItemCreator", fields: [createdByPersonId], references: [id])
+  assignedToPersonId String?
+  assignedTo         Person?             @relation("EventItemAssignee", fields: [assignedToPersonId], references: [id])
+  name               String
+  quantity           String?
+  notes              String?
+  isChecklistItem    Boolean             @default(false)
+  status             EventItemStatus     @default(UNCLAIMED)
+  visibility         EventItemVisibility @default(PUBLIC)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@index([eventId])
+  @@index([assignedToPersonId])
 }
 
 model AssistantMessage {

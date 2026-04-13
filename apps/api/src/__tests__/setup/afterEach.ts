@@ -5,7 +5,7 @@ const tables = [
   "AssistantMessage",
   "RSVP",
   "EventInvitation",
-  "PotluckAssignment",
+  "EventItem",
   "Event",
   "Relationship",
   "HouseholdMember",

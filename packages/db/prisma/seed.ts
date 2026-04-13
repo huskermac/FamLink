@@ -219,21 +219,27 @@ async function main(): Promise<void> {
     });
   }
 
-  // ── Potluck assignments ────────────────────────────────────
-  const potluck: Array<{ personId: string; item: string; quantity: number }> = [
-    { personId: IDS.sarah, item: "Pumpkin Pie", quantity: 2 },
-    { personId: IDS.tom, item: "Turkey", quantity: 1 },
-    { personId: IDS.margaret, item: "Mashed Potatoes", quantity: 1 },
-    { personId: IDS.dave, item: "Rolls", quantity: 2 }
+  // ── Event items (potluck) ──────────────────────────────────
+  const potluck: Array<{ personId: string; name: string; quantity: string }> = [
+    { personId: IDS.sarah, name: "Pumpkin Pie", quantity: "2" },
+    { personId: IDS.tom, name: "Turkey", quantity: "1" },
+    { personId: IDS.margaret, name: "Mashed Potatoes", quantity: "1" },
+    { personId: IDS.dave, name: "Rolls", quantity: "2" }
   ];
 
   for (const p of potluck) {
-    const existing = await prisma.potluckAssignment.findFirst({
-      where: { eventId: IDS.thanksgiving, personId: p.personId }
+    const existing = await prisma.eventItem.findFirst({
+      where: { eventId: IDS.thanksgiving, assignedToPersonId: p.personId }
     });
     if (!existing) {
-      await prisma.potluckAssignment.create({
-        data: { eventId: IDS.thanksgiving, personId: p.personId, item: p.item, quantity: p.quantity }
+      await prisma.eventItem.create({
+        data: {
+          eventId: IDS.thanksgiving,
+          createdByPersonId: IDS.sarah,
+          assignedToPersonId: p.personId,
+          name: p.name,
+          quantity: p.quantity
+        }
       });
     }
   }

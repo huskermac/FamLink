@@ -117,7 +117,7 @@ describe("events routes (P1-08)", () => {
       expect(getEv.body.invitations).toBe(0);
       expect(getEv.body.rsvps.YES).toBe(1);
       expect(getEv.body.rsvps.PENDING).toBe(0);
-      expect(Array.isArray(getEv.body.potluckAssignments)).toBe(true);
+      expect(Array.isArray(getEv.body.eventItems)).toBe(true);
 
       const list = await request(app)
         .get(`/api/v1/events/${event.id}/rsvps`)
@@ -222,11 +222,12 @@ describe("events routes (P1-08)", () => {
         }
       });
 
-      await db.potluckAssignment.create({
+      await db.eventItem.create({
         data: {
           eventId: event.id,
-          item: "Old",
-          quantity: 1
+          createdByPersonId: admin.id,
+          name: "Old",
+          quantity: "1"
         }
       });
 
@@ -235,14 +236,14 @@ describe("events routes (P1-08)", () => {
         .post(`/api/v1/events/${event.id}/potluck`)
         .set("Authorization", "Bearer mock")
         .send([
-          { item: "Salad", quantity: 2, notes: "greens" },
-          { item: "Bread", personId: null }
+          { name: "Salad", quantity: "2", notes: "greens" },
+          { name: "Bread", assignedToPersonId: null }
         ]);
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(2);
-      expect(res.body.map((x: { item: string }) => x.item).sort()).toEqual(["Bread", "Salad"]);
+      expect(res.body.map((x: { name: string }) => x.name).sort()).toEqual(["Bread", "Salad"]);
 
-      const rows = await db.potluckAssignment.findMany({ where: { eventId: event.id } });
+      const rows = await db.eventItem.findMany({ where: { eventId: event.id } });
       expect(rows).toHaveLength(2);
     });
   });

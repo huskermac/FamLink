@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { db, type Event, type PotluckAssignment } from "@famlink/db";
+import { db, type Event, type EventItem } from "@famlink/db";
 import { InviteScope, RSVPStatus } from "@famlink/shared";
 import { hasAdminRole, hasPermission } from "../lib/familyAccess";
 import { generateGuestToken } from "../lib/guestToken";
@@ -73,11 +73,11 @@ const UpdateRsvpSchema = z.object({
   status: z.nativeEnum(RSVPStatus)
 });
 
-const PotluckItemSchema = z.object({
-  item: z.string().min(1),
-  quantity: z.number().int().min(1).optional(),
+const EventItemSchema = z.object({
+  name: z.string().min(1),
+  quantity: z.string().optional(),
   notes: z.string().optional(),
-  personId: z.string().min(1).nullable().optional()
+  assignedToPersonId: z.string().min(1).nullable().optional()
 });
 
 const familyIdParam = z.object({
@@ -118,15 +118,20 @@ function serializeEvent(e: Event) {
   };
 }
 
-function serializePotluck(p: PotluckAssignment) {
+function serializeEventItem(p: EventItem) {
   return {
     id: p.id,
     eventId: p.eventId,
-    personId: p.personId,
-    item: p.item,
+    createdByPersonId: p.createdByPersonId,
+    assignedToPersonId: p.assignedToPersonId,
+    name: p.name,
     quantity: p.quantity,
     notes: p.notes,
-    createdAt: p.createdAt.toISOString()
+    isChecklistItem: p.isChecklistItem,
+    status: p.status,
+    visibility: p.visibility,
+    createdAt: p.createdAt.toISOString(),
+    updatedAt: p.updatedAt.toISOString()
   };
 }
 
@@ -236,14 +241,14 @@ eventsRouter.get("/:eventId", async (req, res) => {
   }
   const { event } = loaded;
 
-  const [invitationCount, rsvpGroups, potluckAssignments] = await Promise.all([
+  const [invitationCount, rsvpGroups, eventItems] = await Promise.all([
     db.eventInvitation.count({ where: { eventId } }),
     db.rSVP.groupBy({
       by: ["status"],
       where: { eventId },
       _count: { _all: true }
     }),
-    db.potluckAssignment.findMany({
+    db.eventItem.findMany({
       where: { eventId },
       orderBy: { createdAt: "asc" }
     })
@@ -266,7 +271,7 @@ eventsRouter.get("/:eventId", async (req, res) => {
     event: serializeEvent(event),
     invitations: invitationCount,
     rsvps,
-    potluckAssignments: potluckAssignments.map(serializePotluck)
+    eventItems: eventItems.map(serializeEventItem)
   });
 });
 
@@ -685,7 +690,7 @@ eventsRouter.post("/:eventId/potluck", async (req, res) => {
   }
   const { eventId } = p.data;
 
-  const parsed = z.array(PotluckItemSchema).safeParse(req.body);
+  const parsed = z.array(EventItemSchema).safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
     return;
@@ -723,24 +728,25 @@ eventsRouter.post("/:eventId/potluck", async (req, res) => {
 
   const items = parsed.data;
   const created = await db.$transaction(async (tx) => {
-    await tx.potluckAssignment.deleteMany({ where: { eventId } });
+    await tx.eventItem.deleteMany({ where: { eventId } });
     if (items.length === 0) {
-      return [] as PotluckAssignment[];
+      return [] as EventItem[];
     }
-    await tx.potluckAssignment.createMany({
+    await tx.eventItem.createMany({
       data: items.map((row) => ({
         eventId,
-        personId: row.personId ?? null,
-        item: row.item,
+        createdByPersonId: requester.id,
+        assignedToPersonId: row.assignedToPersonId ?? null,
+        name: row.name,
         quantity: row.quantity ?? null,
         notes: row.notes ?? null
       }))
     });
-    return tx.potluckAssignment.findMany({
+    return tx.eventItem.findMany({
       where: { eventId },
       orderBy: { createdAt: "asc" }
     });
   });
 
-  res.json(created.map(serializePotluck));
+  res.json(created.map(serializeEventItem));
 });
