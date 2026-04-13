@@ -200,3 +200,14 @@ model PotluckAssignment {
 
   @@index([eventId])
 }
+
+model AssistantMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String   // 'user' | 'assistant'
+  content        String   @db.Text
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+}

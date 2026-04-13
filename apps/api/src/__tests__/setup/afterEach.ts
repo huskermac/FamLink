@@ -2,6 +2,7 @@ import { db } from "@famlink/db";
 
 /** Dependency order: children before parents (matches FK graph). */
 const tables = [
+  "AssistantMessage",
   "RSVP",
   "EventInvitation",
   "PotluckAssignment",
