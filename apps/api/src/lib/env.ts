@@ -19,7 +19,12 @@ const envSchema = z.object({
   FIREBASE_PRIVATE_KEY: z.string().min(1),
   PORT: z.string().default("3001"),
   NODE_ENV: z.string().default("development"),
-  WEB_APP_URL: z.string().url()
+  WEB_APP_URL: z.string().url(),
+  REDIS_URL: z.string().min(1),
+  ANTHROPIC_API_KEY: z.string().min(1),
+  OPENAI_API_KEY: z.string().min(1),
+  HELICONE_API_KEY: z.string().min(1),
+  AI_MAX_TOOL_ITERATIONS: z.coerce.number().default(5)
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -78,3 +78,8 @@ PV1SK3RsMOHmxt0G63B1JTQ=
 setDefault("PORT", "3001");
 setDefault("NODE_ENV", "test");
 setDefault("WEB_APP_URL", "http://localhost:3000");
+setDefault("REDIS_URL", "redis://localhost:6379");
+setDefault("ANTHROPIC_API_KEY", "anthropic_test_key_placeholder");
+setDefault("OPENAI_API_KEY", "openai_test_key_placeholder");
+setDefault("HELICONE_API_KEY", "helicone_test_key_placeholder");
+setDefault("AI_MAX_TOOL_ITERATIONS", "5");

@@ -11,6 +11,7 @@ import {
   relationshipsRouter
 } from "./relationships";
 import { personsRouter } from "./persons";
+import { aiRouter } from "./ai";
 
 export const router = Router();
 
@@ -24,3 +25,4 @@ router.use("/api/v1/persons", requireAuth, personRelationshipsRouter);
 router.use("/api/v1/persons", requireAuth, personsRouter);
 router.use("/api/v1/relationships", requireAuth, relationshipsRouter);
 router.use("/api/v1/events", requireAuth, eventsRouter);
+router.use("/api/v1/ai", requireAuth, aiRouter);
