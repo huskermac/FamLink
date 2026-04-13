@@ -1,17 +1,19 @@
 import { NotificationService, truncateNotificationSmsBody } from "../../lib/notificationService";
 
-const mockEmailSend = jest.fn();
-jest.mock("resend", () => ({
-  Resend: jest.fn().mockImplementation(() => ({
-    emails: {
-      send: (...args: unknown[]) => mockEmailSend(...args)
-    }
-  }))
+const mockEmailSend = vi.fn();
+vi.mock("resend", () => ({
+  Resend: vi.fn().mockImplementation(function () {
+    return {
+      emails: {
+        send: (...args: unknown[]) => mockEmailSend(...args)
+      }
+    };
+  })
 }));
 
-const mockSmsCreate = jest.fn();
-jest.mock("twilio", () => {
-  const fn = jest.fn().mockImplementation(() => ({
+const mockSmsCreate = vi.fn();
+vi.mock("twilio", () => {
+  const fn = vi.fn().mockImplementation(() => ({
     messages: {
       create: (...args: unknown[]) => mockSmsCreate(...args)
     }
@@ -19,15 +21,15 @@ jest.mock("twilio", () => {
   return { __esModule: true, default: fn };
 });
 
-const mockPersonFind = jest.fn();
-const mockPrefFind = jest.fn();
-const mockEventFindUnique = jest.fn();
-const mockEventFindMany = jest.fn();
-const mockRsvpFindMany = jest.fn();
-const mockFamilyFindUnique = jest.fn();
-const mockFamilyMemberFindMany = jest.fn();
+const mockPersonFind = vi.fn();
+const mockPrefFind = vi.fn();
+const mockEventFindUnique = vi.fn();
+const mockEventFindMany = vi.fn();
+const mockRsvpFindMany = vi.fn();
+const mockFamilyFindUnique = vi.fn();
+const mockFamilyMemberFindMany = vi.fn();
 
-jest.mock("@famlink/db", () => ({
+vi.mock("@famlink/db", () => ({
   db: {
     person: {
       findUnique: (...args: unknown[]) => mockPersonFind(...args)

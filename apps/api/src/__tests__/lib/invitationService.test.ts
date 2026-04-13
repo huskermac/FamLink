@@ -1,18 +1,20 @@
 import type { EventInvitationPayload, InvitationRecipient } from "../../lib/invitationService";
 import { buildEventInviteSmsBody, InvitationService } from "../../lib/invitationService";
 
-const mockEmailSend = jest.fn();
-jest.mock("resend", () => ({
-  Resend: jest.fn().mockImplementation(() => ({
-    emails: {
-      send: (...args: unknown[]) => mockEmailSend(...args)
-    }
-  }))
+const mockEmailSend = vi.fn();
+vi.mock("resend", () => ({
+  Resend: vi.fn().mockImplementation(function () {
+    return {
+      emails: {
+        send: (...args: unknown[]) => mockEmailSend(...args)
+      }
+    };
+  })
 }));
 
-const mockSmsCreate = jest.fn();
-jest.mock("twilio", () => {
-  const fn = jest.fn().mockImplementation(() => ({
+const mockSmsCreate = vi.fn();
+vi.mock("twilio", () => {
+  const fn = vi.fn().mockImplementation(() => ({
     messages: {
       create: (...args: unknown[]) => mockSmsCreate(...args)
     }

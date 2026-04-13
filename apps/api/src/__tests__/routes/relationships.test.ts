@@ -10,11 +10,11 @@ import {
   seedTestPerson
 } from "../helpers/db";
 
-jest.mock("@clerk/express", () => ({
+vi.mock("@clerk/express", () => ({
   clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => {
     next();
   },
-  getAuth: jest.fn()
+  getAuth: vi.fn()
 }));
 
 async function seedFamilyWithTwoMembers(): Promise<{
@@ -38,7 +38,7 @@ async function seedFamilyWithTwoMembers(): Promise<{
 
 describe("relationships routes", () => {
   const app = createApp();
-  const mockGetAuth = getAuth as jest.Mock;
+  const mockGetAuth = vi.mocked(getAuth) as any;
 
   beforeEach(() => {
     mockGetAuth.mockReset();

@@ -9,13 +9,21 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "eslint . --ext .ts,.tsx",
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "expo": "~51.0.0",
     "expo-router": "~3.5.0",
+    "nativewind": "^4.0.0",
     "react": "18.2.0",
-    "react-native": "0.74.0",
-    "nativewind": "^4.0.0"
+    "react-native": "0.74.0"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "^13.3.3",
+    "@types/jest": "^30.0.0",
+    "jest": "^30.3.0",
+    "jest-expo": "^55.0.15"
   }
 }

@@ -11,11 +11,11 @@ import {
   seedTestPerson
 } from "../helpers/db";
 
-jest.mock("@clerk/express", () => ({
+vi.mock("@clerk/express", () => ({
   clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => {
     next();
   },
-  getAuth: jest.fn()
+  getAuth: vi.fn()
 }));
 
 function tomorrowIso(): string {
@@ -24,7 +24,7 @@ function tomorrowIso(): string {
 
 describe("events routes (P1-08)", () => {
   const app = createApp();
-  const mockGetAuth = getAuth as jest.Mock;
+  const mockGetAuth = vi.mocked(getAuth) as any;
 
   beforeEach(() => {
     mockGetAuth.mockReset();

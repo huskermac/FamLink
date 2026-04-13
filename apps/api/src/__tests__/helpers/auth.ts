@@ -5,8 +5,8 @@ import request from "supertest";
 export const TEST_CLERK_ID = "user_test_clerk_id_001";
 export const TEST_USER_2_CLERK_ID = "user_test_clerk_id_002";
 
-export function mockClerkAuth(userId: string | null): jest.SpyInstance {
-  return jest
+export function mockClerkAuth(userId: string | null): ReturnType<typeof vi.spyOn> {
+  return vi
     .spyOn(ClerkExpress, "getAuth")
     .mockReturnValue({ userId } as ReturnType<typeof ClerkExpress.getAuth>);
 }
