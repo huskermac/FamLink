@@ -11,6 +11,9 @@
     "paths": {
       "@shared/*": [
         "../../packages/shared/src/*"
+      ],
+      "@/*": [
+        "./*"
       ]
     },
     "noEmit": true,

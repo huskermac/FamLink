@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.39.1",
+    "@tanstack/react-query": "^5.99.0",
+    "@testing-library/dom": "^10.4.1",
     "dotenv": "^16.4.5",
     "next": "^15.2.8",
     "react": "18.2.0",
