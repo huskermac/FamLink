@@ -1,3 +1,4 @@
+import http from "http";
 import express from "express";
 import helmet from "helmet";
 import { corsMiddleware } from "./middleware/cors";
@@ -7,7 +8,12 @@ import { requestLogger } from "./middleware/requestLogger";
 import { router } from "./routes";
 import { healthRouter } from "./routes/health";
 import { webhooksRouter } from "./routes/webhooks";
+import { initializeSocketServer } from "./lib/socketServer";
 
+/**
+ * createApp — returns the Express application only.
+ * Used directly by Supertest in tests; does NOT start listening.
+ */
 export function createApp(): express.Application {
   const app = express();
 
@@ -37,4 +43,15 @@ export function createApp(): express.Application {
   app.use(errorHandler);
 
   return app;
+}
+
+/**
+ * createHttpServer — wraps the Express app in an http.Server and attaches
+ * Socket.io. Used by index.ts for production; NOT called by tests.
+ */
+export function createHttpServer(): http.Server {
+  const app = createApp();
+  const httpServer = http.createServer(app);
+  initializeSocketServer(httpServer);
+  return httpServer;
 }

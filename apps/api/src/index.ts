@@ -1,10 +1,10 @@
 import "./loadEnv";
 import { env } from "./lib/env";
-import { createApp } from "./server";
+import { createHttpServer } from "./server";
 
-const app = createApp();
+const httpServer = createHttpServer();
 const port = Number.parseInt(env.PORT, 10);
 
-app.listen(port, () => {
+httpServer.listen(port, () => {
   console.log(`API listening on port ${port}`);
 });

@@ -6,6 +6,7 @@ import { hasAdminRole, hasPermission } from "../lib/familyAccess";
 import { generateGuestToken } from "../lib/guestToken";
 import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
+import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 
 const visibilityEnum = z.enum(["PRIVATE", "HOUSEHOLD", "FAMILY", "INVITED", "GUEST"]);
 
@@ -208,6 +209,17 @@ familyEventsRouter.post("/:familyId/events", async (req, res) => {
       isRecurring: d.isRecurring ?? false
     }
   });
+
+  try {
+    emitEventCreated(getIo(), familyId, {
+      id: created.id,
+      title: created.title,
+      startTime: created.startAt.toISOString(),
+      createdByName: `${requester.firstName} ${requester.lastName}`.trim()
+    });
+  } catch {
+    // Socket.io not initialized (e.g. test environment) — non-fatal
+  }
 
   res.status(201).json(serializeEvent(created));
 });
@@ -653,6 +665,8 @@ eventsRouter.put("/:eventId/rsvp", async (req, res) => {
     return;
   }
 
+  const { event } = loaded;
+
   const now = new Date();
   const updated = await db.rSVP.upsert({
     where: {
@@ -669,6 +683,24 @@ eventsRouter.put("/:eventId/rsvp", async (req, res) => {
       respondedAt: now
     }
   });
+
+  // Fire-and-forget: notify organizer
+  try {
+    const organizer = await db.person.findUnique({
+      where: { id: event.createdByPersonId },
+      select: { userId: true }
+    });
+    if (organizer?.userId) {
+      emitRsvpUpdated(getIo(), organizer.userId, {
+        eventId,
+        eventTitle: event.title,
+        responderName: `${requester.firstName} ${requester.lastName}`.trim(),
+        status: parsed.data.status
+      });
+    }
+  } catch {
+    // Socket.io not initialized (e.g. test environment) — non-fatal
+  }
 
   res.json({
     id: updated.id,

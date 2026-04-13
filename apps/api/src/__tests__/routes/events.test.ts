@@ -18,6 +18,19 @@ vi.mock("@clerk/express", () => ({
   getAuth: vi.fn()
 }));
 
+// ── Mock Socket.io emit helpers ───────────────────────────────────────────────
+
+const mockEmitEventCreated = vi.fn();
+const mockEmitRsvpUpdated = vi.fn();
+
+vi.mock("../../lib/socketServer", () => ({
+  emitEventCreated: (...args: unknown[]) => mockEmitEventCreated(...args),
+  emitRsvpUpdated: (...args: unknown[]) => mockEmitRsvpUpdated(...args),
+  getIo: vi.fn().mockReturnValue({
+    to: vi.fn().mockReturnValue({ emit: vi.fn() })
+  })
+}));
+
 function tomorrowIso(): string {
   return new Date(Date.now() + 86400000).toISOString();
 }
@@ -28,6 +41,8 @@ describe("events routes (P1-08)", () => {
 
   beforeEach(() => {
     mockGetAuth.mockReset();
+    mockEmitEventCreated.mockClear();
+    mockEmitRsvpUpdated.mockClear();
   });
 
   describe("POST /api/v1/families/:familyId/events", () => {
@@ -245,6 +260,65 @@ describe("events routes (P1-08)", () => {
 
       const rows = await db.eventItem.findMany({ where: { eventId: event.id } });
       expect(rows).toHaveLength(2);
+    });
+  });
+
+  // ── Socket.io emit integration (P2-04) ──────────────────────────────────
+
+  describe("Socket.io emit calls (P2-04)", () => {
+    it("POST /api/v1/families/:familyId/events calls emitEventCreated on success", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/events`)
+        .set("Authorization", "Bearer mock")
+        .send({ title: "Socket Test Event", startAt: tomorrowIso() });
+
+      expect(res.status).toBe(201);
+      expect(mockEmitEventCreated).toHaveBeenCalledTimes(1);
+      expect(mockEmitEventCreated).toHaveBeenCalledWith(
+        expect.anything(), // io instance
+        familyGroup.id,
+        expect.objectContaining({
+          id: res.body.id,
+          title: "Socket Test Event"
+        })
+      );
+    });
+
+    it("PUT /api/v1/events/:eventId/rsvp calls emitRsvpUpdated on success", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const startAt = new Date(Date.now() + 86400000);
+      const event = await db.event.create({
+        data: {
+          familyGroupId: familyGroup.id,
+          createdByPersonId: admin.id,
+          title: "RSVP Emit Test",
+          startAt,
+          visibility: "FAMILY"
+        }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .put(`/api/v1/events/${event.id}/rsvp`)
+        .set("Authorization", "Bearer mock")
+        .send({ status: RSVPStatus.YES });
+
+      expect(res.status).toBe(200);
+      expect(mockEmitRsvpUpdated).toHaveBeenCalledTimes(1);
+      expect(mockEmitRsvpUpdated).toHaveBeenCalledWith(
+        expect.anything(), // io instance
+        expect.any(String), // organizerUserId (Clerk userId)
+        expect.objectContaining({
+          eventId: event.id,
+          eventTitle: "RSVP Emit Test",
+          status: RSVPStatus.YES
+        })
+      );
     });
   });
 });
