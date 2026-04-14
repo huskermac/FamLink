@@ -19,7 +19,7 @@ Guidelines bias toward caution over speed — for trivial tasks, use judgment.
 
 ## Phase 2 Build Context
 
-- **Current phase:** Phase 2 (P2-06 is next)
+- **Current phase:** Phase 2 (P2-08 is next)
 - **Test runner:** Vitest (API + web), Jest + Expo preset (mobile)
 - **AI observability:** Helicone
 - **Real-time:** Socket.io (`event:created`, `rsvp:updated` events)
