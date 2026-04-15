@@ -5,7 +5,9 @@
     "outDir": "dist",
     "module": "commonjs",
     "moduleResolution": "node",
-    "types": ["node", "vitest/globals"]
+    "types": ["node"],
+    "lib": ["ES2022"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/__tests__/**", "node_modules"]
 }
