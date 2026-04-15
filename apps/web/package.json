@@ -13,9 +13,11 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@ai-sdk/react": "^3.0.163",
     "@clerk/nextjs": "^6.39.1",
     "@tanstack/react-query": "^5.99.0",
     "@testing-library/dom": "^10.4.1",
+    "ai": "^6.0.161",
     "date-fns": "^4.1.0",
     "dotenv": "^16.4.5",
     "next": "^15.2.8",
