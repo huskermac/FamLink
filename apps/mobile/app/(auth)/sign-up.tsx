@@ -23,7 +23,8 @@ export default function SignUp(): ReactElement {
       await setActive({ session: result.createdSessionId });
       router.replace("/(tabs)/events");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Sign up failed";
+      const clerkErr = err as { errors?: Array<{ message: string }> };
+      const msg = clerkErr.errors?.[0]?.message ?? (err instanceof Error ? err.message : "Sign up failed");
       setError(msg);
     } finally {
       setLoading(false);
@@ -93,6 +94,7 @@ export default function SignUp(): ReactElement {
       <TouchableOpacity
         onPress={handleSignUp}
         disabled={!canSubmit}
+        style={{ opacity: canSubmit ? 1 : 0.5 }}
         className="bg-indigo-600 rounded-lg py-3 items-center mb-4"
       >
         {loading ? (

@@ -21,7 +21,8 @@ export default function SignIn(): ReactElement {
       await setActive({ session: result.createdSessionId });
       router.replace("/(tabs)/events");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Sign in failed";
+      const clerkErr = err as { errors?: Array<{ message: string }> };
+      const msg = clerkErr.errors?.[0]?.message ?? (err instanceof Error ? err.message : "Sign in failed");
       setError(msg);
     } finally {
       setLoading(false);
@@ -64,6 +65,7 @@ export default function SignIn(): ReactElement {
       <TouchableOpacity
         onPress={handleSignIn}
         disabled={loading || !email || !password}
+        style={{ opacity: loading || !email || !password ? 0.5 : 1 }}
         className="bg-indigo-600 rounded-lg py-3 items-center mb-4"
       >
         {loading ? (
