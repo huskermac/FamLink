@@ -1,4 +1,4 @@
-import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
+import { ClerkProvider } from "@clerk/clerk-expo";
 import * as SecureStore from "expo-secure-store";
 import { Stack } from "expo-router";
 import { QueryProvider } from "../providers/QueryProvider";
