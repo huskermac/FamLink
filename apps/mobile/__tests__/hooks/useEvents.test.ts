@@ -63,3 +63,26 @@ describe("useRsvp", () => {
     );
   });
 });
+
+describe("useClaimItem", () => {
+  it("PUTs the full items list with updated assignedToPersonId", async () => {
+    const currentItems = [
+      { id: "i1", eventId: "e1", createdByPersonId: "p0", assignedToPersonId: null, name: "Salad", quantity: null, notes: null, isChecklistItem: false, status: "UNCLAIMED" as const, visibility: "ALL", createdAt: "", updatedAt: "" },
+      { id: "i2", eventId: "e1", createdByPersonId: "p0", assignedToPersonId: null, name: "Drinks", quantity: null, notes: null, isChecklistItem: false, status: "UNCLAIMED" as const, visibility: "ALL", createdAt: "", updatedAt: "" },
+    ];
+    const mockFetch = jest.fn().mockResolvedValue(currentItems);
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useClaimItem("e1"), { wrapper });
+    await act(async () => {
+      result.current.mutate({ itemId: "i1", personId: "p1", currentItems });
+    });
+    const expectedItems = [
+      { ...currentItems[0], assignedToPersonId: "p1" },
+      currentItems[1],
+    ];
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/v1/events/e1/potluck",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify(expectedItems) })
+    );
+  });
+});

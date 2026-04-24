@@ -103,10 +103,9 @@ export default function EventDetail(): ReactElement {
                 <TouchableOpacity
                   onPress={() => handleClaim(item)}
                   disabled={claimMutation.isPending}
-                  style={{ opacity: claimMutation.isPending ? 0.5 : 1 }}
-                  className="bg-indigo-600 rounded-lg px-3 py-1.5"
+                  style={{ opacity: claimMutation.isPending ? 0.5 : 1, backgroundColor: "#4f46e5", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
                 >
-                  <Text className="text-white text-sm font-medium">Claim</Text>
+                  <Text style={{ color: "#fff", fontSize: 14, fontWeight: "500" }}>Claim</Text>
                 </TouchableOpacity>
               )}
             </View>

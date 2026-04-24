@@ -30,6 +30,14 @@ export default function EventsIndex(): ReactElement {
     );
   }
 
+  if (eventsQuery.isError) {
+    return (
+      <View className="flex-1 bg-slate-950 items-center justify-center px-6">
+        <Text className="text-slate-400 text-center">Could not load events.</Text>
+      </View>
+    );
+  }
+
   const events = eventsQuery.data?.events ?? [];
 
   return (
