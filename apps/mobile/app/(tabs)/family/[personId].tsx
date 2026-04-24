@@ -68,8 +68,8 @@ export default function PersonProfile(): ReactElement {
       {relQuery.data && relQuery.data.length > 0 && (
         <View className="bg-slate-800 rounded-xl px-4 py-3">
           <Text className="text-slate-400 text-xs uppercase tracking-wider mb-3">Relationships</Text>
-          {relQuery.data.map((rel) => (
-            <View key={rel.id} className="flex-row justify-between py-2 border-b border-slate-700 last:border-0">
+          {relQuery.data.map((rel, i, arr) => (
+            <View key={rel.id} className={`flex-row justify-between py-2${i < arr.length - 1 ? " border-b border-slate-700" : ""}`}>
               <Text className="text-slate-50">{rel.relatedPerson.displayName}</Text>
               <Text className="text-slate-400 text-sm">{RELATIONSHIP_LABELS[rel.type] ?? rel.type}</Text>
             </View>

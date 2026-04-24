@@ -22,6 +22,14 @@ export default function FamilyIndex(): ReactElement {
     );
   }
 
+  if (familiesQuery.isError) {
+    return (
+      <View className="flex-1 bg-slate-950 items-center justify-center px-6">
+        <Text className="text-slate-400 text-center">Failed to load families.</Text>
+      </View>
+    );
+  }
+
   if (membersQuery.isError) {
     return (
       <View className="flex-1 bg-slate-950 items-center justify-center px-6">

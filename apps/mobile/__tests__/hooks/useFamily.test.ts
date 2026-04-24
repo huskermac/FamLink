@@ -2,7 +2,7 @@ import { renderHook, waitFor } from "@testing-library/react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import React from "react";
-import { useMembers, useMyFamilies, useMyPerson, usePerson } from "../../hooks/useFamily";
+import { useMembers, useMyFamilies, useMyPerson, usePerson, usePersonRelationships } from "../../hooks/useFamily";
 
 jest.mock("../../lib/api", () => ({
   useApiFetch: jest.fn(),
@@ -67,5 +67,18 @@ describe("useMyPerson", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(mockFetch).toHaveBeenCalledWith("/api/v1/persons/me");
     expect(result.current.data?.id).toBe("p1");
+  });
+});
+
+describe("usePersonRelationships", () => {
+  it("fetches /api/v1/persons/:personId/relationships", async () => {
+    const mockFetch = jest.fn().mockResolvedValue([
+      { id: "r1", fromPersonId: "p1", toPersonId: "p2", type: "SPOUSE", relatedPerson: { displayName: "John Smith", ageGateLevel: "NONE" } },
+    ]);
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => usePersonRelationships("p1"), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/persons/p1/relationships");
+    expect(result.current.data?.[0].type).toBe("SPOUSE");
   });
 });
