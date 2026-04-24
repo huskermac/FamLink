@@ -1,6 +1,5 @@
-import { Tabs } from "expo-router";
+import { Tabs, Redirect } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
-import { Redirect } from "expo-router";
 import { Text } from "react-native";
 import type { ReactNode } from "react";
 
@@ -21,7 +20,8 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
 export default function TabsLayout(): ReactNode {
   const { isSignedIn, isLoaded } = useAuth();
 
-  if (isLoaded && !isSignedIn) {
+  if (!isLoaded) return null;
+  if (!isSignedIn) {
     return <Redirect href="/(auth)/sign-in" />;
   }
 
