@@ -40,3 +40,4 @@ apps/mobile/android
 # Prisma
 packages/db/src/generated
 packages/db/apps/
+.gitnexus
