@@ -108,3 +108,15 @@ export function updatePerson(
     body: JSON.stringify(data)
   });
 }
+
+export function updatePersonPhotoUrl(
+  personId: string,
+  profilePhotoUrl: string,
+  getToken: GetToken
+): Promise<PersonBrief> {
+  return apiFetch<PersonBrief>(`/api/v1/persons/${encodeURIComponent(personId)}`, {
+    getToken,
+    method: "PUT",
+    body: JSON.stringify({ profilePhotoUrl })
+  });
+}
