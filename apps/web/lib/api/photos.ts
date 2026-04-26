@@ -17,7 +17,7 @@ export interface EventPhoto {
   createdAt: string;
 }
 
-export async function presignUpload(
+export function presignUpload(
   mimeType: string,
   getToken: GetToken
 ): Promise<PresignResponse> {
@@ -43,7 +43,7 @@ export async function uploadToR2(
   }
 }
 
-export async function confirmEventPhoto(
+export function confirmEventPhoto(
   eventId: string,
   key: string,
   url: string,
@@ -56,7 +56,7 @@ export async function confirmEventPhoto(
   });
 }
 
-export async function getEventPhotos(
+export function getEventPhotos(
   eventId: string,
   getToken: GetToken
 ): Promise<EventPhoto[]> {
@@ -66,7 +66,7 @@ export async function getEventPhotos(
   });
 }
 
-export async function deletePhoto(
+export function deletePhoto(
   photoId: string,
   getToken: GetToken
 ): Promise<void> {
