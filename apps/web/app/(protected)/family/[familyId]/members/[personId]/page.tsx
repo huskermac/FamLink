@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { getPerson } from "@/lib/api/family";
 import { PersonHeader } from "@/components/family/PersonHeader";
+import { ProfilePhotoUploadButton } from "@/components/photos/ProfilePhotoUploadButton";
 
 export default function PersonProfilePage() {
   const { personId } = useParams<{ personId: string }>();
@@ -37,7 +38,10 @@ export default function PersonProfilePage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <PersonHeader person={person} />
+      <div className="flex items-end gap-4">
+        <PersonHeader person={person} />
+        <ProfilePhotoUploadButton personId={personId} />
+      </div>
 
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-medium uppercase tracking-wide text-slate-400">
