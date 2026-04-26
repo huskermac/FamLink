@@ -24,7 +24,12 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1),
   OPENAI_API_KEY: z.string().min(1),
   HELICONE_API_KEY: z.string().min(1),
-  AI_MAX_TOOL_ITERATIONS: z.coerce.number().default(5)
+  AI_MAX_TOOL_ITERATIONS: z.coerce.number().default(5),
+  CLOUDFLARE_R2_ACCOUNT_ID: z.string().min(1),
+  CLOUDFLARE_R2_ACCESS_KEY_ID: z.string().min(1),
+  CLOUDFLARE_R2_SECRET_ACCESS_KEY: z.string().min(1),
+  CLOUDFLARE_R2_BUCKET_NAME: z.string().min(1),
+  CLOUDFLARE_R2_PUBLIC_URL: z.string().min(1)
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -83,3 +83,8 @@ setDefault("ANTHROPIC_API_KEY", "anthropic_test_key_placeholder");
 setDefault("OPENAI_API_KEY", "openai_test_key_placeholder");
 setDefault("HELICONE_API_KEY", "helicone_test_key_placeholder");
 setDefault("AI_MAX_TOOL_ITERATIONS", "5");
+setDefault("CLOUDFLARE_R2_ACCOUNT_ID", "test-account");
+setDefault("CLOUDFLARE_R2_ACCESS_KEY_ID", "test-key");
+setDefault("CLOUDFLARE_R2_SECRET_ACCESS_KEY", "test-secret");
+setDefault("CLOUDFLARE_R2_BUCKET_NAME", "test-bucket");
+setDefault("CLOUDFLARE_R2_PUBLIC_URL", "https://pub.example.com");

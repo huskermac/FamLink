@@ -1,14 +1,15 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "node:crypto";
+import { env } from "./env";
 
 function getR2Client(): S3Client {
   return new S3Client({
     region: "auto",
-    endpoint: `https://${process.env.CLOUDFLARE_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    endpoint: `https://${env.CLOUDFLARE_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
     credentials: {
-      accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY!
+      accessKeyId: env.CLOUDFLARE_R2_ACCESS_KEY_ID,
+      secretAccessKey: env.CLOUDFLARE_R2_SECRET_ACCESS_KEY
     }
   });
 }
@@ -18,8 +19,8 @@ export async function createPresignedUpload(mimeType: string): Promise<{
   key: string;
   publicUrl: string;
 }> {
-  const bucket = process.env.CLOUDFLARE_R2_BUCKET_NAME!;
-  const publicBase = process.env.CLOUDFLARE_R2_PUBLIC_URL!;
+  const bucket = env.CLOUDFLARE_R2_BUCKET_NAME;
+  const publicBase = env.CLOUDFLARE_R2_PUBLIC_URL;
   const ext = mimeType === "image/png" ? "png" : "jpg";
   const key = `${crypto.randomUUID()}.${ext}`;
   const command = new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: mimeType });
@@ -29,6 +30,6 @@ export async function createPresignedUpload(mimeType: string): Promise<{
 }
 
 export async function deleteR2Object(key: string): Promise<void> {
-  const bucket = process.env.CLOUDFLARE_R2_BUCKET_NAME!;
+  const bucket = env.CLOUDFLARE_R2_BUCKET_NAME;
   await getR2Client().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }
