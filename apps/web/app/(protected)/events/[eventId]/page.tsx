@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getEventDetails } from "@/lib/api/events";
 import { RsvpButton } from "@/components/events/RsvpButton";
 import { OrganizerDashboard } from "@/components/events/OrganizerDashboard";
+import { PhotoGallery } from "@/components/photos/PhotoGallery";
 
 type Params = { eventId: string };
 
@@ -20,7 +21,7 @@ function formatDateTime(iso: string): string {
   });
 }
 
-type Tab = "details" | "attendees" | "organizer";
+type Tab = "details" | "attendees" | "photos" | "organizer";
 
 export default function EventDetailPage({ params }: { params: Promise<Params> }) {
   const { eventId } = use(params);
@@ -61,6 +62,7 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
   const tabs: { id: Tab; label: string; show: boolean }[] = [
     { id: "details", label: "Details", show: true },
     { id: "attendees", label: "Attendees", show: true },
+    { id: "photos", label: "Photos", show: true },
     { id: "organizer", label: "Organizer", show: isOrganizer }
   ];
 
@@ -148,6 +150,10 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
             );
           })}
         </div>
+      )}
+
+      {activeTab === "photos" && (
+        <PhotoGallery eventId={eventId} />
       )}
 
       {activeTab === "organizer" && (
