@@ -26,6 +26,7 @@
 | v0.3 | March 2026 | ADR-07 updated: Resend replaces SendGrid. Open Q#4 partially resolved: is_minor boolean replaced with age_gate_level enum (NONE / YOUNG_ADULT / MINOR) + nullable guardian_person_id. MVP adults-only for accounts and communications; minors are passive graph nodes only. |
 | v0.4 | April 2026 | Phase 2 planning complete. All six Phase 2 open questions resolved and locked. ADR-04 updated: Prisma 7 upgrade promoted to Phase 2, executed first. ADR-06 updated: Layer 1 AI tool registry locked (10 tools); Helicone locked for AI observability. ADR-09 updated: Socket.io Phase 2 scope defined (new event push + RSVP push only). ADR-12 added: AI Observability (Helicone). Build dependency map updated for full Phase 2 scope. Mobile (React Native + Expo) confirmed for Phase 2. Graph DB evaluation approach locked as evidence-based spike. |
 | v0.4.1 | April 2026 | P2-00 pre-flight clarifications. ADR-04 updated: Prisma canonical location is `packages/db` (not `apps/api`); upgrade targets that package. ADR-12 updated: Vercel AI Gateway OIDC auth considered and deferred — not available on Railway; direct provider keys via Helicone remain correct for current deployment target. ADR-13 added: Test framework locked — Vitest (API + web), Jest + Expo preset (mobile); Phase 1 Jest integration tests migrated to Vitest (not run alongside). |
+| v0.4.2 | April 2026 | ADR-10 updated: P2-10 photo sharing scope locked. Profile photos + event photo galleries ship in Phase 2. Family/general album, image resize pipeline, and facial recognition search explicitly deferred to Phase 3. |
 
 ---
 
@@ -305,11 +306,26 @@ All other real-time capabilities (typing indicators, presence, read receipts, gr
 
 ---
 
-### ADR-10 — Media & File Storage [DEFERRED — Phase 2]
+### ADR-10 — Media & File Storage [UPDATED — v0.4.2]
 
-**Decision:** Cloudflare R2 for photo and media storage when photo sharing is built in Phase 2.
+**Decision:** Cloudflare R2 for photo and media storage. P2-10 scope is locked as defined below.
 
-**Rationale:** Photo and media sharing is out of Phase 1 scope. Cloudflare R2 is preferred: S3-compatible API, zero egress fees critical for photo-heavy usage patterns, strong CDN integration, competitive pricing.
+**Rationale:** Cloudflare R2 is preferred: S3-compatible API, zero egress fees critical for photo-heavy usage patterns, strong CDN integration, competitive pricing.
+
+#### P2-10 Scope — Locked
+
+| Feature | Decision | Notes |
+|---|---|---|
+| Profile photos | **In scope — Phase 2** | Upload headshot to person profile; replaces initials avatar on web + mobile |
+| Event photo gallery | **In scope — Phase 2** | Any family member can upload photos to an event; all members can view |
+| Originals served from R2 | **In scope — Phase 2** | No resize pipeline at Phase 2; originals served via R2 public URL |
+| Family / general photo album | **Deferred — Phase 3** | A standalone family album not attached to a specific event |
+| Image resizing / thumbnail pipeline | **Deferred — Phase 3** | Thumbnails, responsive sizes, CDN optimization; add when gallery scale demands it |
+| Facial recognition — person search | **Deferred — Phase 3** | Search across all photos (event or album) by person name; requires ML pipeline (AWS Rekognition or equivalent) |
+
+#### Phase 3 Facial Recognition Note
+
+Facial recognition search is a planned Phase 3 capability: given a person name (from the family graph), surface all photos in which that person appears — across events and the family album. This requires a face-indexing pipeline triggered on upload and a query layer against the index. AWS Rekognition is the leading candidate. This feature is explicitly not built in Phase 2 and must not influence the Phase 2 storage or data model decisions.
 
 ---
 
@@ -391,7 +407,7 @@ All other real-time capabilities (typing indicators, presence, read receipts, gr
 | Real-Time (Phase 3) | Stream.io | Full family group chat | **DEFERRED** |
 | Frontend Hosting | Vercel | Native Next.js platform | **LOCKED** |
 | Backend Hosting | Railway | API + DB + Redis managed | **LOCKED** |
-| Media Storage | Cloudflare R2 | Phase 2 — photo sharing | **DEFERRED** |
+| Media Storage | Cloudflare R2 | Phase 2 — profile photos + event galleries (P2-10); family album + image resize + facial recognition → Phase 3 | **LOCKED** |
 | Payments | Stripe | Phase 3 — subscriptions + commerce | **DEFERRED** |
 | Graph DB | Neo4j / AWS Neptune | Phase 2 spike; migrate only if PostgreSQL traversal insufficient | **DEFERRED — pending spike** |
 

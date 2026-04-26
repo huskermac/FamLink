@@ -197,7 +197,8 @@ The MVP is intentionally narrow. Features not listed in Module 1-4 below are exp
 | Feature | Priority | Notes |
 |---|---|---|
 | User registration (email + social OAuth) | P0 | Email required; Google/Apple OAuth strongly recommended |
-| Profile creation (name, photo, birthday, roles) | P0 | Birthday is core data — drives birthday reminders |
+| Profile creation (name, birthday, roles) | P0 | Birthday is core data — drives birthday reminders |
+| Profile photo upload | P2 | Headshot on person profile; replaces initials avatar — ships in P2-10 |
 | Household creation and member invitation | P0 | Household is the first grouping unit |
 | Family group creation and invitation | P0 | Extended family umbrella above households |
 | Relationship definition between members | P0 | Spouse, parent/child, sibling — core graph edges |
@@ -219,7 +220,7 @@ The MVP is intentionally narrow. Features not listed in Module 1-4 below are exp
 | Potluck / contribution assignments | P1 | Who's bringing what — reduces organizer follow-up |
 | Event comments / discussion thread | P1 | In-context discussion without leaving FamLink |
 | Recurring events (annual birthdays, weekly practice) | P1 | Avoid re-creation of standing events |
-| Event photo upload and gallery | P2 | Post-event memories — defer to Phase 2 if needed |
+| Event photo upload and gallery | P2 | Post-event memories — any member can upload; ships in P2-10 |
 | Guest list sharing (who else is coming) | P1 | Visible to confirmed attendees |
 
 #### Module 3 — Shared Family Calendar
@@ -252,7 +253,10 @@ The MVP is intentionally narrow. Features not listed in Module 1-4 below are exp
 
 The following features are confirmed roadmap items but will NOT be built for MVP:
 
-- Photo and media sharing / family album
+- Family / general photo album (not tied to a specific event) — deferred to Phase 3
+- Image resizing / thumbnail pipeline — deferred to Phase 3
+- Facial recognition search (find person across all photos by name) — deferred to Phase 3
+- *Note: Profile photos and event photo galleries ship in Phase 2 (P2-10)*
 - Gift wishlist and gift coordination
 - Group chat / direct messaging
 - Trip and vacation planning
@@ -336,8 +340,8 @@ FamLink is targeting investor conversations at 6-12 months. The following metric
 |---|---|---|---|
 | 0 — Foundation | Months 1-3 | Identity & Graph | Accounts, family groups, households, relationship graph, invitation system, guest participation |
 | 1 — Wedge | Months 3-7 | Event & Calendar Hub | Event creation, RSVPs, potluck assignments, shared family calendar, birthday calendar, notifications (push/email/SMS) |
-| 2 — Engagement | Months 7-12 | Depth & Stickiness | Photo sharing, gift wishlists, group chat, recurring events, external calendar sync, accessible UI |
-| 3 — Commerce | Months 12-18 | Monetization | Gift purchase integration (Amazon/affiliate), venue and travel affiliate links, premium family subscription |
+| 2 — Engagement | Months 7-12 | Depth & Stickiness | Profile photos + event photo galleries (P2-10), AI assistant (web + mobile), gift wishlists, recurring events, external calendar sync, accessible UI |
+| 3 — Commerce | Months 12-18 | Monetization | Family photo album, image resize pipeline, facial recognition search (by person name across all photos), group chat (Stream.io), gift purchase integration (Amazon/affiliate), venue and travel affiliate links, premium family subscription |
 | 4 — Platform | Months 18-24 | Ecosystem | Wedding planning, trip planning, cost sharing, API for partner integrations, white-label options |
 
 ---
