@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApiFetch } from "../lib/api";
 
 interface PersonBrief {
@@ -85,5 +85,42 @@ export function usePersonRelationships(personId: string) {
     queryKey: ["person-relationships", personId],
     queryFn: () => apiFetch<PersonRelationship[]>(`/api/v1/persons/${personId}/relationships`),
     refetchInterval: false,
+  });
+}
+
+export function useUpdatePersonPhoto(personId: string) {
+  const apiFetch = useApiFetch();
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ uri, mimeType }: { uri: string; mimeType: string }) => {
+      const { uploadUrl, publicUrl } = await apiFetch<{
+        uploadUrl: string;
+        key: string;
+        publicUrl: string;
+      }>("/api/v1/photos/presign", {
+        method: "POST",
+        body: JSON.stringify({ mimeType })
+      });
+
+      const fileRes = await fetch(uri);
+      const blob = await fileRes.blob();
+      const uploadRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": mimeType },
+        body: blob
+      });
+      if (!uploadRes.ok) {
+        throw new Error(`R2 upload failed: ${uploadRes.status}`);
+      }
+
+      return apiFetch<PersonBrief>(`/api/v1/persons/${personId}`, {
+        method: "PUT",
+        body: JSON.stringify({ profilePhotoUrl: publicUrl })
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["person", personId] });
+    }
   });
 }
