@@ -1,6 +1,10 @@
-import { View, Text, ScrollView, ActivityIndicator } from "react-native";
+import {
+  View, Text, ScrollView, ActivityIndicator,
+  TouchableOpacity, Image, Alert
+} from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { usePerson, usePersonRelationships } from "../../../hooks/useFamily";
+import * as ImagePicker from "expo-image-picker";
+import { usePerson, usePersonRelationships, useMyPerson, useUpdatePersonPhoto } from "../../../hooks/useFamily";
 import type { ReactElement } from "react";
 
 const RELATIONSHIP_LABELS: Record<string, string> = {
@@ -12,13 +16,15 @@ const RELATIONSHIP_LABELS: Record<string, string> = {
   GRANDPARENT: "Grandparent", GRANDCHILD: "Grandchild",
   AUNT_UNCLE: "Aunt/Uncle", NIECE_NEPHEW: "Niece/Nephew",
   COUSIN: "Cousin", CAREGIVER: "Caregiver",
-  GUARDIAN: "Guardian", FAMILY_FRIEND: "Family friend",
+  GUARDIAN: "Guardian", FAMILY_FRIEND: "Family friend"
 };
 
 export default function PersonProfile(): ReactElement {
   const { personId } = useLocalSearchParams<{ personId: string }>();
   const personQuery = usePerson(personId);
   const relQuery = usePersonRelationships(personId);
+  const meQuery = useMyPerson();
+  const uploadMutation = useUpdatePersonPhoto(personId);
 
   if (personQuery.isLoading) {
     return (
@@ -37,20 +43,59 @@ export default function PersonProfile(): ReactElement {
     );
   }
 
+  const isSelf = meQuery.data?.id === person.id;
   const name = person.preferredName?.trim() || `${person.firstName} ${person.lastName}`.trim();
   const dob = person.dateOfBirth
-    ? new Date(person.dateOfBirth).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
+    ? new Date(person.dateOfBirth).toLocaleDateString(undefined, {
+        year: "numeric", month: "long", day: "numeric"
+      })
     : null;
+
+  async function handlePickPhoto() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission required", "Allow access to photos to change your profile photo.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    const mimeType = asset.mimeType ?? "image/jpeg";
+    uploadMutation.mutate({ uri: asset.uri, mimeType });
+  }
 
   return (
     <ScrollView className="flex-1 bg-slate-950" contentContainerStyle={{ padding: 24 }}>
       <View className="items-center mb-8">
-        <View className="w-20 h-20 rounded-full bg-indigo-600 items-center justify-center mb-4">
-          <Text className="text-white text-3xl font-semibold">
-            {person.firstName[0]}{person.lastName[0]}
-          </Text>
-        </View>
-        <Text className="text-slate-50 text-xl font-bold">{name}</Text>
+        {person.profilePhotoUrl ? (
+          <Image
+            source={{ uri: person.profilePhotoUrl }}
+            style={{ width: 80, height: 80, borderRadius: 40, marginBottom: 16 }}
+          />
+        ) : (
+          <View className="w-20 h-20 rounded-full bg-indigo-600 items-center justify-center mb-4">
+            <Text className="text-white text-3xl font-semibold">
+              {person.firstName[0]}{person.lastName[0]}
+            </Text>
+          </View>
+        )}
+        {isSelf && (
+          <TouchableOpacity
+            onPress={handlePickPhoto}
+            disabled={uploadMutation.isPending}
+            style={{ opacity: uploadMutation.isPending ? 0.5 : 1 }}
+          >
+            <Text className="text-indigo-400 text-sm">
+              {uploadMutation.isPending ? "Uploading…" : "Change photo"}
+            </Text>
+          </TouchableOpacity>
+        )}
+        <Text className="text-slate-50 text-xl font-bold mt-2">{name}</Text>
         {name !== `${person.firstName} ${person.lastName}`.trim() && (
           <Text className="text-slate-400 text-sm mt-1">
             {person.firstName} {person.lastName}
@@ -69,9 +114,14 @@ export default function PersonProfile(): ReactElement {
         <View className="bg-slate-800 rounded-xl px-4 py-3">
           <Text className="text-slate-400 text-xs uppercase tracking-wider mb-3">Relationships</Text>
           {relQuery.data.map((rel, i, arr) => (
-            <View key={rel.id} className={`flex-row justify-between py-2${i < arr.length - 1 ? " border-b border-slate-700" : ""}`}>
+            <View
+              key={rel.id}
+              className={`flex-row justify-between py-2${i < arr.length - 1 ? " border-b border-slate-700" : ""}`}
+            >
               <Text className="text-slate-50">{rel.relatedPerson.displayName}</Text>
-              <Text className="text-slate-400 text-sm">{RELATIONSHIP_LABELS[rel.type] ?? rel.type}</Text>
+              <Text className="text-slate-400 text-sm">
+                {RELATIONSHIP_LABELS[rel.type] ?? rel.type}
+              </Text>
             </View>
           ))}
         </View>
