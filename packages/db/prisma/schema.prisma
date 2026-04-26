@@ -33,6 +33,7 @@ model Person {
   notificationPrefs    NotificationPreference[]
   createdEventItems    EventItem[]      @relation("EventItemCreator")
   assignedEventItems   EventItem[]      @relation("EventItemAssignee")
+  uploadedPhotos       EventPhoto[]
 
   @@index([userId])
 }
@@ -153,6 +154,7 @@ model Event {
   invitations EventInvitation[]
   rsvps       RSVP[]
   eventItems  EventItem[]
+  eventPhotos EventPhoto[]
 
   @@index([familyGroupId])
   @@index([startAt])
@@ -221,6 +223,19 @@ model EventItem {
 
   @@index([eventId])
   @@index([assignedToPersonId])
+}
+
+model EventPhoto {
+  id           String   @id @default(cuid())
+  eventId      String
+  event        Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedById String
+  uploadedBy   Person   @relation(fields: [uploadedById], references: [id])
+  key          String   @unique
+  url          String
+  createdAt    DateTime @default(now())
+
+  @@index([eventId])
 }
 
 model AssistantMessage {
