@@ -4,6 +4,7 @@ import { db } from "@famlink/db";
 import type { AuthedRequest } from "../middleware/requireAuth";
 import { createPresignedUpload, deleteR2Object } from "../lib/r2";
 import { hasAdminRole } from "../lib/familyAccess";
+import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 
 export const photosRouter = Router();
 
@@ -56,7 +57,7 @@ photosRouter.post("/presign", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Person record required" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -82,7 +83,7 @@ photosRouter.post("/events/:eventId", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Person record required" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -119,7 +120,7 @@ photosRouter.get("/events/:eventId", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Person record required" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
@@ -157,7 +158,7 @@ photosRouter.delete("/:photoId", async (req, res) => {
   const { userId } = authed(req);
   const requester = await personForClerkUserId(userId);
   if (!requester) {
-    res.status(400).json({ error: "Person record required" });
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
     return;
   }
 
