@@ -5,6 +5,8 @@ import {
 } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
+import type { UIMessage } from "ai";
 import { useMyFamilies } from "../../../hooks/useFamily";
 import { API_BASE } from "../../../lib/config";
 import type { ReactElement } from "react";
@@ -14,36 +16,31 @@ export default function AssistantScreen(): ReactElement {
   const familiesQuery = useMyFamilies();
   const familyId = familiesQuery.data?.memberships[0]?.familyGroup.id ?? null;
   const [inputText, setInputText] = useState("");
-  const listRef = useRef<FlatList>(null);
+  const listRef = useRef<FlatList<UIMessage>>(null);
 
-  const { messages, status, sendMessage } = useChat({
-    transport: {
-      async sendMessage(chatRequest) {
-        const token = await getToken();
-        const lastMsg = chatRequest.messages[chatRequest.messages.length - 1];
-        const text = (lastMsg?.parts ?? [])
-          .filter((p): p is { type: "text"; text: string } => p.type === "text")
-          .map((p) => p.text)
-          .join("");
-
-        return fetch(`${API_BASE}/api/v1/ai/chat`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token ?? ""}`,
-          },
-          body: JSON.stringify({
-            messages: [{ role: "user", content: text }],
-            familyGroupId: familyId,
-            conversationId: chatRequest.id,
-          }),
-        });
-      },
-      reconnect() {
-        return null;
-      },
+  const transport = new DefaultChatTransport({
+    api: `${API_BASE}/api/v1/ai/chat`,
+    headers: async () => {
+      const token = await getToken();
+      return { Authorization: `Bearer ${token ?? ""}` };
+    },
+    prepareSendMessagesRequest: async ({ id, messages, body }) => {
+      const lastMsg = messages[messages.length - 1];
+      const text = (lastMsg?.parts ?? [])
+        .filter((p): p is { type: "text"; text: string } => p.type === "text")
+        .map((p) => p.text)
+        .join("");
+      return {
+        body: {
+          messages: [{ role: "user", content: text }],
+          conversationId: id,
+          ...(body as object | undefined),
+        },
+      };
     },
   });
+
+  const { messages, status, sendMessage } = useChat({ transport });
 
   const isStreaming = status === "streaming" || status === "submitted";
 
