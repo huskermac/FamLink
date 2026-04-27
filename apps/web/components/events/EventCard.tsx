@@ -25,17 +25,34 @@ export function EventCard({ event }: Props) {
   return (
     <Link
       href={`/events/${event.id}`}
-      className="flex flex-col gap-1 rounded-lg border border-slate-700 bg-slate-800/60 p-4 hover:bg-slate-800 transition-colors"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "6px",
+        borderRadius: "8px",
+        border: "1px solid #334155",
+        background: "rgba(30,41,59,0.6)",
+        padding: "16px",
+        textDecoration: "none",
+      }}
     >
-      <span className="text-base font-semibold text-slate-100">{event.title}</span>
-      <span className="text-sm text-slate-400">
+      <span style={{ fontSize: "15px", fontWeight: 600, color: "#e2e8f0" }}>{event.title}</span>
+      <span style={{ fontSize: "13px", color: "#94a3b8" }}>
         {formatDate(event.startAt)} at {formatTime(event.startAt)}
       </span>
       {event.locationName && (
-        <span className="text-xs text-slate-500">{event.locationName}</span>
+        <span style={{ fontSize: "12px", color: "#64748b" }}>{event.locationName}</span>
       )}
       {event.isBirthdayEvent && (
-        <span className="mt-1 w-fit rounded-full bg-indigo-900/50 px-2 py-0.5 text-xs text-indigo-300">
+        <span style={{
+          marginTop: "4px",
+          alignSelf: "flex-start",
+          borderRadius: "9999px",
+          background: "rgba(49,46,129,0.5)",
+          padding: "2px 8px",
+          fontSize: "12px",
+          color: "#a5b4fc",
+        }}>
           Birthday
         </span>
       )}
