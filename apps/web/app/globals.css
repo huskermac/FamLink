@@ -8,3 +8,10 @@ body {
   @apply bg-slate-950 text-slate-50;
 }
 
+main a {
+  color: #7dd3fc;
+}
+main a:hover {
+  color: #bae6fd;
+}
+
