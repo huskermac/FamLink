@@ -29,7 +29,6 @@ function NavItemRow({ item, depth = 0 }: { item: NavItem; depth?: number }) {
 
   const paddingLeft = depth === 0 ? "16px" : "40px";
   const textColor = isActive ? "#e2e8f0" : "#94a3b8";
-  const bg = isActive && !hasChildren ? "#1e293b" : "transparent";
 
   if (hasChildren) {
     return (
@@ -75,7 +74,7 @@ function NavItemRow({ item, depth = 0 }: { item: NavItem; depth?: number }) {
         alignItems: "center",
         gap: "10px",
         padding: `8px 16px 8px ${paddingLeft}`,
-        background: bg,
+        background: isActive && !hasChildren ? "#1e293b" : "transparent",
         color: depth > 0 ? "#64748b" : textColor,
         textDecoration: "none",
         fontSize: "13px",
