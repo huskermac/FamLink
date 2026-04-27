@@ -11,9 +11,9 @@ export function NavShell({ children }: { children: React.ReactNode }) {
 
   if (orientation === "topnav") {
     return (
-      <div className="flex flex-col min-h-screen">
+      <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
         <TopNav />
-        <main className="flex-1 overflow-y-auto">
+        <main style={{ flex: 1, overflowY: "auto" }}>
           <Breadcrumbs />
           {children}
         </main>
@@ -22,9 +22,9 @@ export function NavShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div style={{ display: "flex", minHeight: "100vh" }}>
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main style={{ flex: 1, overflowY: "auto", background: "#1e293b" }}>
         <Breadcrumbs />
         {children}
       </main>
