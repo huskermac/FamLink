@@ -95,21 +95,51 @@ The `NavItem` shape already supports dropdowns — no future data-model changes 
 
 ---
 
+## Breadcrumbs (`apps/web/components/nav/Breadcrumbs.tsx`)
+
+A client component rendered at the top of every page's content area. Uses `usePathname()` to derive the current path hierarchy and renders it as a linked trail.
+
+**Behavior:**
+- Splits `pathname` into segments and builds a crumb for each: e.g. `/family/abc123/members/xyz` → **Family › Members › [personId]**
+- Each crumb except the last is a `<Link>` to its path prefix.
+- The last crumb is plain text (current page, not a link).
+- Segment labels are human-readable: `"events"` → `"Events"`, `"assistant"` → `"AI Assistant"`. Dynamic segments (UUIDs/IDs) are rendered as-is for now — individual pages can override the label later via a `useBreadcrumbLabel` hook or similar if needed.
+- Hidden on the root `/dashboard` page (no useful hierarchy to show).
+
+**Placement:** Rendered inside `NavShell`'s `<main>` above `{children}`, upper-left aligned:
+
+```tsx
+<main className="flex-1 overflow-y-auto">
+  <Breadcrumbs />
+  {children}
+</main>
+```
+
+**Style (working style):** Small text, `#64748b` for links (hover `#94a3b8`), `#94a3b8` for the current segment, `›` separator.
+
+---
+
 ## NavShell (`apps/web/components/nav/NavShell.tsx`)
 
-Reads orientation from `NavContext`. Renders either `<Sidebar>` or `<TopNav>`, then places `children` in the main content area.
+Reads orientation from `NavContext`. Renders either `<Sidebar>` or `<TopNav>`, then places `children` in the main content area with breadcrumbs above them.
 
 ```tsx
 // Sidebar orientation layout
 <div className="flex min-h-screen">
   <Sidebar />
-  <main className="flex-1 overflow-y-auto">{children}</main>
+  <main className="flex-1 overflow-y-auto">
+    <Breadcrumbs />
+    {children}
+  </main>
 </div>
 
 // TopNav orientation layout
 <div className="flex flex-col min-h-screen">
   <TopNav />
-  <main className="flex-1 overflow-y-auto">{children}</main>
+  <main className="flex-1 overflow-y-auto">
+    <Breadcrumbs />
+    {children}
+  </main>
 </div>
 ```
 
