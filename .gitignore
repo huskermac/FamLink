@@ -41,3 +41,6 @@ apps/mobile/android
 packages/db/src/generated
 packages/db/apps/
 .gitnexus
+
+# Superpowers brainstorming session files
+.superpowers/
