@@ -24,7 +24,7 @@ export function NavShell({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <Sidebar />
-      <main style={{ flex: 1, overflowY: "auto", background: "#1e293b" }}>
+      <main style={{ flex: 1, overflowY: "auto", background: "#1e293b", color: "#e2e8f0" }}>
         <Breadcrumbs />
         {children}
       </main>
