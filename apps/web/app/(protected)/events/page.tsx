@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getMyFamilies } from "@/lib/api/family";
-import { getEvents, type EventSummary } from "@/lib/api/events";
+import { getEvents } from "@/lib/api/events";
 import { initSocket, useSocketEvent } from "@/lib/socket";
 import { EventCard } from "@/components/events/EventCard";
 
@@ -13,10 +13,14 @@ function SkeletonCard() {
   return <div className="h-20 animate-pulse rounded-lg border border-slate-700 bg-slate-800/40" />;
 }
 
+const DAY_OPTIONS = [30, 60, 90] as const;
+type DayOption = (typeof DAY_OPTIONS)[number];
+
 export default function EventsPage() {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const [familyId, setFamilyId] = useState<string | null>(null);
+  const [days, setDays] = useState<DayOption>(90);
 
   // Resolve the user's active family
   const familiesQuery = useQuery({
@@ -33,8 +37,8 @@ export default function EventsPage() {
 
   // Load events once we have a familyId
   const eventsQuery = useQuery({
-    queryKey: ["events", familyId],
-    queryFn: () => getEvents(familyId!, getToken),
+    queryKey: ["events", familyId, days],
+    queryFn: () => getEvents(familyId!, getToken, { days }),
     enabled: !!familyId
   });
 
@@ -49,28 +53,10 @@ export default function EventsPage() {
     };
   }, [getToken]);
 
-  // Prepend new events as they arrive
+  // Prepend new events as they arrive — invalidate all day-window caches for this family
   useSocketEvent<"event:created">("event:created", (payload) => {
     if (!familyId) return;
-    queryClient.setQueryData<{ events: EventSummary[] }>(
-      ["events", familyId],
-      (prev) => {
-        if (!prev) return prev;
-        const newEvent: EventSummary = {
-          id: payload.id,
-          familyGroupId: familyId,
-          title: payload.title,
-          startAt: payload.startTime,
-          endAt: null,
-          locationName: null,
-          isBirthdayEvent: false
-        };
-        // Avoid duplicates
-        const alreadyPresent = prev.events.some((e) => e.id === payload.id);
-        if (alreadyPresent) return prev;
-        return { ...prev, events: [newEvent, ...prev.events] };
-      }
-    );
+    queryClient.invalidateQueries({ queryKey: ["events", familyId] });
   });
 
   const isLoading = familiesQuery.isLoading || (!!familyId && eventsQuery.isLoading);
@@ -120,6 +106,27 @@ export default function EventsPage() {
         >
           Create Event
         </Link>
+      </div>
+      <div style={{ display: "flex", gap: "4px" }}>
+        {DAY_OPTIONS.map((d) => (
+          <button
+            key={d}
+            onClick={() => setDays(d)}
+            style={{
+              padding: "4px 12px",
+              borderRadius: "6px",
+              fontSize: "13px",
+              fontWeight: 500,
+              border: "1px solid",
+              cursor: "pointer",
+              background: days === d ? "#6366f1" : "transparent",
+              borderColor: days === d ? "#6366f1" : "#475569",
+              color: days === d ? "#fff" : "#94a3b8",
+            }}
+          >
+            {d}d
+          </button>
+        ))}
       </div>
       {events.length === 0 ? (
         <p className="text-sm text-slate-400">No upcoming events.</p>
