@@ -58,9 +58,9 @@ export function PhotoGallery({ eventId }: Props) {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-3 gap-2">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px" }}>
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="aspect-square animate-pulse rounded-md bg-slate-700" />
+          <div key={i} className="animate-pulse rounded-md bg-slate-700" style={{ aspectRatio: "1 / 1" }} />
         ))}
       </div>
     );
@@ -91,13 +91,13 @@ export function PhotoGallery({ eventId }: Props) {
       {photos.length === 0 ? (
         <p className="text-sm text-slate-500 italic">No photos yet.</p>
       ) : (
-        <div className="grid grid-cols-3 gap-2">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px" }}>
           {photos.map((photo) => (
-            <div key={photo.id} className="group relative aspect-square">
+            <div key={photo.id} className="group relative overflow-hidden rounded-md">
               <img
                 src={photo.url}
                 alt="Event photo"
-                className="h-full w-full rounded-md object-cover"
+                style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", display: "block" }}
               />
               <button
                 onClick={() => handleDelete(photo)}
