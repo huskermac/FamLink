@@ -7,6 +7,7 @@ import { generateGuestToken } from "../lib/guestToken";
 import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
 import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
+import { generateBirthdayEvents } from "../lib/birthdayGenerator";
 
 const visibilityEnum = z.enum(["PRIVATE", "HOUSEHOLD", "FAMILY", "INVITED", "GUEST"]);
 const eventTypeEnum = z.enum(["HOLIDAY", "BIRTHDAY", "SPORTS", "SCHOOL", "OTHER"]);
@@ -245,6 +246,74 @@ eventsRouter.get("/:eventId", async (req, res) => {
   const requester = await personForClerkUserId(userId);
   if (!requester) {
     res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
+    return;
+  }
+
+  // Synthetic birthday events: birthday-{personId}-{year}
+  const bdMatch = /^birthday-(.+)-(\d{4})$/.exec(eventId);
+  if (bdMatch) {
+    const birthdayPersonId = bdMatch[1];
+    const year = Number(bdMatch[2]);
+
+    const birthdayPerson = await db.person.findUnique({
+      where: { id: birthdayPersonId },
+      select: { id: true, firstName: true, lastName: true, dateOfBirth: true }
+    });
+    if (!birthdayPerson || !birthdayPerson.dateOfBirth) {
+      res.status(404).json({ error: "Event not found" });
+      return;
+    }
+
+    const requesterFamilies = await db.familyMember.findMany({
+      where: { personId: requester.id },
+      select: { familyGroupId: true }
+    });
+    const requesterFamilyIds = requesterFamilies.map((m) => m.familyGroupId);
+
+    const sharedMembership = await db.familyMember.findFirst({
+      where: { personId: birthdayPersonId, familyGroupId: { in: requesterFamilyIds } }
+    });
+    if (!sharedMembership) {
+      res.status(403).json({ error: "Not authorized to view this event" });
+      return;
+    }
+
+    const [synthetic] = generateBirthdayEvents(
+      [{ ...birthdayPerson, dateOfBirth: birthdayPerson.dateOfBirth.toISOString().slice(0, 10) }],
+      year,
+      sharedMembership.familyGroupId
+    );
+    if (!synthetic) {
+      res.status(404).json({ error: "Event not found" });
+      return;
+    }
+
+    res.json({
+      event: {
+        id: synthetic.id,
+        familyGroupId: synthetic.familyGroupId,
+        createdByPersonId: null,
+        title: synthetic.title,
+        description: null,
+        startAt: synthetic.startAt,
+        endAt: synthetic.endAt,
+        locationName: null,
+        locationAddress: null,
+        locationMapUrl: null,
+        visibility: synthetic.visibility,
+        isRecurring: true,
+        recurrenceRule: null,
+        isBirthdayEvent: true,
+        birthdayPersonId: synthetic.birthdayPersonId,
+        eventType: "BIRTHDAY",
+        eventVisibility: "BROADCAST",
+        createdAt: synthetic.startAt,
+        updatedAt: synthetic.startAt
+      },
+      invitations: 0,
+      rsvps: { YES: 0, NO: 0, MAYBE: 0, PENDING: 0 },
+      eventItems: []
+    });
     return;
   }
 
