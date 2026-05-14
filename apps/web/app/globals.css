@@ -4,14 +4,71 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Light tokens (default) ─────────────────────────────────── */
+:root {
+  --bg-page:             #f8fafc;
+  --bg-sidebar:          #f1f5f9;
+  --bg-card:             #ffffff;
+  --border:              #e2e8f0;
+  --text-primary:        #1e293b;
+  --text-secondary:      #94a3b8;
+  --text-muted:          #64748b;
+  --accent:              #6366f1;
+  --sidebar-active-bg:   #e0e7ff;
+  --sidebar-active-text: #4338ca;
+}
+
+/* ── Dark tokens — system preference ───────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-page:             #1e293b;
+    --bg-sidebar:          #0f172a;
+    --bg-card:             #0f172a;
+    --border:              #334155;
+    --text-primary:        #e2e8f0;
+    --text-secondary:      #94a3b8;
+    --text-muted:          #475569;
+    --accent:              #6366f1;
+    --sidebar-active-bg:   #1e293b;
+    --sidebar-active-text: #e2e8f0;
+  }
+}
+
+/* ── Manual overrides — win over media query ────────────────── */
+[data-theme="light"] {
+  --bg-page:             #f8fafc;
+  --bg-sidebar:          #f1f5f9;
+  --bg-card:             #ffffff;
+  --border:              #e2e8f0;
+  --text-primary:        #1e293b;
+  --text-secondary:      #94a3b8;
+  --text-muted:          #64748b;
+  --accent:              #6366f1;
+  --sidebar-active-bg:   #e0e7ff;
+  --sidebar-active-text: #4338ca;
+}
+
+[data-theme="dark"] {
+  --bg-page:             #1e293b;
+  --bg-sidebar:          #0f172a;
+  --bg-card:             #0f172a;
+  --border:              #334155;
+  --text-primary:        #e2e8f0;
+  --text-secondary:      #94a3b8;
+  --text-muted:          #475569;
+  --accent:              #6366f1;
+  --sidebar-active-bg:   #1e293b;
+  --sidebar-active-text: #e2e8f0;
+}
+
 body {
-  @apply bg-slate-950 text-slate-50;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
 }
 
 main a {
-  color: #7dd3fc;
+  color: var(--accent);
 }
 main a:hover {
-  color: #bae6fd;
+  opacity: 0.8;
 }
-
