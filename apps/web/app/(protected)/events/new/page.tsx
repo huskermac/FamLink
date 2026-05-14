@@ -6,6 +6,16 @@ import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { getMyFamilies } from "@/lib/api/family";
 import { createEvent } from "@/lib/api/events";
+import type { EventType, EventVisibility } from "@/lib/api/events";
+import { EVENT_TYPE_CONFIG } from "@/lib/eventTypes";
+
+const VISIBILITY_OPTIONS: { value: EventVisibility; label: string; desc: string }[] = [
+  { value: "BROADCAST", label: "Broadcast", desc: "Everyone in the family sees this" },
+  { value: "OPEN",      label: "Open",      desc: "Invited guests; they can bring others" },
+  { value: "PRIVATE",   label: "Private",   desc: "Invited guests only" },
+];
+
+const EVENT_TYPES = (["HOLIDAY", "BIRTHDAY", "SPORTS", "SCHOOL", "OTHER"] as const);
 
 export default function NewEventPage() {
   const router = useRouter();
@@ -16,6 +26,8 @@ export default function NewEventPage() {
   const [endTime, setEndTime] = useState("");
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
+  const [eventType, setEventType] = useState<EventType>("OTHER");
+  const [eventVisibility, setEventVisibility] = useState<EventVisibility>("BROADCAST");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -57,7 +69,9 @@ export default function NewEventPage() {
           startAt: startDate.toISOString(),
           ...(endTime ? { endAt: new Date(endTime).toISOString() } : {}),
           ...(location.trim() ? { locationName: location.trim() } : {}),
-          ...(description.trim() ? { description: description.trim() } : {})
+          ...(description.trim() ? { description: description.trim() } : {}),
+          eventType,
+          eventVisibility,
         },
         getToken
       );
@@ -68,12 +82,31 @@ export default function NewEventPage() {
     }
   }
 
+  const inputStyle = {
+    borderRadius: "6px",
+    border: "1px solid var(--border)",
+    background: "var(--bg-card)",
+    padding: "8px 12px",
+    fontSize: "14px",
+    color: "var(--text-primary)",
+    width: "100%",
+    outline: "none",
+  };
+
+  const labelStyle = {
+    fontSize: "13px",
+    fontWeight: 500 as const,
+    color: "var(--text-secondary)",
+  };
+
   return (
     <div className="flex flex-col gap-6 p-6 max-w-lg">
-      <h1 className="text-xl font-semibold text-slate-100">Create Event</h1>
+      <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Create Event</h1>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+
+        {/* Title */}
         <div className="flex flex-col gap-1">
-          <label htmlFor="title" className="text-sm font-medium text-slate-300">
+          <label htmlFor="title" style={labelStyle}>
             Title <span className="text-red-400">*</span>
           </label>
           <input
@@ -82,12 +115,70 @@ export default function NewEventPage() {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Summer BBQ"
-            className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+            style={inputStyle}
           />
         </div>
 
+        {/* Event type */}
+        <div className="flex flex-col gap-2">
+          <span style={labelStyle}>Event type</span>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            {EVENT_TYPES.map((t) => {
+              const cfg = EVENT_TYPE_CONFIG[t];
+              const selected = eventType === t;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setEventType(t)}
+                  style={{
+                    padding: "4px 12px",
+                    borderRadius: "9999px",
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    border: `2px solid ${selected ? cfg.bar : "var(--border)"}`,
+                    background: selected ? cfg.badgeBg : "transparent",
+                    color: selected ? cfg.badgeText : "var(--text-muted)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "5px",
+                  }}
+                >
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: cfg.bar, display: "inline-block", flexShrink: 0 }} />
+                  {cfg.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Visibility */}
+        <div className="flex flex-col gap-2">
+          <span style={labelStyle}>Who can see this?</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {VISIBILITY_OPTIONS.map(({ value, label, desc }) => (
+              <label key={value} style={{ display: "flex", alignItems: "flex-start", gap: "10px", cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="eventVisibility"
+                  value={value}
+                  checked={eventVisibility === value}
+                  onChange={() => setEventVisibility(value)}
+                  style={{ marginTop: "2px", flexShrink: 0 }}
+                />
+                <span>
+                  <span style={{ fontSize: "13px", fontWeight: 500, color: "var(--text-primary)" }}>{label}</span>
+                  <span style={{ fontSize: "12px", color: "var(--text-muted)", marginLeft: "6px" }}>{desc}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Start time */}
         <div className="flex flex-col gap-1">
-          <label htmlFor="startTime" className="text-sm font-medium text-slate-300">
+          <label htmlFor="startTime" style={labelStyle}>
             Start time <span className="text-red-400">*</span>
           </label>
           <input
@@ -95,26 +186,28 @@ export default function NewEventPage() {
             type="datetime-local"
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
-            className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none"
+            style={inputStyle}
           />
         </div>
 
+        {/* End time */}
         <div className="flex flex-col gap-1">
-          <label htmlFor="endTime" className="text-sm font-medium text-slate-300">
-            End time <span className="text-slate-500">(optional)</span>
+          <label htmlFor="endTime" style={labelStyle}>
+            End time <span style={{ color: "var(--text-muted)" }}>(optional)</span>
           </label>
           <input
             id="endTime"
             type="datetime-local"
             value={endTime}
             onChange={(e) => setEndTime(e.target.value)}
-            className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none"
+            style={inputStyle}
           />
         </div>
 
+        {/* Location */}
         <div className="flex flex-col gap-1">
-          <label htmlFor="location" className="text-sm font-medium text-slate-300">
-            Location <span className="text-slate-500">(optional)</span>
+          <label htmlFor="location" style={labelStyle}>
+            Location <span style={{ color: "var(--text-muted)" }}>(optional)</span>
           </label>
           <input
             id="location"
@@ -122,13 +215,14 @@ export default function NewEventPage() {
             value={location}
             onChange={(e) => setLocation(e.target.value)}
             placeholder="123 Main St"
-            className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+            style={inputStyle}
           />
         </div>
 
+        {/* Description */}
         <div className="flex flex-col gap-1">
-          <label htmlFor="description" className="text-sm font-medium text-slate-300">
-            Description <span className="text-slate-500">(optional)</span>
+          <label htmlFor="description" style={labelStyle}>
+            Description <span style={{ color: "var(--text-muted)" }}>(optional)</span>
           </label>
           <textarea
             id="description"
@@ -136,7 +230,7 @@ export default function NewEventPage() {
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             placeholder="Tell people what to expect…"
-            className="rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none resize-none"
+            style={{ ...inputStyle, resize: "none" }}
           />
         </div>
 
@@ -145,7 +239,8 @@ export default function NewEventPage() {
         <button
           type="submit"
           disabled={submitting || familiesQuery.isLoading}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 transition-colors disabled:opacity-50"
+          className="rounded-md px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50"
+          style={{ background: "var(--accent)" }}
         >
           {submitting ? "Creating…" : "Create Event"}
         </button>
