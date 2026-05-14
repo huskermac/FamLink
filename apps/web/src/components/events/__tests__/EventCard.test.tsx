@@ -45,10 +45,16 @@ describe("EventCard", () => {
     expect(screen.getByText("Riverside Park")).toBeInTheDocument();
   });
 
-  it("renders Birthday badge for birthday events", () => {
-    const event = { ...baseEvent, eventType: "BIRTHDAY" as const };
+  it("renders Party badge for party events", () => {
+    const event = { ...baseEvent, eventType: "PARTY" as const };
     render(<EventCard event={event} />);
-    expect(screen.getByText("Birthday")).toBeInTheDocument();
+    expect(screen.getByText("Party")).toBeInTheDocument();
+  });
+
+  it("renders Milestone badge for milestone events", () => {
+    const event = { ...baseEvent, eventType: "MILESTONE" as const };
+    render(<EventCard event={event} />);
+    expect(screen.getByText("Milestone")).toBeInTheDocument();
   });
 
   it("renders Other badge for non-birthday events", () => {

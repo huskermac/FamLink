@@ -10,7 +10,7 @@ import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 import { generateBirthdayEvents } from "../lib/birthdayGenerator";
 
 const visibilityEnum = z.enum(["PRIVATE", "HOUSEHOLD", "FAMILY", "INVITED", "GUEST"]);
-const eventTypeEnum = z.enum(["HOLIDAY", "BIRTHDAY", "SPORTS", "SCHOOL", "OTHER"]);
+const eventTypeEnum = z.enum(["HOLIDAY", "PARTY", "MILESTONE", "SPORTS", "SCHOOL", "OTHER"]);
 const eventVisibilityEnum = z.enum(["BROADCAST", "OPEN", "PRIVATE"]);
 
 const isoDateTime = z
@@ -305,7 +305,7 @@ eventsRouter.get("/:eventId", async (req, res) => {
         recurrenceRule: null,
         isBirthdayEvent: true,
         birthdayPersonId: synthetic.birthdayPersonId,
-        eventType: "BIRTHDAY",
+        eventType: "MILESTONE",
         eventVisibility: "BROADCAST",
         createdAt: synthetic.startAt,
         updatedAt: synthetic.startAt

@@ -7,7 +7,7 @@ import { apiFetch } from "@/lib/api";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type RsvpStatus = "YES" | "NO" | "MAYBE" | "PENDING";
-export type EventType = "HOLIDAY" | "BIRTHDAY" | "SPORTS" | "SCHOOL" | "OTHER";
+export type EventType = "HOLIDAY" | "PARTY" | "MILESTONE" | "SPORTS" | "SCHOOL" | "OTHER";
 export type EventVisibility = "BROADCAST" | "OPEN" | "PRIVATE";
 
 export interface EventSummary {

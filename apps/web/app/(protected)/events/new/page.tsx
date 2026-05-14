@@ -15,7 +15,7 @@ const VISIBILITY_OPTIONS: { value: EventVisibility; label: string; desc: string 
   { value: "PRIVATE",   label: "Private",   desc: "Invited guests only" },
 ];
 
-const EVENT_TYPES = (["HOLIDAY", "BIRTHDAY", "SPORTS", "SCHOOL", "OTHER"] as const);
+const EVENT_TYPES = (["HOLIDAY", "PARTY", "MILESTONE", "SPORTS", "SCHOOL", "OTHER"] as const);
 
 export default function NewEventPage() {
   const router = useRouter();

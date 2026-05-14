@@ -197,7 +197,8 @@ model RSVP {
 
 enum EventType {
   HOLIDAY
-  BIRTHDAY
+  PARTY
+  MILESTONE
   SPORTS
   SCHOOL
   OTHER
