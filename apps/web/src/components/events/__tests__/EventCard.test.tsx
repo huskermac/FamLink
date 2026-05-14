@@ -16,7 +16,9 @@ const baseEvent: EventSummary = {
   startAt: "2026-07-04T17:00:00.000Z",
   endAt: null,
   locationName: null,
-  isBirthdayEvent: false
+  isBirthdayEvent: false,
+  eventType: "OTHER",
+  eventVisibility: "BROADCAST",
 };
 
 describe("EventCard", () => {
@@ -27,7 +29,6 @@ describe("EventCard", () => {
 
   it("renders formatted date", () => {
     render(<EventCard event={baseEvent} />);
-    // The date string should be present (formatted via toLocaleDateString)
     const dateEl = screen.getByText(/Jul|July|Sat|Saturday/i);
     expect(dateEl).toBeInTheDocument();
   });
@@ -44,14 +45,27 @@ describe("EventCard", () => {
     expect(screen.getByText("Riverside Park")).toBeInTheDocument();
   });
 
-  it("renders birthday badge for birthday events", () => {
-    const event = { ...baseEvent, isBirthdayEvent: true };
+  it("renders Birthday badge for birthday events", () => {
+    const event = { ...baseEvent, eventType: "BIRTHDAY" as const };
     render(<EventCard event={event} />);
     expect(screen.getByText("Birthday")).toBeInTheDocument();
   });
 
-  it("does not render birthday badge for non-birthday events", () => {
+  it("renders Other badge for non-birthday events", () => {
     render(<EventCard event={baseEvent} />);
-    expect(screen.queryByText("Birthday")).not.toBeInTheDocument();
+    expect(screen.getByText("Other")).toBeInTheDocument();
+  });
+
+  it("renders correct badge label for each event type", () => {
+    const types = [
+      { eventType: "HOLIDAY" as const, label: "Holiday" },
+      { eventType: "SPORTS" as const, label: "Sports" },
+      { eventType: "SCHOOL" as const, label: "School" },
+    ];
+    for (const { eventType, label } of types) {
+      const { unmount } = render(<EventCard event={{ ...baseEvent, eventType }} />);
+      expect(screen.getByText(label)).toBeInTheDocument();
+      unmount();
+    }
   });
 });

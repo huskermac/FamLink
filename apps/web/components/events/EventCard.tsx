@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { EventSummary } from "@/lib/api/events";
+import { EVENT_TYPE_CONFIG } from "@/lib/eventTypes";
 
 interface Props {
   event: EventSummary;
@@ -22,40 +23,54 @@ function formatTime(iso: string): string {
 }
 
 export function EventCard({ event }: Props) {
+  const cfg = EVENT_TYPE_CONFIG[event.eventType ?? "OTHER"];
+
   return (
     <Link
       href={`/events/${event.id}`}
       style={{
         display: "flex",
-        flexDirection: "column",
-        gap: "6px",
         borderRadius: "8px",
-        border: "1px solid #334155",
-        background: "rgba(30,41,59,0.6)",
-        padding: "16px",
+        border: "1px solid var(--border)",
+        background: "var(--bg-card)",
         textDecoration: "none",
+        overflow: "hidden",
       }}
     >
-      <span style={{ fontSize: "15px", fontWeight: 600, color: "#e2e8f0" }}>{event.title}</span>
-      <span style={{ fontSize: "13px", color: "#94a3b8" }}>
-        {formatDate(event.startAt)} at {formatTime(event.startAt)}
-      </span>
-      {event.locationName && (
-        <span style={{ fontSize: "12px", color: "#64748b" }}>{event.locationName}</span>
-      )}
-      {event.isBirthdayEvent && (
-        <span style={{
-          marginTop: "4px",
-          alignSelf: "flex-start",
-          borderRadius: "9999px",
-          background: "rgba(49,46,129,0.5)",
-          padding: "2px 8px",
-          fontSize: "12px",
-          color: "#a5b4fc",
-        }}>
-          Birthday
+      {/* Left accent bar */}
+      <div style={{ width: "3px", flexShrink: 0, background: cfg.bar }} />
+
+      {/* Card body */}
+      <div style={{
+        flex: 1,
+        padding: "12px 14px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "4px",
+      }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "8px" }}>
+          <span style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.3 }}>
+            {event.title}
+          </span>
+          <span style={{
+            flexShrink: 0,
+            borderRadius: "9999px",
+            background: cfg.badgeBg,
+            color: cfg.badgeText,
+            padding: "2px 8px",
+            fontSize: "11px",
+            fontWeight: 500,
+          }}>
+            {cfg.label}
+          </span>
+        </div>
+        <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+          {formatDate(event.startAt)} at {formatTime(event.startAt)}
         </span>
-      )}
+        {event.locationName && (
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{event.locationName}</span>
+        )}
+      </div>
     </Link>
   );
 }
