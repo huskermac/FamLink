@@ -12,7 +12,7 @@ function DropdownItem({ item }: { item: NavItem }) {
     return (
       <Link
         href={item.href}
-        style={{ padding: "8px 12px", color: "#94a3b8", textDecoration: "none", fontSize: "13px" }}
+        style={{ padding: "8px 12px", color: "var(--text-secondary)", textDecoration: "none", fontSize: "13px" }}
       >
         {item.label}
       </Link>
@@ -26,7 +26,7 @@ function DropdownItem({ item }: { item: NavItem }) {
         onClick={() => setOpen((v) => !v)}
         style={{
           padding: "8px 12px",
-          color: "#94a3b8",
+          color: "var(--text-secondary)",
           background: "none",
           border: "none",
           cursor: "pointer",
@@ -40,8 +40,8 @@ function DropdownItem({ item }: { item: NavItem }) {
           position: "absolute",
           top: "100%",
           left: 0,
-          background: "#0f172a",
-          border: "1px solid #1e293b",
+          background: "var(--bg-sidebar)",
+          border: "1px solid var(--border)",
           borderRadius: "6px",
           minWidth: "140px",
           zIndex: 50,
@@ -53,7 +53,7 @@ function DropdownItem({ item }: { item: NavItem }) {
               style={{
                 display: "block",
                 padding: "8px 12px",
-                color: "#94a3b8",
+                color: "var(--text-secondary)",
                 textDecoration: "none",
                 fontSize: "13px",
               }}
@@ -70,8 +70,8 @@ function DropdownItem({ item }: { item: NavItem }) {
 export function TopNav() {
   return (
     <header style={{
-      background: "#0f172a",
-      borderBottom: "1px solid #1e293b",
+      background: "var(--bg-sidebar)",
+      borderBottom: "1px solid var(--border)",
       display: "flex",
       alignItems: "center",
       gap: "4px",
@@ -79,7 +79,7 @@ export function TopNav() {
       height: "48px",
       flexShrink: 0,
     }}>
-      <span style={{ color: "#6366f1", fontWeight: 700, fontSize: "15px", marginRight: "16px" }}>
+      <span style={{ color: "var(--accent)", fontWeight: 700, fontSize: "15px", marginRight: "16px" }}>
         FamLink
       </span>
       {NAV_ITEMS.map((item) => (

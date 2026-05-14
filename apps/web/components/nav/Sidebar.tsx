@@ -13,7 +13,7 @@ function ChevronIcon({ open }: { open: boolean }) {
       style={{
         transform: open ? "rotate(0deg)" : "rotate(-90deg)",
         transition: "transform 0.15s",
-        color: "#64748b",
+        color: "var(--text-muted)",
       }}
     >
       <path d="M1 3l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -28,7 +28,7 @@ function NavItemRow({ item, depth = 0 }: { item: NavItem; depth?: number }) {
   const [open, setOpen] = useState(isActive);
 
   const paddingLeft = depth === 0 ? "16px" : "40px";
-  const textColor = isActive ? "#e2e8f0" : "#94a3b8";
+  const textColor = isActive ? "var(--sidebar-active-text)" : "var(--text-secondary)";
 
   if (hasChildren) {
     return (
@@ -43,7 +43,7 @@ function NavItemRow({ item, depth = 0 }: { item: NavItem; depth?: number }) {
             justifyContent: "space-between",
             width: "100%",
             padding: `8px 16px 8px ${paddingLeft}`,
-            background: isActive ? "#1e293b" : "transparent",
+            background: isActive ? "var(--sidebar-active-bg)" : "transparent",
             border: "none",
             cursor: "pointer",
             color: textColor,
@@ -74,14 +74,14 @@ function NavItemRow({ item, depth = 0 }: { item: NavItem; depth?: number }) {
         alignItems: "center",
         gap: "10px",
         padding: `8px 16px 8px ${paddingLeft}`,
-        background: isActive && !hasChildren ? "#1e293b" : "transparent",
-        color: depth > 0 ? "#64748b" : textColor,
+        background: isActive && !hasChildren ? "var(--sidebar-active-bg)" : "transparent",
+        color: depth > 0 ? "var(--text-muted)" : textColor,
         textDecoration: "none",
         fontSize: "13px",
       }}
     >
       {depth === 0 && <span style={{ fontSize: "15px" }}>{item.icon}</span>}
-      {depth > 0 && <span style={{ fontSize: "11px", color: "#475569" }}>·</span>}
+      {depth > 0 && <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>·</span>}
       {item.label}
     </Link>
   );
@@ -95,8 +95,8 @@ export function Sidebar() {
       style={{
         width: "200px",
         minHeight: "100vh",
-        background: "#0f172a",
-        borderRight: "1px solid #1e293b",
+        background: "var(--bg-sidebar)",
+        borderRight: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
@@ -105,8 +105,8 @@ export function Sidebar() {
       {/* Logo */}
       <div style={{
         padding: "16px",
-        borderBottom: "1px solid #1e293b",
-        color: "#6366f1",
+        borderBottom: "1px solid var(--border)",
+        color: "var(--accent)",
         fontWeight: 700,
         fontSize: "15px",
         letterSpacing: "0.02em",
@@ -124,11 +124,21 @@ export function Sidebar() {
       {/* User area */}
       <div style={{
         padding: "12px 16px",
-        borderTop: "1px solid #1e293b",
-        color: "#475569",
+        borderTop: "1px solid var(--border)",
+        color: "var(--text-muted)",
         fontSize: "12px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
       }}>
-        {user?.firstName ?? ""}
+        <span>{user?.firstName ?? ""}</span>
+        <Link
+          href="/settings"
+          style={{ color: "var(--text-muted)", textDecoration: "none", fontSize: "16px", lineHeight: 1 }}
+          title="Settings"
+        >
+          ⚙️
+        </Link>
       </div>
     </aside>
   );

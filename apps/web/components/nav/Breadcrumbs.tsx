@@ -36,12 +36,11 @@ export function Breadcrumbs() {
     <nav aria-label="Breadcrumb" className="flex items-center gap-1 px-6 pt-4 pb-2 text-xs">
       {crumbs.map((crumb, i) => (
         <span key={crumb.href} className="flex items-center gap-1">
-          {i > 0 && <span style={{ color: "#475569" }}>›</span>}
+          {i > 0 && <span style={{ color: "var(--text-muted)" }}>›</span>}
           {crumb.isLast ? (
-            <span style={{ color: "#94a3b8" }}>{crumb.label}</span>
+            <span style={{ color: "var(--text-secondary)" }}>{crumb.label}</span>
           ) : (
-            <Link href={crumb.href} style={{ color: "#64748b" }}
-              className="hover:text-slate-400 transition-colors">
+            <Link href={crumb.href} style={{ color: "var(--text-muted)", textDecoration: "none" }}>
               {crumb.label}
             </Link>
           )}
