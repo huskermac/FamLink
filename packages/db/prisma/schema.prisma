@@ -146,9 +146,12 @@ model Event {
   visibility        String      @default("FAMILY")
   isRecurring       Boolean     @default(false)
   recurrenceRule    String?
-  isBirthdayEvent   Boolean     @default(false)
+  // @deprecated — kept for backwards API compatibility; use eventType instead
+  isBirthdayEvent   Boolean         @default(false)
   birthdayPersonId  String?
-  createdAt         DateTime    @default(now())
+  eventType         EventType       @default(OTHER)
+  eventVisibility   EventVisibility @default(BROADCAST)
+  createdAt         DateTime        @default(now())
   updatedAt         DateTime    @updatedAt
 
   invitations EventInvitation[]
@@ -190,6 +193,20 @@ model RSVP {
   @@unique([eventId, personId])
   @@index([eventId])
   @@index([guestToken])
+}
+
+enum EventType {
+  HOLIDAY
+  BIRTHDAY
+  SPORTS
+  SCHOOL
+  OTHER
+}
+
+enum EventVisibility {
+  BROADCAST
+  OPEN
+  PRIVATE
 }
 
 enum EventItemStatus {
