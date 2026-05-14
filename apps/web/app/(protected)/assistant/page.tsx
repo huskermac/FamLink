@@ -47,14 +47,12 @@ export default function AssistantPage() {
   const isStreaming = status === "streaming" || status === "submitted";
   const isDisabled = isStreaming || queriesRemaining === 0 || !familyId;
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (typeof bottomRef.current?.scrollIntoView === "function") {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
 
-  // Refetch status after each completed response
   useEffect(() => {
     if (status === "ready" && messages.length > 0) {
       void queryClient.invalidateQueries({ queryKey: ["aiStatus"] });
@@ -83,22 +81,20 @@ export default function AssistantPage() {
   if (familiesQuery.isLoading) {
     return (
       <div className="flex items-center justify-center p-12">
-        <p className="text-sm text-slate-400">Loading…</p>
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Loading…</p>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full max-h-[calc(100vh-4rem)] p-6 gap-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-100">Family Assistant</h1>
+        <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Family Assistant</h1>
         {statusQuery.data && (
           <RateLimitBadge queriesRemaining={queriesRemaining} />
         )}
       </div>
 
-      {/* Message list */}
       <div className="flex-1 overflow-y-auto flex flex-col gap-3 min-h-0">
         {messages.length === 0 ? (
           <div className="flex flex-col justify-end flex-1 pb-2">
@@ -112,15 +108,16 @@ export default function AssistantPage() {
               onConfirmEvent={(proposal) =>
                 createEventMutation.mutate({ proposal })
               }
-              onCancelEvent={() => {
-                // No action needed — the UI simply stops showing the card
-              }}
+              onCancelEvent={() => {}}
             />
           ))
         )}
         {isStreaming && (
           <div className="flex justify-start">
-            <div className="rounded-lg bg-slate-800/80 px-4 py-2.5 text-sm text-slate-400 animate-pulse">
+            <div
+              className="rounded-lg px-4 py-2.5 text-sm animate-pulse"
+              style={{ background: "var(--bg-card)", color: "var(--text-secondary)" }}
+            >
               Thinking…
             </div>
           </div>
@@ -128,7 +125,6 @@ export default function AssistantPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <ChatInput
         onSend={handleSend}
         disabled={isDisabled}

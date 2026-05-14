@@ -21,8 +21,8 @@ export default function PersonProfilePage() {
     return (
       <div className="flex flex-col gap-6 p-6">
         <div className="flex items-center gap-4">
-          <div className="h-16 w-16 animate-pulse rounded-full bg-slate-700" />
-          <div className="h-6 w-40 animate-pulse rounded bg-slate-700" />
+          <div className="h-16 w-16 animate-pulse rounded-full" style={{ background: "var(--border)" }} />
+          <div className="h-6 w-40 animate-pulse rounded" style={{ background: "var(--border)" }} />
         </div>
       </div>
     );
@@ -44,17 +44,17 @@ export default function PersonProfilePage() {
       </div>
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-slate-400">
+        <h2 className="text-sm font-medium uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
           Contact Info
         </h2>
-        <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-4">
+        <div className="rounded-lg p-4" style={{ border: "1px solid var(--border)", background: "var(--bg-card)" }}>
           {person.dateOfBirth ? (
-            <p className="text-sm text-slate-300">
-              <span className="font-medium text-slate-400">Date of birth: </span>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              <span className="font-medium" style={{ color: "var(--text-muted)" }}>Date of birth: </span>
               {new Date(person.dateOfBirth).toLocaleDateString()}
             </p>
           ) : (
-            <p className="text-sm text-slate-500 italic">No contact info on file.</p>
+            <p className="text-sm italic" style={{ color: "var(--text-muted)" }}>No contact info on file.</p>
           )}
         </div>
       </section>

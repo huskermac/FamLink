@@ -10,7 +10,7 @@ import { initSocket, useSocketEvent } from "@/lib/socket";
 import { EventCard } from "@/components/events/EventCard";
 
 function SkeletonCard() {
-  return <div className="h-20 animate-pulse rounded-lg border border-slate-700 bg-slate-800/40" />;
+  return <div className="h-20 animate-pulse rounded-lg" style={{ border: "1px solid var(--border)", background: "var(--bg-card)" }} />;
 }
 
 const DAY_OPTIONS = [30, 60, 90] as const;
@@ -22,7 +22,6 @@ export default function EventsPage() {
   const [familyId, setFamilyId] = useState<string | null>(null);
   const [days, setDays] = useState<DayOption>(90);
 
-  // Resolve the user's active family
   const familiesQuery = useQuery({
     queryKey: ["families"],
     queryFn: () => getMyFamilies(getToken)
@@ -35,14 +34,12 @@ export default function EventsPage() {
     }
   }, [familiesQuery.data]);
 
-  // Load events once we have a familyId
   const eventsQuery = useQuery({
     queryKey: ["events", familyId, days],
     queryFn: () => getEvents(familyId!, getToken, { days }),
     enabled: !!familyId
   });
 
-  // Initialize socket for real-time updates
   useEffect(() => {
     let cancelled = false;
     getToken().then((token) => {
@@ -53,8 +50,7 @@ export default function EventsPage() {
     };
   }, [getToken]);
 
-  // Prepend new events as they arrive — invalidate all day-window caches for this family
-  useSocketEvent<"event:created">("event:created", (payload) => {
+  useSocketEvent<"event:created">("event:created", () => {
     if (!familyId) return;
     queryClient.invalidateQueries({ queryKey: ["events", familyId] });
   });
@@ -67,9 +63,9 @@ export default function EventsPage() {
   if (hasNoFamily) {
     return (
       <div className="p-6">
-        <h1 className="text-xl font-semibold text-slate-100">Events</h1>
-        <p className="mt-4 text-sm text-slate-400">You haven&apos;t joined a family yet.</p>
-        <Link href="/onboarding" className="mt-3 inline-block text-sm text-indigo-400 hover:text-indigo-300">
+        <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Events</h1>
+        <p className="mt-4 text-sm" style={{ color: "var(--text-secondary)" }}>You haven&apos;t joined a family yet.</p>
+        <Link href="/onboarding" className="mt-3 inline-block text-sm" style={{ color: "var(--accent)" }}>
           Get started with onboarding →
         </Link>
       </div>
@@ -79,7 +75,7 @@ export default function EventsPage() {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-3 p-6">
-        <h1 className="text-xl font-semibold text-slate-100">Events</h1>
+        <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Events</h1>
         <SkeletonCard />
         <SkeletonCard />
         <SkeletonCard />
@@ -90,7 +86,7 @@ export default function EventsPage() {
   if (isError) {
     return (
       <div className="p-6">
-        <h1 className="text-xl font-semibold text-slate-100">Events</h1>
+        <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Events</h1>
         <p className="mt-4 text-sm text-red-400">Failed to load events. Please try again.</p>
       </div>
     );
@@ -99,10 +95,11 @@ export default function EventsPage() {
   return (
     <div className="flex flex-col gap-4 p-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-100">Events</h1>
+        <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Events</h1>
         <Link
           href="/events/new"
-          className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
+          className="rounded-md px-3 py-1.5 text-sm font-medium text-white transition-colors"
+          style={{ background: "var(--accent)" }}
         >
           Create Event
         </Link>
@@ -119,9 +116,9 @@ export default function EventsPage() {
               fontWeight: 500,
               border: "1px solid",
               cursor: "pointer",
-              background: days === d ? "#6366f1" : "transparent",
-              borderColor: days === d ? "#6366f1" : "#475569",
-              color: days === d ? "#fff" : "#94a3b8",
+              background: days === d ? "var(--accent)" : "transparent",
+              borderColor: days === d ? "var(--accent)" : "var(--border)",
+              color: days === d ? "#fff" : "var(--text-secondary)",
             }}
           >
             {d}d
@@ -129,7 +126,12 @@ export default function EventsPage() {
         ))}
       </div>
       {events.length === 0 ? (
-        <p className="text-sm text-slate-400">No upcoming events.</p>
+        <div style={{ color: "var(--text-secondary)", fontSize: "14px" }}>
+          <p>No events in the next {days} days.</p>
+          <Link href="/events/new" style={{ color: "var(--accent)", marginTop: "8px", display: "inline-block" }}>
+            Create an event →
+          </Link>
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
           {events.map((event) => (

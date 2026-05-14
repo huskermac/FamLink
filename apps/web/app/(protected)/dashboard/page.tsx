@@ -65,36 +65,39 @@ export default async function DashboardPage(): Promise<ReactElement> {
   }
 
   return (
-    <div className="px-4 py-10 text-slate-100">
+    <div className="px-4 py-10" style={{ color: "var(--text-primary)" }}>
       <div className="mx-auto w-full max-w-lg space-y-6">
         <h1 className="text-2xl font-semibold tracking-tight">
           Welcome, {me.firstName}!
         </h1>
-        <p className="text-slate-400">
-          You&apos;re in <span className="text-slate-200">{primaryFamily.name}</span>. Upcoming
+        <p style={{ color: "var(--text-secondary)" }}>
+          You&apos;re in <span style={{ color: "var(--text-primary)" }}>{primaryFamily.name}</span>. Upcoming
           events in the next 30 days:{" "}
-          <span className="font-medium text-slate-200">{upcomingCount}</span>
+          <span className="font-medium" style={{ color: "var(--text-primary)" }}>{upcomingCount}</span>
         </p>
-        <nav className="flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
-          <p className="text-sm font-medium text-slate-300">Quick links</p>
+        <nav
+          className="flex flex-col gap-3 rounded-lg p-4"
+          style={{ border: "1px solid var(--border)", background: "var(--bg-card)" }}
+        >
+          <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Quick links</p>
           <ul className="space-y-2 text-sm">
             <li>
-              <Link href="/dashboard" className="text-sky-400 underline hover:text-sky-300">
+              <Link href="/dashboard" style={{ color: "var(--accent)" }}>
                 Create event
               </Link>
-              <span className="ml-2 text-slate-500">(Phase 2)</span>
+              <span className="ml-2" style={{ color: "var(--text-muted)" }}>(Phase 2)</span>
             </li>
             <li>
-              <Link href="/dashboard" className="text-sky-400 underline hover:text-sky-300">
+              <Link href="/dashboard" style={{ color: "var(--accent)" }}>
                 View calendar
               </Link>
-              <span className="ml-2 text-slate-500">(Phase 2)</span>
+              <span className="ml-2" style={{ color: "var(--text-muted)" }}>(Phase 2)</span>
             </li>
             <li>
-              <Link href="/onboarding" className="text-sky-400 underline hover:text-sky-300">
+              <Link href="/onboarding" style={{ color: "var(--accent)" }}>
                 Invite members
               </Link>
-              <span className="ml-2 text-slate-500">(onboarding flow)</span>
+              <span className="ml-2" style={{ color: "var(--text-muted)" }}>(onboarding flow)</span>
             </li>
           </ul>
         </nav>

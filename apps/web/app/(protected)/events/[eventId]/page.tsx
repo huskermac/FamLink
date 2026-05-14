@@ -36,9 +36,9 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
   if (isLoading) {
     return (
       <div className="flex flex-col gap-3 p-6">
-        <div className="h-6 w-48 animate-pulse rounded bg-slate-700" />
-        <div className="h-4 w-32 animate-pulse rounded bg-slate-800" />
-        <div className="h-4 w-40 animate-pulse rounded bg-slate-800" />
+        <div className="h-6 w-48 animate-pulse rounded" style={{ background: "var(--border)" }} />
+        <div className="h-4 w-32 animate-pulse rounded" style={{ background: "var(--bg-card)" }} />
+        <div className="h-4 w-40 animate-pulse rounded" style={{ background: "var(--bg-card)" }} />
       </div>
     );
   }
@@ -53,11 +53,7 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
 
   const { event, rsvps, eventItems } = data;
 
-  // Determine if the current user is the organizer.
-  // We compare against the Clerk userId, but the event stores a personId.
-  // For now, the organizer tab is available to all authenticated members
-  // (the API enforces actual permissions server-side).
-  const isOrganizer = true; // Phase 2: show to all members; API guards writes
+  const isOrganizer = true;
 
   const tabs: { id: Tab; label: string; show: boolean }[] = [
     { id: "details", label: "Details", show: true },
@@ -69,33 +65,32 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
   return (
     <div className="flex flex-col gap-6 p-6 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-100">{event.title}</h1>
-        <p className="mt-1 text-sm text-slate-400">{formatDateTime(event.startAt)}</p>
+        <h1 className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>{event.title}</h1>
+        <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>{formatDateTime(event.startAt)}</p>
         {event.locationName && (
-          <p className="text-sm text-slate-500">{event.locationName}</p>
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>{event.locationName}</p>
         )}
       </div>
 
       {/* RSVP buttons */}
       <div className="flex flex-col gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Your RSVP</p>
+        <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Your RSVP</p>
         <RsvpButton eventId={eventId} currentStatus={null} />
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-700">
+      <div className="flex gap-1" style={{ borderBottom: "1px solid var(--border)" }}>
         {tabs
           .filter((t) => t.show)
           .map((t) => (
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
-              className={[
-                "px-4 py-2 text-sm font-medium transition-colors",
-                activeTab === t.id
-                  ? "border-b-2 border-indigo-500 text-indigo-400"
-                  : "text-slate-400 hover:text-slate-200"
-              ].join(" ")}
+              className="px-4 py-2 text-sm font-medium transition-colors"
+              style={activeTab === t.id
+                ? { borderBottom: "2px solid var(--accent)", color: "var(--accent)", marginBottom: "-1px" }
+                : { color: "var(--text-secondary)" }
+              }
             >
               {t.label}
             </button>
@@ -106,25 +101,26 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
       {activeTab === "details" && (
         <div className="flex flex-col gap-3">
           {event.description && (
-            <p className="text-sm text-slate-300 whitespace-pre-wrap">{event.description}</p>
+            <p className="text-sm whitespace-pre-wrap" style={{ color: "var(--text-secondary)" }}>{event.description}</p>
           )}
           {event.endAt && (
-            <p className="text-sm text-slate-400">Ends: {formatDateTime(event.endAt)}</p>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Ends: {formatDateTime(event.endAt)}</p>
           )}
           {event.locationAddress && (
-            <p className="text-sm text-slate-400">{event.locationAddress}</p>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{event.locationAddress}</p>
           )}
           {eventItems.length > 0 && (
             <div className="mt-2 flex flex-col gap-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Items</p>
+              <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Items</p>
               {eventItems.map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center justify-between rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2"
+                  className="flex items-center justify-between rounded-md px-3 py-2"
+                  style={{ border: "1px solid var(--border)", background: "var(--bg-card)" }}
                 >
-                  <span className="text-sm text-slate-200">{item.name}</span>
+                  <span className="text-sm" style={{ color: "var(--text-primary)" }}>{item.name}</span>
                   {item.quantity && (
-                    <span className="text-xs text-slate-500">{item.quantity}</span>
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>{item.quantity}</span>
                   )}
                 </div>
               ))}
@@ -139,12 +135,12 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
             const count = rsvps[status];
             return (
               <div key={status} className="flex flex-col gap-1">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                   {status === "YES" ? "Going" : status === "NO" ? "Not going" : status === "MAYBE" ? "Maybe" : "Pending"}{" "}
-                  <span className="text-slate-600">({count})</span>
+                  <span style={{ color: "var(--text-muted)" }}>({count})</span>
                 </p>
                 {count === 0 && (
-                  <p className="text-xs text-slate-600 italic">None yet</p>
+                  <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>None yet</p>
                 )}
               </div>
             );

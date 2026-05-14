@@ -11,7 +11,7 @@ function SectionSkeleton() {
   return (
     <div className="flex flex-col gap-3">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="h-14 animate-pulse rounded-lg border border-slate-700 bg-slate-800/40" />
+        <div key={i} className="h-14 animate-pulse rounded-lg" style={{ border: "1px solid var(--border)", background: "var(--bg-card)" }} />
       ))}
     </div>
   );
@@ -30,7 +30,7 @@ export default function FamilyDetailPage() {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-8 p-6">
-        <div className="h-7 w-48 animate-pulse rounded bg-slate-700" />
+        <div className="h-7 w-48 animate-pulse rounded" style={{ background: "var(--border)" }} />
         <SectionSkeleton />
       </div>
     );
@@ -49,15 +49,15 @@ export default function FamilyDetailPage() {
 
   return (
     <div className="flex flex-col gap-8 p-6">
-      <h1 className="text-2xl font-semibold text-slate-100">{familyGroup.name}</h1>
+      <h1 className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>{familyGroup.name}</h1>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-slate-400">Members</h2>
+        <h2 className="text-sm font-medium uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Members</h2>
         <MemberGrid members={allMembers} familyId={familyId} />
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-slate-400">Households</h2>
+        <h2 className="text-sm font-medium uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Households</h2>
         <HouseholdList households={households} familyId={familyId} />
       </section>
     </div>

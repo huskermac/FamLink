@@ -10,7 +10,6 @@ import { CalendarView } from "@/components/calendar/CalendarView";
 import { BirthdayPopover } from "@/components/calendar/BirthdayPopover";
 import { UpcomingDigest } from "@/components/calendar/UpcomingDigest";
 
-/** Parse the first name from a birthday event title like "Alice's Birthday". */
 function parseBirthdayName(title: string): string {
   return title.replace(/'s Birthday$/i, "").trim();
 }
@@ -23,7 +22,8 @@ export default function CalendarPage() {
   const [selectedBirthday, setSelectedBirthday] = useState<{ name: string } | null>(null);
 
   const familiesQuery = useQuery({
-    queryKey: ["families"],    queryFn: () => getMyFamilies(getToken)
+    queryKey: ["families"],
+    queryFn: () => getMyFamilies(getToken)
   });
 
   useEffect(() => {
@@ -63,7 +63,7 @@ export default function CalendarPage() {
   if (familiesQuery.isLoading) {
     return (
       <div className="flex items-center justify-center p-12">
-        <p className="text-sm text-slate-400">Loading…</p>
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>Loading…</p>
       </div>
     );
   }
@@ -71,9 +71,18 @@ export default function CalendarPage() {
   return (
     <div className="flex gap-6 p-6">
       <div className="flex-1 min-w-0">
-        <h1 className="text-xl font-semibold text-slate-100 mb-4">Family Calendar</h1>
+        <h1 className="text-xl font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Family Calendar</h1>
         {calendarQuery.isLoading ? (
-          <div className="h-[600px] animate-pulse rounded-lg bg-slate-800/40" />
+          <div className="h-[600px] animate-pulse rounded-lg" style={{ background: "var(--bg-card)" }} />
+        ) : events.length === 0 && !calendarQuery.isLoading ? (
+          <div>
+            <CalendarView
+              events={events}
+              onRangeChange={handleRangeChange}
+              onEventClick={handleEventClick}
+            />
+            <p className="mt-4 text-sm" style={{ color: "var(--text-secondary)" }}>No events to show.</p>
+          </div>
         ) : (
           <CalendarView
             events={events}
