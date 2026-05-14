@@ -13,4 +13,5 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Family",       href: "/family",     icon: "👨‍👩‍👧", children: [] },
   { label: "Calendar",     href: "/calendar",   icon: "🗓" },
   { label: "AI Assistant", href: "/assistant",  icon: "✦" },
+  { label: "Settings",     href: "/settings",   icon: "⚙️" },
 ];
