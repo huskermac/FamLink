@@ -430,7 +430,9 @@ eventsRouter.put("/:eventId", async (req, res) => {
       ...(d.locationAddress !== undefined ? { locationAddress: d.locationAddress } : {}),
       ...(d.locationMapUrl !== undefined ? { locationMapUrl: d.locationMapUrl } : {}),
       ...(d.visibility !== undefined ? { visibility: d.visibility } : {}),
-      ...(d.isRecurring !== undefined ? { isRecurring: d.isRecurring } : {})
+      ...(d.isRecurring !== undefined ? { isRecurring: d.isRecurring } : {}),
+      ...(d.eventType !== undefined ? { eventType: d.eventType } : {}),
+      ...(d.eventVisibility !== undefined ? { eventVisibility: d.eventVisibility } : {})
     }
   });
 

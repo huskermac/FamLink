@@ -3,7 +3,7 @@
 import { useState, use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getEventDetails, updateEvent } from "@/lib/api/events";
 import type { EventType, EventVisibility } from "@/lib/api/events";
 import { EVENT_TYPE_CONFIG } from "@/lib/eventTypes";
@@ -44,6 +44,7 @@ export default function EditEventPage({ params }: { params: Promise<Params> }) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (data && !initialized) {
@@ -87,6 +88,8 @@ export default function EditEventPage({ params }: { params: Promise<Params> }) {
         },
         getToken
       );
+      await queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+      await queryClient.invalidateQueries({ queryKey: ["events"] });
       router.push(`/events/${eventId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save changes.");
