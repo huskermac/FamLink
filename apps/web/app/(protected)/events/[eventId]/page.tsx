@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, use } from "react";
+import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { getEventDetails } from "@/lib/api/events";
@@ -64,11 +65,22 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>{event.title}</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>{formatDateTime(event.startAt)}</p>
-        {event.locationName && (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>{event.locationName}</p>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+        <div>
+          <h1 className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>{event.title}</h1>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>{formatDateTime(event.startAt)}</p>
+          {event.locationName && (
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>{event.locationName}</p>
+          )}
+        </div>
+        {!event.isBirthdayEvent && (
+          <Link
+            href={`/events/${eventId}/edit`}
+            className="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+            style={{ border: "1px solid var(--border)", color: "var(--text-secondary)", background: "transparent", whiteSpace: "nowrap" }}
+          >
+            Edit
+          </Link>
         )}
       </div>
 

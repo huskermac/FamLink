@@ -134,6 +134,18 @@ export function createEvent(
   });
 }
 
+export function updateEvent(
+  eventId: string,
+  data: Partial<CreateEventData>,
+  getToken: GetToken
+): Promise<EventRecord> {
+  return apiFetch<EventRecord>(`/api/v1/events/${encodeURIComponent(eventId)}`, {
+    getToken,
+    method: "PUT",
+    body: JSON.stringify(data)
+  });
+}
+
 export function updateRsvp(
   eventId: string,
   status: RsvpStatus,
