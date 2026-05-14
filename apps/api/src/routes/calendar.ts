@@ -49,6 +49,8 @@ function serializeDbEvent(e: Event) {
     recurrenceRule: e.recurrenceRule,
     isBirthdayEvent: e.isBirthdayEvent,
     birthdayPersonId: e.birthdayPersonId,
+    eventType: e.eventType,
+    eventVisibility: e.eventVisibility,
     createdAt: e.createdAt.toISOString(),
     updatedAt: e.updatedAt.toISOString()
   };

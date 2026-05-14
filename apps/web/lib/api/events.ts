@@ -7,6 +7,8 @@ import { apiFetch } from "@/lib/api";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type RsvpStatus = "YES" | "NO" | "MAYBE" | "PENDING";
+export type EventType = "HOLIDAY" | "BIRTHDAY" | "SPORTS" | "SCHOOL" | "OTHER";
+export type EventVisibility = "BROADCAST" | "OPEN" | "PRIVATE";
 
 export interface EventSummary {
   id: string;
@@ -18,6 +20,8 @@ export interface EventSummary {
   locationName: string | null;
   locationAddress?: string | null;
   isBirthdayEvent: boolean;
+  eventType: EventType;
+  eventVisibility: EventVisibility;
 }
 
 export interface EventRecord {
@@ -34,6 +38,8 @@ export interface EventRecord {
   visibility: string;
   isRecurring: boolean;
   isBirthdayEvent: boolean;
+  eventType: EventType;
+  eventVisibility: EventVisibility;
   createdAt: string;
   updatedAt: string;
 }
@@ -79,6 +85,8 @@ export interface CreateEventData {
   locationAddress?: string;
   description?: string;
   visibility?: string;
+  eventType?: EventType;
+  eventVisibility?: EventVisibility;
 }
 
 /** Shape used by the AI propose-confirm pattern */

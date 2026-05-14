@@ -9,6 +9,8 @@ import type { AuthedRequest } from "../middleware/requireAuth";
 import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 
 const visibilityEnum = z.enum(["PRIVATE", "HOUSEHOLD", "FAMILY", "INVITED", "GUEST"]);
+const eventTypeEnum = z.enum(["HOLIDAY", "BIRTHDAY", "SPORTS", "SCHOOL", "OTHER"]);
+const eventVisibilityEnum = z.enum(["BROADCAST", "OPEN", "PRIVATE"]);
 
 const isoDateTime = z
   .string()
@@ -24,7 +26,9 @@ const BaseEventFieldsSchema = z.object({
   locationAddress: z.string().optional(),
   locationMapUrl: z.string().url().optional(),
   visibility: visibilityEnum.optional().default("FAMILY"),
-  isRecurring: z.boolean().optional().default(false)
+  isRecurring: z.boolean().optional().default(false),
+  eventType: eventTypeEnum.optional().default("OTHER"),
+  eventVisibility: eventVisibilityEnum.optional().default("BROADCAST")
 });
 
 export const CreateEventSchema = BaseEventFieldsSchema.superRefine((data, ctx) => {
@@ -206,7 +210,9 @@ familyEventsRouter.post("/:familyId/events", async (req, res) => {
       locationAddress: d.locationAddress ?? null,
       locationMapUrl: d.locationMapUrl ?? null,
       visibility: d.visibility ?? "FAMILY",
-      isRecurring: d.isRecurring ?? false
+      isRecurring: d.isRecurring ?? false,
+      eventType: d.eventType ?? "OTHER",
+      eventVisibility: d.eventVisibility ?? "BROADCAST"
     }
   });
 
