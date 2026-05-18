@@ -8,49 +8,36 @@ interface Props {
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
+    weekday: "short", month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit"
   });
 }
 
-/**
- * Renders a proposed event from the AI assistant and lets the user confirm or
- * cancel. Does NOT call createEvent internally — that is onConfirm's responsibility
- * (required for the AI propose/confirm pattern).
- */
 export function EventConfirmationCard({ proposal, onConfirm, onCancel }: Props) {
   return (
-    <div className="rounded-lg border border-indigo-700 bg-slate-800/80 p-4 flex flex-col gap-3">
-      <p className="text-xs font-medium uppercase tracking-wide text-indigo-400">
+    <div style={{ borderRadius: "8px", border: "1px solid var(--accent)", background: "var(--bg-card)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+      <p style={{ fontSize: "11px", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--accent)" }}>
         AI Proposal — Event
       </p>
-      <div className="flex flex-col gap-1">
-        <p className="text-base font-semibold text-slate-100">{proposal.title}</p>
-        <p className="text-sm text-slate-400">{formatDateTime(proposal.startAt)}</p>
-        {proposal.endAt && (
-          <p className="text-sm text-slate-500">Ends: {formatDateTime(proposal.endAt)}</p>
-        )}
-        {proposal.locationName && (
-          <p className="text-sm text-slate-400">{proposal.locationName}</p>
-        )}
-        {proposal.description && (
-          <p className="mt-1 text-sm text-slate-300">{proposal.description}</p>
-        )}
+      <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+        <p style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)" }}>{proposal.title}</p>
+        <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{formatDateTime(proposal.startAt)}</p>
+        {proposal.endAt && <p style={{ fontSize: "13px", color: "var(--text-muted)" }}>Ends: {formatDateTime(proposal.endAt)}</p>}
+        {proposal.locationName && <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{proposal.locationName}</p>}
+        {proposal.description && <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>{proposal.description}</p>}
       </div>
-      <div className="flex gap-2">
+      <div style={{ display: "flex", gap: "8px" }}>
         <button
           onClick={onConfirm}
-          className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
+          className="rounded-md px-4 py-1.5 text-sm font-medium text-white transition-colors"
+          style={{ background: "var(--accent)" }}
         >
           Confirm
         </button>
         <button
           onClick={onCancel}
-          className="rounded-md border border-slate-600 px-4 py-1.5 text-sm font-medium text-slate-300 hover:border-slate-500 hover:text-slate-100 transition-colors"
+          className="rounded-md px-4 py-1.5 text-sm font-medium transition-colors"
+          style={{ border: "1px solid var(--border)", color: "var(--text-secondary)", background: "transparent" }}
         >
           Cancel
         </button>

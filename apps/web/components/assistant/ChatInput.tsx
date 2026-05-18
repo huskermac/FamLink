@@ -41,13 +41,15 @@ export function ChatInput({ onSend, disabled = false, placeholder = "Ask about y
         disabled={disabled}
         placeholder={placeholder}
         onKeyDown={handleKeyDown}
-        className="flex-1 resize-none rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex-1 resize-none rounded-lg px-3 py-2 text-sm focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        style={{ border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)" }}
         aria-label="Chat message"
       />
       <button
         type="submit"
         disabled={disabled}
-        className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+        className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+        style={{ background: "var(--accent)" }}
       >
         Send
       </button>

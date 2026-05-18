@@ -65,7 +65,7 @@ function renderToolPart(
 
   if (part.state === "input-streaming" || part.state === "input-available") {
     return (
-      <div className="text-xs text-slate-500 italic">
+      <div style={{ fontSize: "12px", color: "var(--text-muted)", fontStyle: "italic" }}>
         Running {part.toolName.replace(/_/g, " ")}…
       </div>
     );
@@ -80,11 +80,11 @@ export function MessageBubble({ message, onConfirmEvent, onCancelEvent }: Props)
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm ${
-          isUser
-            ? "bg-indigo-600 text-white"
-            : "bg-slate-800/80 text-slate-100"
-        }`}
+        className="max-w-[80%] rounded-lg px-4 py-2.5 text-sm"
+        style={isUser
+          ? { background: "var(--accent)", color: "#fff" }
+          : { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }
+        }
       >
         {message.parts.map((part, i) => {
           if (part.type === "text") {
