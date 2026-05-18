@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { getPerson } from "@/lib/api/family";
@@ -8,7 +9,7 @@ import { PersonHeader } from "@/components/family/PersonHeader";
 import { ProfilePhotoUploadButton } from "@/components/photos/ProfilePhotoUploadButton";
 
 export default function PersonProfilePage() {
-  const { personId } = useParams<{ personId: string }>();
+  const { familyId, personId } = useParams<{ familyId: string; personId: string }>();
   const { getToken } = useAuth();
 
   const { data: person, isLoading, isError } = useQuery({
@@ -38,9 +39,18 @@ export default function PersonProfilePage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-end gap-4">
-        <PersonHeader person={person} />
-        <ProfilePhotoUploadButton personId={personId} />
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "12px" }}>
+        <div className="flex items-end gap-4">
+          <PersonHeader person={person} />
+          <ProfilePhotoUploadButton personId={personId} />
+        </div>
+        <Link
+          href={`/family/${familyId}/members/${personId}/edit`}
+          className="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+          style={{ border: "1px solid var(--border)", color: "var(--text-secondary)", background: "transparent", whiteSpace: "nowrap" }}
+        >
+          Edit
+        </Link>
       </div>
 
       <section className="flex flex-col gap-2">
@@ -51,7 +61,7 @@ export default function PersonProfilePage() {
           {person.dateOfBirth ? (
             <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
               <span className="font-medium" style={{ color: "var(--text-muted)" }}>Date of birth: </span>
-              {new Date(person.dateOfBirth).toLocaleDateString()}
+              {new Date(person.dateOfBirth).toLocaleDateString("en-US", { timeZone: "UTC" })}
             </p>
           ) : (
             <p className="text-sm italic" style={{ color: "var(--text-muted)" }}>No contact info on file.</p>

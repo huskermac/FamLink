@@ -99,7 +99,7 @@ export function getPerson(
 
 export function updatePerson(
   personId: string,
-  data: Partial<Pick<PersonBrief, "firstName" | "lastName" | "preferredName">>,
+  data: Partial<Pick<PersonBrief, "firstName" | "lastName" | "preferredName" | "dateOfBirth">>,
   getToken: GetToken
 ): Promise<PersonBrief> {
   return apiFetch<PersonBrief>(`/api/v1/persons/${encodeURIComponent(personId)}`, {

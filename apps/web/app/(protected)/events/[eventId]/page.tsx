@@ -11,14 +11,23 @@ import { PhotoGallery } from "@/components/photos/PhotoGallery";
 
 type Params = { eventId: string };
 
-function formatDateTime(iso: string): string {
+function formatDateTime(iso: string, allDay = false): string {
+  if (allDay) {
+    return new Date(iso).toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  }
   return new Date(iso).toLocaleString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
-    minute: "2-digit"
+    minute: "2-digit",
   });
 }
 
@@ -68,7 +77,7 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
         <div>
           <h1 className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>{event.title}</h1>
-          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>{formatDateTime(event.startAt)}</p>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>{formatDateTime(event.startAt, event.isBirthdayEvent)}</p>
           {event.locationName && (
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>{event.locationName}</p>
           )}

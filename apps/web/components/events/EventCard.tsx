@@ -6,12 +6,13 @@ interface Props {
   event: EventSummary;
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, allDay = false): string {
   return new Date(iso).toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
-    year: "numeric"
+    year: "numeric",
+    ...(allDay ? { timeZone: "UTC" } : {}),
   });
 }
 
@@ -65,7 +66,9 @@ export function EventCard({ event }: Props) {
           </span>
         </div>
         <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-          {formatDate(event.startAt)} at {formatTime(event.startAt)}
+          {event.isBirthdayEvent
+            ? formatDate(event.startAt, true)
+            : `${formatDate(event.startAt)} at ${formatTime(event.startAt)}`}
         </span>
         {event.locationName && (
           <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{event.locationName}</span>
