@@ -13,15 +13,20 @@ vi.mock("@aws-sdk/client-s3", () => ({
   DeleteObjectCommand: vi.fn(function (params: unknown) { return { ...(params as object), _type: "DeleteObjectCommand" }; })
 }));
 
+vi.mock("../env", () => ({
+  env: {
+    CLOUDFLARE_R2_ACCOUNT_ID: "test-account",
+    CLOUDFLARE_R2_ACCESS_KEY_ID: "test-key",
+    CLOUDFLARE_R2_SECRET_ACCESS_KEY: "test-secret",
+    CLOUDFLARE_R2_BUCKET_NAME: "test-bucket",
+    CLOUDFLARE_R2_PUBLIC_URL: "https://pub.example.com"
+  }
+}));
+
 import { createPresignedUpload, deleteR2Object } from "../r2";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.CLOUDFLARE_R2_ACCOUNT_ID = "test-account";
-  process.env.CLOUDFLARE_R2_ACCESS_KEY_ID = "test-key";
-  process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY = "test-secret";
-  process.env.CLOUDFLARE_R2_BUCKET_NAME = "test-bucket";
-  process.env.CLOUDFLARE_R2_PUBLIC_URL = "https://pub.example.com";
   mockGetSignedUrl.mockResolvedValue("https://r2.example.com/presigned-url");
   mockSend.mockResolvedValue({});
 });
