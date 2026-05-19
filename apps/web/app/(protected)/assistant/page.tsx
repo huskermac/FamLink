@@ -113,10 +113,10 @@ export default function AssistantPage() {
           ))
         )}
         {isStreaming && (
-          <div className="flex justify-start">
+          <div style={{ display: "flex", justifyContent: "flex-start" }}>
             <div
-              className="rounded-lg px-4 py-2.5 text-sm animate-pulse"
-              style={{ background: "var(--bg-card)", color: "var(--text-secondary)" }}
+              className="animate-pulse"
+              style={{ borderRadius: "8px", padding: "10px 16px", fontSize: "14px", background: "var(--bg-card)", color: "var(--text-secondary)" }}
             >
               Thinking…
             </div>

@@ -76,8 +76,8 @@ export async function POST(req: NextRequest): Promise<NextResponse | Response> {
   return new Response(upstream.body, {
     status: upstream.status,
     headers: {
-      "Content-Type": upstream.headers.get("Content-Type") ?? "text/plain; charset=utf-8",
-      "x-vercel-ai-data-stream": upstream.headers.get("x-vercel-ai-data-stream") ?? "v1",
+      "Content-Type": upstream.headers.get("Content-Type") ?? "text/event-stream",
+      "x-vercel-ai-ui-message-stream": upstream.headers.get("x-vercel-ai-ui-message-stream") ?? "v1",
       "Transfer-Encoding": "chunked"
     }
   });

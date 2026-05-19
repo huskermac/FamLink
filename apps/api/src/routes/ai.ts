@@ -145,7 +145,7 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
       console.error("[ai/chat] Failed to persist messages:", err);
     });
 
-    result.pipeDataStreamToResponse(res);
+    result.pipeUIMessageStreamToResponse(res);
   } catch (err) {
     console.error("[ai/chat] streamText error:", err);
     res.status(500).json({ error: "AI service error" });

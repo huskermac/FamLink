@@ -78,13 +78,18 @@ export function MessageBubble({ message, onConfirmEvent, onCancelEvent }: Props)
   const isUser = message.role === "user";
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
       <div
-        className="max-w-[80%] rounded-lg px-4 py-2.5 text-sm"
-        style={isUser
-          ? { background: "var(--accent)", color: "#fff" }
-          : { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }
-        }
+        style={{
+          maxWidth: "80%",
+          borderRadius: "8px",
+          padding: "10px 16px",
+          fontSize: "14px",
+          ...(isUser
+            ? { background: "var(--accent)", color: "#fff" }
+            : { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }
+          )
+        }}
       >
         {message.parts.map((part, i) => {
           if (part.type === "text") {
