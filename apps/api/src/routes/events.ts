@@ -1,13 +1,30 @@
+import crypto from "crypto";
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { db, type Event, type EventItem } from "@famlink/db";
 import { InviteScope, RSVPStatus } from "@famlink/shared";
 import { hasAdminRole, hasPermission } from "../lib/familyAccess";
-import { generateGuestToken } from "../lib/guestToken";
 import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
 import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 import { generateBirthdayEvents } from "../lib/birthdayGenerator";
+
+function generateInviteToken(): string {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+async function matchPersonByContact(email?: string, phone?: string) {
+  if (!email && !phone) return null;
+  return db.person.findFirst({
+    where: {
+      OR: [
+        ...(email ? [{ email }] : []),
+        ...(phone ? [{ phone }] : [])
+      ]
+    },
+    select: { id: true }
+  });
+}
 
 const visibilityEnum = z.enum(["PRIVATE", "HOUSEHOLD", "FAMILY", "INVITED", "GUEST"]);
 const eventTypeEnum = z.enum(["HOLIDAY", "PARTY", "MILESTONE", "SPORTS", "SCHOOL", "OTHER"]);
@@ -481,59 +498,28 @@ eventsRouter.delete("/:eventId", async (req, res) => {
   res.status(204).send();
 });
 
-async function collectInvitePersonIds(
-  familyGroupId: string,
-  scope: InviteScope,
-  personIds: string[] | undefined,
-  householdIds: string[] | undefined
-): Promise<{ personIds: string[]; error?: string }> {
-  if (scope === InviteScope.FAMILY) {
-    const members = await db.familyMember.findMany({
-      where: { familyGroupId },
-      select: { personId: true }
-    });
-    return { personIds: members.map((m) => m.personId) };
-  }
+const InviteeSchema = z.union([
+  z.object({ personId: z.string().min(1) }),
+  z.object({
+    guestEmail: z.string().email().optional(),
+    guestPhone: z.string().min(7).optional(),
+    guestName: z.string().min(1)
+  }).refine(d => d.guestEmail || d.guestPhone, { message: "guestEmail or guestPhone required" })
+]);
 
-  if (scope === InviteScope.INDIVIDUAL) {
-    const ids = personIds ?? [];
-    for (const pid of ids) {
-      const m = await db.familyMember.findUnique({
-        where: { familyGroupId_personId: { familyGroupId, personId: pid } }
-      });
-      if (!m) {
-        return { personIds: [], error: "All persons must be members of this family" };
-      }
-    }
-    return { personIds: [...new Set(ids)] };
-  }
-
-  const hIds = householdIds ?? [];
-  const households = await db.household.findMany({
-    where: { id: { in: hIds }, familyGroupId },
-    include: { members: { select: { personId: true } } }
-  });
-  if (households.length !== hIds.length) {
-    return { personIds: [], error: "All households must belong to this family" };
-  }
-  const set = new Set<string>();
-  for (const h of households) {
-    for (const hm of h.members) {
-      set.add(hm.personId);
-    }
-  }
-  return { personIds: [...set] };
-}
+const SendInvitationsV2Schema = z.object({
+  invitees: z.array(InviteeSchema).min(1)
+});
 
 eventsRouter.post("/:eventId/invitations", async (req, res) => {
   const p = eventIdParam.safeParse(req.params);
   if (!p.success) {
-    res.status(400).json({ error: "Invalid event id", details: p.error.flatten() });
+    res.status(400).json({ error: "Invalid event id" });
     return;
   }
   const { eventId } = p.data;
 
-  const parsed = SendInvitationsSchema.safeParse(req.body);
+  const parsed = SendInvitationsV2Schema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
     return;
@@ -552,97 +538,81 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
     return;
   }
 
+  if (event.eventVisibility === "BROADCAST") {
+    res.status(400).json({ error: "Broadcast events include all family members automatically — no invitations needed" });
+    return;
+  }
+
   const membership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id }
-    }
+    where: { familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id } }
   });
   if (!membership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
   }
-  if (!hasPermission(membership, "INVITE_MEMBERS")) {
-    res.status(403).json({ error: "Not authorized to send invitations" });
+
+  // PRIVATE: only organizer/admin can invite. OPEN: any member can invite.
+  if (event.eventVisibility === "PRIVATE" && !hasAdminRole(membership) && event.createdByPersonId !== requester.id) {
+    res.status(403).json({ error: "Only the event organizer or an admin can invite to a private event" });
     return;
   }
 
-  const { scope, personIds: bodyPersonIds, householdIds } = parsed.data;
-  const collected = await collectInvitePersonIds(
-    event.familyGroupId,
-    scope,
-    bodyPersonIds,
-    householdIds
-  );
-  if (collected.error) {
-    res.status(400).json({ error: collected.error });
-    return;
-  }
-
-  const targetPersonIds = collected.personIds;
-  let guestTokensGenerated = 0;
+  const now = new Date();
+  let invitedCount = 0;
 
   await db.$transaction(async (tx) => {
-    for (const personId of targetPersonIds) {
-      const existingInv = await tx.eventInvitation.findFirst({
-        where: { eventId, personId }
-      });
-      if (!existingInv) {
-        await tx.eventInvitation.create({
-          data: {
-            eventId,
-            personId,
-            scope,
-            householdId: null,
-            sentAt: new Date()
-          }
+    for (const invitee of parsed.data.invitees) {
+      if ("personId" in invitee) {
+        const existing = await tx.eventInvitation.findFirst({
+          where: { eventId, personId: invitee.personId }
         });
-      }
-
-      const person = await tx.person.findUnique({ where: { id: personId } });
-      if (!person) {
-        continue;
-      }
-
-      const existingRsvp = await tx.rSVP.findUnique({
-        where: { eventId_personId: { eventId, personId } }
-      });
-
-      let token: string | null = null;
-      if (person.userId === null) {
-        const needNewToken = !existingRsvp?.guestToken;
-        if (needNewToken) {
-          token = generateGuestToken(
-            {
-              personId,
-              scope: "RSVP",
-              resourceId: eventId,
-              resourceType: "EVENT"
-            },
-            "48h"
-          );
-          guestTokensGenerated += 1;
+        if (!existing) {
+          await tx.eventInvitation.create({
+            data: {
+              eventId,
+              personId: invitee.personId,
+              invitedById: requester.id,
+              scope: "INDIVIDUAL",
+              status: "PENDING",
+              sentAt: now
+            }
+          });
+          invitedCount += 1;
         }
-      }
-
-      if (!existingRsvp) {
-        await tx.rSVP.create({
-          data: {
+      } else {
+        // External guest
+        const match = await matchPersonByContact(invitee.guestEmail, invitee.guestPhone);
+        const existing = await tx.eventInvitation.findFirst({
+          where: {
             eventId,
-            personId,
-            status: RSVPStatus.PENDING,
-            guestToken: token
+            OR: [
+              ...(invitee.guestEmail ? [{ guestEmail: invitee.guestEmail }] : []),
+              ...(invitee.guestPhone ? [{ guestPhone: invitee.guestPhone }] : [])
+            ]
           }
         });
-      } else if (token) {
-        await tx.rSVP.update({
-          where: { id: existingRsvp.id },
-          data: { guestToken: token }
-        });
+        if (!existing) {
+          await tx.eventInvitation.create({
+            data: {
+              eventId,
+              guestEmail: invitee.guestEmail ?? null,
+              guestPhone: invitee.guestPhone ?? null,
+              guestName: invitee.guestName,
+              guestToken: generateInviteToken(),
+              linkedPersonId: match?.id ?? null,
+              invitedById: requester.id,
+              scope: "INDIVIDUAL",
+              status: "PENDING",
+              sentAt: now
+            }
+          });
+          invitedCount += 1;
+        }
       }
     }
   });
 
-  res.status(201).json({ invited: targetPersonIds.length, guestTokensGenerated });
+  res.status(201).json({ invited: invitedCount });
 });
 
 eventsRouter.get("/:eventId/rsvps", async (req, res) => {

@@ -1,12 +1,13 @@
 import { getAuth } from "@clerk/express";
 import { db } from "@famlink/db";
-import { InviteScope, RSVPStatus } from "@famlink/shared";
+import { RSVPStatus } from "@famlink/shared";
 import request from "supertest";
 import { createApp } from "../../server";
 import { TEST_CLERK_ID, TEST_USER_2_CLERK_ID } from "../helpers/auth";
 import {
   seedGuestPerson,
   seedSecondPerson,
+  seedTestEvent,
   seedTestFamily,
   seedTestPerson
 } from "../helpers/db";
@@ -148,7 +149,7 @@ describe("events routes (P1-08)", () => {
       expect(JSON.stringify(list.body)).not.toContain("secret-token");
     });
 
-    it("POST invitations generates guestToken for userId-null persons", async () => {
+    it("POST invitations creates invitation for a family member by personId", async () => {
       const admin = await seedTestPerson();
       const { familyGroup } = await seedTestFamily(admin.id);
       const noAccount = await seedGuestPerson({ firstName: "NoAcct" });
@@ -168,7 +169,8 @@ describe("events routes (P1-08)", () => {
           createdByPersonId: admin.id,
           title: "Party",
           startAt,
-          visibility: "FAMILY"
+          visibility: "FAMILY",
+          eventVisibility: "OPEN"
         }
       });
 
@@ -176,19 +178,15 @@ describe("events routes (P1-08)", () => {
       const inv = await request(app)
         .post(`/api/v1/events/${event.id}/invitations`)
         .set("Authorization", "Bearer mock")
-        .send({
-          scope: InviteScope.INDIVIDUAL,
-          personIds: [noAccount.id]
-        });
+        .send({ invitees: [{ personId: noAccount.id }] });
       expect(inv.status).toBe(201);
       expect(inv.body.invited).toBe(1);
-      expect(inv.body.guestTokensGenerated).toBe(1);
 
-      const rsvp = await db.rSVP.findUnique({
-        where: { eventId_personId: { eventId: event.id, personId: noAccount.id } }
+      const invitation = await db.eventInvitation.findFirst({
+        where: { eventId: event.id, personId: noAccount.id }
       });
-      expect(rsvp?.status).toBe(RSVPStatus.PENDING);
-      expect(rsvp?.guestToken).toBeTruthy();
+      expect(invitation).not.toBeNull();
+      expect(invitation?.status).toBe("PENDING");
     });
 
     it("PUT /api/v1/events/:eventId/rsvp upserts for authenticated member", async () => {
@@ -260,6 +258,87 @@ describe("events routes (P1-08)", () => {
 
       const rows = await db.eventItem.findMany({ where: { eventId: event.id } });
       expect(rows).toHaveLength(2);
+    });
+  });
+
+  // ── POST /invitations v2 (P2-12) ────────────────────────────────────────
+
+  describe("POST /api/v1/events/:eventId/invitations", () => {
+    it("invites a known family member by personId", async () => {
+      const admin = await seedTestPerson();
+      const member = await seedGuestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Party" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ personId: member.id }] });
+
+      expect(res.status).toBe(201);
+      expect(res.body.invited).toBe(1);
+      const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id, personId: member.id } });
+      expect(inv).not.toBeNull();
+    });
+
+    it("creates external guest invitation with guestToken", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "OPEN" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ guestEmail: "mia@example.com", guestName: "Mia Torres" }] });
+
+      expect(res.status).toBe(201);
+      expect(res.body.invited).toBe(1);
+      const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id, guestEmail: "mia@example.com" } });
+      expect(inv).not.toBeNull();
+      expect(inv!.guestToken).not.toBeNull();
+    });
+
+    it("cross-family match: links to existing FamLink user by email", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "OPEN" } });
+
+      const otherPerson = await seedGuestPerson({ firstName: "Carol" });
+      await db.person.update({ where: { id: otherPerson.id }, data: { email: "carol@example.com" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ guestEmail: "carol@example.com", guestName: "Carol" }] });
+
+      expect(res.status).toBe(201);
+      const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id } });
+      expect(inv!.linkedPersonId).toBe(otherPerson.id);
+    });
+
+    it("returns 400 for BROADCAST event", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+      // Default eventVisibility is BROADCAST
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ personId: "fake-id" }] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/broadcast/i);
     });
   });
 
