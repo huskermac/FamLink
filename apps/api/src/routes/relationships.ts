@@ -4,6 +4,11 @@ import { db, RECIPROCAL_TYPES } from "@famlink/db";
 import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
+function parseFlexDate(s: string): Date {
+  // Accepts "2018" (→ 2018-01-01) or "2018-06-15"
+  return new Date(s.length === 4 ? `${s}-01-01T00:00:00.000Z` : `${s}T00:00:00.000Z`);
+}
+
 /** Thrown inside POST transaction when an edge already exists (avoids Prisma P2002 log on duplicate). */
 class DuplicateRelationshipConflict extends Error {
   override readonly name = "DuplicateRelationshipConflict";
@@ -12,35 +17,30 @@ class DuplicateRelationshipConflict extends Error {
   }
 }
 
-/** All 19 directed relationship types (ADR-04 registry). */
+/** All 14 directed relationship types (ADR-04 registry). */
 const RelationshipTypeSchema = z.enum([
   "SPOUSE",
   "PARTNER",
-  "EX_SPOUSE",
   "PARENT",
   "CHILD",
-  "STEP_PARENT",
-  "STEP_CHILD",
-  "ADOPTIVE_PARENT",
-  "ADOPTIVE_CHILD",
   "SIBLING",
-  "HALF_SIBLING",
-  "STEP_SIBLING",
   "GRANDPARENT",
   "GRANDCHILD",
   "AUNT_UNCLE",
   "NIECE_NEPHEW",
   "COUSIN",
-  "CAREGIVER",
   "GUARDIAN",
-  "FAMILY_FRIEND"
+  "WARD",
+  "FRIEND",
+  "CAREGIVER",
 ]);
 
 const CreateRelationshipSchema = z.object({
   fromPersonId: z.string().min(1),
-  toPersonId: z.string().min(1),
-  type: RelationshipTypeSchema,
-  notes: z.string().optional()
+  toPersonId:   z.string().min(1),
+  type:         RelationshipTypeSchema,
+  notes:        z.string().optional(),
+  startDate:    z.string().regex(/^\d{4}(-\d{2}-\d{2})?$/).optional(),
 });
 
 const familyIdParam = z.object({
@@ -96,25 +96,30 @@ function personSummary(p: {
   };
 }
 
-function serializeRelationship(r: {
-  id: string;
-  fromPersonId: string;
-  toPersonId: string;
-  type: string;
-  familyGroupId: string;
-  notes: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}) {
+function serializeRelationship(
+  r: {
+    id: string; fromPersonId: string; toPersonId: string; type: string;
+    familyGroupId: string; notes: string | null;
+    startDate: Date | null; endDate: Date | null; endReason: string | null;
+    forgottenAt: Date | null; qualifier: string | null;
+    createdAt: Date; updatedAt: Date;
+  },
+  includeQualifier = false
+) {
   return {
-    id: r.id,
+    id:           r.id,
     fromPersonId: r.fromPersonId,
-    toPersonId: r.toPersonId,
-    type: r.type,
-    familyGroupId: r.familyGroupId,
-    notes: r.notes,
-    createdAt: r.createdAt.toISOString(),
-    updatedAt: r.updatedAt.toISOString()
+    toPersonId:   r.toPersonId,
+    type:         r.type,
+    familyGroupId:r.familyGroupId,
+    notes:        r.notes,
+    startDate:    r.startDate?.toISOString() ?? null,
+    endDate:      r.endDate?.toISOString() ?? null,
+    endReason:    r.endReason ?? null,
+    forgottenAt:  r.forgottenAt?.toISOString() ?? null,
+    ...(includeQualifier ? { qualifier: r.qualifier ?? null } : {}),
+    createdAt:    r.createdAt.toISOString(),
+    updatedAt:    r.updatedAt.toISOString(),
   };
 }
 
@@ -147,7 +152,7 @@ familyRelationshipsRouter.post("/:familyId/relationships", async (req, res) => {
     return;
   }
 
-  const { fromPersonId, toPersonId, type, notes } = parsed.data;
+  const { fromPersonId, toPersonId, type, notes, startDate } = parsed.data;
 
   if (fromPersonId === toPersonId) {
     res.status(400).json({ error: "fromPersonId and toPersonId must differ" });
@@ -167,23 +172,24 @@ familyRelationshipsRouter.post("/:familyId/relationships", async (req, res) => {
 
   try {
     const result = await db.$transaction(async (tx) => {
-      const existingPrimary = await tx.relationship.findFirst({
-        where: { fromPersonId, toPersonId, familyGroupId: familyId }
+      const existingPrimary = await tx.relationship.findUnique({
+        where: {
+          fromPersonId_toPersonId_familyGroupId_type: {
+            fromPersonId, toPersonId, familyGroupId: familyId, type
+          }
+        }
       });
-      if (existingPrimary) {
-        throw new DuplicateRelationshipConflict();
-      }
+      if (existingPrimary) { throw new DuplicateRelationshipConflict(); }
       if (reciprocalType !== null) {
-        const existingReciprocal = await tx.relationship.findFirst({
+        const existingReciprocal = await tx.relationship.findUnique({
           where: {
-            fromPersonId: toPersonId,
-            toPersonId: fromPersonId,
-            familyGroupId: familyId
+            fromPersonId_toPersonId_familyGroupId_type: {
+              fromPersonId: toPersonId, toPersonId: fromPersonId,
+              familyGroupId: familyId, type: reciprocalType
+            }
           }
         });
-        if (existingReciprocal) {
-          throw new DuplicateRelationshipConflict();
-        }
+        if (existingReciprocal) { throw new DuplicateRelationshipConflict(); }
       }
 
       const relationship = await tx.relationship.create({
@@ -192,7 +198,8 @@ familyRelationshipsRouter.post("/:familyId/relationships", async (req, res) => {
           toPersonId,
           type,
           familyGroupId: familyId,
-          notes: notes ?? null
+          notes:     notes ?? null,
+          startDate: startDate ? parseFlexDate(startDate) : null,
         }
       });
 
@@ -204,7 +211,8 @@ familyRelationshipsRouter.post("/:familyId/relationships", async (req, res) => {
             toPersonId: fromPersonId,
             type: reciprocalType,
             familyGroupId: familyId,
-            notes: notes ?? null
+            notes:     notes ?? null,
+            startDate: startDate ? parseFlexDate(startDate) : null,
           }
         });
       }

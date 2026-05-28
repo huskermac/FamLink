@@ -105,7 +105,7 @@ describe("relationships routes", () => {
         .send({
           fromPersonId: admin.id,
           toPersonId: other.id,
-          type: "FAMILY_FRIEND"
+          type: "FRIEND"
         });
       expect(first.status).toBe(201);
       const second = await request(app)
@@ -114,10 +114,59 @@ describe("relationships routes", () => {
         .send({
           fromPersonId: admin.id,
           toPersonId: other.id,
-          type: "FAMILY_FRIEND"
+          type: "FRIEND"
         });
       expect(second.status).toBe(409);
       expect(second.body.error).toMatch(/already exists/i);
+    });
+
+    it("accepts FRIEND type (replaces FAMILY_FRIEND)", async () => {
+      const { admin, other, familyGroup } = await seedFamilyWithTwoMembers();
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/relationships`)
+        .set("Authorization", "Bearer mock")
+        .send({ fromPersonId: admin.id, toPersonId: other.id, type: "FRIEND" });
+      expect(res.status).toBe(201);
+      expect(res.body.relationship.type).toBe("FRIEND");
+    });
+
+    it("rejects removed type EX_SPOUSE", async () => {
+      const { admin, other, familyGroup } = await seedFamilyWithTwoMembers();
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/relationships`)
+        .set("Authorization", "Bearer mock")
+        .send({ fromPersonId: admin.id, toPersonId: other.id, type: "EX_SPOUSE" });
+      expect(res.status).toBe(400);
+    });
+
+    it("serialized response includes temporal fields", async () => {
+      const { admin, other, familyGroup } = await seedFamilyWithTwoMembers();
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/relationships`)
+        .set("Authorization", "Bearer mock")
+        .send({ fromPersonId: admin.id, toPersonId: other.id, type: "FRIEND" });
+      expect(res.status).toBe(201);
+      expect(res.body.relationship).toHaveProperty("startDate");
+      expect(res.body.relationship).toHaveProperty("endDate");
+      expect(res.body.relationship).toHaveProperty("endReason");
+      expect(res.body.relationship).toHaveProperty("forgottenAt");
+    });
+
+    it("allows two different types between the same pair", async () => {
+      const { admin, other, familyGroup } = await seedFamilyWithTwoMembers();
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/relationships`)
+        .set("Authorization", "Bearer mock")
+        .send({ fromPersonId: admin.id, toPersonId: other.id, type: "PARENT" });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/relationships`)
+        .set("Authorization", "Bearer mock")
+        .send({ fromPersonId: admin.id, toPersonId: other.id, type: "FRIEND" });
+      expect(res.status).toBe(201);
     });
   });
 
