@@ -268,7 +268,7 @@ familyRelationshipsRouter.get("/:familyId/relationships", async (req, res) => {
   }
 
   const rows = await db.relationship.findMany({
-    where: { familyGroupId: familyId },
+    where: { familyGroupId: familyId, forgottenAt: null },
     include: {
       fromPerson: {
         select: {
@@ -294,9 +294,14 @@ familyRelationshipsRouter.get("/:familyId/relationships", async (req, res) => {
     orderBy: [{ createdAt: "asc" }]
   });
 
+  const isAdmin = await db.familyMember.findFirst({
+    where: { personId: requester.id, familyGroupId: familyId, roles: { has: "ADMIN" } }
+  });
+  const includeQualifier = isAdmin !== null;
+
   res.json(
     rows.map((r) => ({
-      ...serializeRelationship(r),
+      ...serializeRelationship(r, includeQualifier),
       fromPerson: personSummary(r.fromPerson),
       toPerson: personSummary(r.toPerson)
     }))
@@ -329,6 +334,7 @@ personRelationshipsRouter.get("/:personId/relationships", async (req, res) => {
   const rows = await db.relationship.findMany({
     where: {
       fromPersonId: personId,
+      forgottenAt: null,
       familyGroup: {
         members: { some: { personId: requester.id } }
       }

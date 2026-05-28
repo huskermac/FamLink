@@ -211,6 +211,23 @@ describe("relationships routes", () => {
       expect(res.body[0].toPerson.id).toBe(other.id);
       expect(res.body[0].toPerson.ageGateLevel).toBeDefined();
     });
+
+    it("excludes forgotten relationships from list", async () => {
+      const { admin, other, familyGroup } = await seedFamilyWithTwoMembers();
+      const rel = await db.relationship.create({
+        data: {
+          fromPersonId: admin.id, toPersonId: other.id,
+          type: "FRIEND", familyGroupId: familyGroup.id,
+          forgottenAt: new Date()
+        }
+      });
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/families/${familyGroup.id}/relationships`)
+        .set("Authorization", "Bearer mock");
+      expect(res.status).toBe(200);
+      expect(res.body.find((r: any) => r.id === rel.id)).toBeUndefined();
+    });
   });
 
   describe("GET /api/v1/persons/:personId/relationships", () => {
