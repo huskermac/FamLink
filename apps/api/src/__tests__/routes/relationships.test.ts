@@ -10,6 +10,25 @@ import {
   seedTestPerson
 } from "../helpers/db";
 
+async function seedFamilyWithNonAdminMember(): Promise<{
+  admin: Awaited<ReturnType<typeof seedTestPerson>>;
+  other: Awaited<ReturnType<typeof seedSecondPerson>>;
+  familyGroup: Awaited<ReturnType<typeof seedTestFamily>>["familyGroup"];
+}> {
+  const admin = await seedTestPerson();
+  const other = await seedSecondPerson();
+  const { familyGroup } = await seedTestFamily(admin.id);
+  await db.familyMember.create({
+    data: {
+      familyGroupId: familyGroup.id,
+      personId: other.id,
+      roles: ["MEMBER"],
+      permissions: []
+    }
+  });
+  return { admin, other, familyGroup };
+}
+
 vi.mock("@clerk/express", () => ({
   clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => {
     next();
@@ -256,5 +275,64 @@ describe("relationships routes", () => {
       const gone = await db.relationship.findUnique({ where: { id: reciprocalId } });
       expect(gone).toBeNull();
     });
+  });
+});
+
+describe("PATCH /api/v1/relationships/:relationshipId", () => {
+  const app = createApp();
+  const mockGetAuth = vi.mocked(getAuth) as any;
+
+  beforeEach(() => {
+    mockGetAuth.mockReset();
+  });
+
+  it("ends a relationship — sets endDate + endReason on both primary and reciprocal", async () => {
+    const { admin, other, familyGroup } = await seedFamilyWithTwoMembers();
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const created = await request(app)
+      .post(`/api/v1/families/${familyGroup.id}/relationships`)
+      .set("Authorization", "Bearer mock")
+      .send({ fromPersonId: admin.id, toPersonId: other.id, type: "SPOUSE" });
+    const primaryId = created.body.relationship.id as string;
+
+    const patch = await request(app)
+      .patch(`/api/v1/relationships/${primaryId}`)
+      .set("Authorization", "Bearer mock")
+      .send({ endDate: "2020", endReason: "DIVORCE" });
+    expect(patch.status).toBe(200);
+    expect(patch.body.relationship.endDate).not.toBeNull();
+    expect(patch.body.relationship.endReason).toBe("DIVORCE");
+    expect(patch.body.reciprocal.endDate).not.toBeNull();
+  });
+
+  it("forget requires admin role", async () => {
+    const { admin, other, familyGroup } = await seedFamilyWithNonAdminMember();
+    mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+    const rel = await db.relationship.create({
+      data: { fromPersonId: other.id, toPersonId: admin.id, type: "FRIEND", familyGroupId: familyGroup.id }
+    });
+    const patch = await request(app)
+      .patch(`/api/v1/relationships/${rel.id}`)
+      .set("Authorization", "Bearer mock")
+      .send({ forget: true });
+    expect(patch.status).toBe(403);
+  });
+
+  it("forget sets forgottenAt on both sides (admin)", async () => {
+    const { admin, other, familyGroup } = await seedFamilyWithTwoMembers();
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const created = await request(app)
+      .post(`/api/v1/families/${familyGroup.id}/relationships`)
+      .set("Authorization", "Bearer mock")
+      .send({ fromPersonId: admin.id, toPersonId: other.id, type: "FRIEND" });
+    const primaryId = created.body.relationship.id as string;
+
+    const patch = await request(app)
+      .patch(`/api/v1/relationships/${primaryId}`)
+      .set("Authorization", "Bearer mock")
+      .send({ forget: true });
+    expect(patch.status).toBe(200);
+    const rows = await db.relationship.findMany({ where: { familyGroupId: familyGroup.id } });
+    expect(rows.every(r => r.forgottenAt !== null)).toBe(true);
   });
 });

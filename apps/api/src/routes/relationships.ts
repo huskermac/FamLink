@@ -43,6 +43,15 @@ const CreateRelationshipSchema = z.object({
   startDate:    z.string().regex(/^\d{4}(-\d{2}-\d{2})?$/).optional(),
 });
 
+const EndRelationshipSchema = z.object({
+  endDate:   z.string().regex(/^\d{4}(-\d{2}-\d{2})?$/),
+  endReason: z.enum(["DEATH", "DIVORCE", "SEPARATION", "ESTRANGEMENT", "MUTUAL", "OTHER"]),
+});
+
+const ForgetRelationshipSchema = z.object({
+  forget: z.literal(true),
+});
+
 const familyIdParam = z.object({
   familyId: z.string().min(1)
 });
@@ -398,4 +407,98 @@ relationshipsRouter.delete("/:relationshipId", async (req, res) => {
   });
 
   res.status(204).send();
+});
+
+relationshipsRouter.patch("/:relationshipId", async (req, res) => {
+  const p = relationshipIdParam.safeParse(req.params);
+  if (!p.success) {
+    res.status(400).json({ error: "Invalid relationship id" });
+    return;
+  }
+  const { relationshipId } = p.data;
+
+  const { userId } = authed(req);
+  const requester = await personForClerkUserId(userId);
+  if (!requester) {
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
+    return;
+  }
+
+  const rel = await db.relationship.findUnique({ where: { id: relationshipId } });
+  if (!rel) {
+    res.status(404).json({ error: "Relationship not found" });
+    return;
+  }
+
+  if (!(await isFamilyMember(requester.id, rel.familyGroupId))) {
+    res.status(403).json({ error: "Not a member of this family" });
+    return;
+  }
+
+  // Attempt forget (admin only)
+  const forgetParsed = ForgetRelationshipSchema.safeParse(req.body);
+  if (forgetParsed.success) {
+    const isAdmin = await db.familyMember.findFirst({
+      where: { personId: requester.id, familyGroupId: rel.familyGroupId, roles: { has: "ADMIN" } }
+    });
+    if (!isAdmin) {
+      res.status(403).json({ error: "Admin role required to forget a relationship" });
+      return;
+    }
+    const now = new Date();
+    const reciprocalType = RECIPROCAL_TYPES[rel.type] ?? null;
+    const result = await db.$transaction(async (tx) => {
+      const primary = await tx.relationship.update({
+        where: { id: rel.id },
+        data: { forgottenAt: now },
+      });
+      const reciprocal = reciprocalType != null
+        ? await tx.relationship.findFirst({
+            where: { fromPersonId: rel.toPersonId, toPersonId: rel.fromPersonId,
+                     familyGroupId: rel.familyGroupId, type: reciprocalType }
+          })
+        : null;
+      const updatedReciprocal = reciprocal
+        ? await tx.relationship.update({ where: { id: reciprocal.id }, data: { forgottenAt: now } })
+        : null;
+      return { relationship: primary, reciprocal: updatedReciprocal };
+    });
+    res.json({
+      relationship: serializeRelationship(result.relationship),
+      reciprocal: result.reciprocal ? serializeRelationship(result.reciprocal) : null,
+    });
+    return;
+  }
+
+  // Attempt end
+  const endParsed = EndRelationshipSchema.safeParse(req.body);
+  if (!endParsed.success) {
+    res.status(400).json({ error: "Invalid request body", details: endParsed.error.flatten() });
+    return;
+  }
+  const endDate = parseFlexDate(endParsed.data.endDate);
+  const { endReason } = endParsed.data;
+  const reciprocalTypeForEnd = RECIPROCAL_TYPES[rel.type] ?? null;
+
+  const result = await db.$transaction(async (tx) => {
+    const primary = await tx.relationship.update({
+      where: { id: rel.id },
+      data: { endDate, endReason },
+    });
+    const reciprocal = reciprocalTypeForEnd != null
+      ? await tx.relationship.findFirst({
+          where: { fromPersonId: rel.toPersonId, toPersonId: rel.fromPersonId,
+                   familyGroupId: rel.familyGroupId, type: reciprocalTypeForEnd }
+        })
+      : null;
+    const updatedReciprocal = reciprocal
+      ? await tx.relationship.update({ where: { id: reciprocal.id }, data: { endDate, endReason } })
+      : null;
+    return { relationship: primary, reciprocal: updatedReciprocal };
+  });
+
+  res.json({
+    relationship: serializeRelationship(result.relationship),
+    reciprocal: result.reciprocal ? serializeRelationship(result.reciprocal) : null,
+  });
 });
