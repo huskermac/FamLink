@@ -20,16 +20,13 @@ ADD COLUMN     "isDeceased" BOOLEAN NOT NULL DEFAULT false;
 -- DropIndex
 DROP INDEX "Relationship_fromPersonId_toPersonId_familyGroupId_key";
 
--- CreateIndex
-CREATE UNIQUE INDEX "Relationship_fromPersonId_toPersonId_familyGroupId_type_key" ON "Relationship"("fromPersonId", "toPersonId", "familyGroupId", "type");
-
 -- Data migration: rename FAMILY_FRIEND → FRIEND
 UPDATE "Relationship" SET "type" = 'FRIEND', "updatedAt" = NOW() WHERE "type" = 'FAMILY_FRIEND';
 
 -- Data migration: EX_SPOUSE → SPOUSE with endDate + endReason
 UPDATE "Relationship"
 SET "type" = 'SPOUSE',
-    "endDate" = "createdAt",
+    "endDate" = NULL,
     "endReason" = 'DIVORCE',
     "updatedAt" = NOW()
 WHERE "type" = 'EX_SPOUSE';
@@ -41,3 +38,6 @@ UPDATE "Relationship" SET "type" = 'SIBLING', "qualifier" = 'STEP',     "updated
 UPDATE "Relationship" SET "type" = 'SIBLING', "qualifier" = 'HALF',     "updatedAt" = NOW() WHERE "type" = 'HALF_SIBLING';
 UPDATE "Relationship" SET "type" = 'PARENT',  "qualifier" = 'ADOPTIVE', "updatedAt" = NOW() WHERE "type" = 'ADOPTIVE_PARENT';
 UPDATE "Relationship" SET "type" = 'CHILD',   "qualifier" = 'ADOPTIVE', "updatedAt" = NOW() WHERE "type" = 'ADOPTIVE_CHILD';
+
+-- CreateIndex (after all data migrations so duplicates are resolved before uniqueness is enforced)
+CREATE UNIQUE INDEX "Relationship_fromPersonId_toPersonId_familyGroupId_type_key" ON "Relationship"("fromPersonId", "toPersonId", "familyGroupId", "type");
