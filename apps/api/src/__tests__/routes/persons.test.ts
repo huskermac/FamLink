@@ -185,6 +185,54 @@ describe("persons routes", () => {
     });
   });
 
+  describe("PATCH /api/v1/persons/:personId/deceased", () => {
+    it("marks person deceased and closes active relationships", async () => {
+      const admin = await seedTestPerson();
+      const member = await seedGuestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+      await db.relationship.create({
+        data: { fromPersonId: admin.id, toPersonId: member.id, type: "SPOUSE", familyGroupId: familyGroup.id }
+      });
+      await db.relationship.create({
+        data: { fromPersonId: member.id, toPersonId: admin.id, type: "SPOUSE", familyGroupId: familyGroup.id }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .patch(`/api/v1/persons/${member.id}/deceased`)
+        .set("Authorization", "Bearer mock")
+        .send({ dateOfDeath: "2019-06-03", deceasedDisplayMode: "MEMORIAL_MARKER", deceasedShowBirthdayRemembrance: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.isDeceased).toBe(true);
+      expect(res.body.dateOfDeath).toBe("2019-06-03");
+
+      const rels = await db.relationship.findMany({ where: { familyGroupId: familyGroup.id } });
+      expect(rels.every(r => r.endDate !== null && r.endReason === "DEATH")).toBe(true);
+    });
+
+    it("returns 403 when requester is not admin", async () => {
+      const admin = await seedTestPerson();
+      const member = await seedGuestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+      await db.person.update({ where: { id: member.id }, data: { userId: TEST_USER_2_CLERK_ID } });
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+
+      const res = await request(app)
+        .patch(`/api/v1/persons/${admin.id}/deceased`)
+        .set("Authorization", "Bearer mock")
+        .send({ dateOfDeath: "2020-01-01", deceasedDisplayMode: "ARCHIVED", deceasedShowBirthdayRemembrance: false });
+
+      expect(res.status).toBe(403);
+    });
+  });
+
   describe("PUT /api/v1/persons/:personId", () => {
     it("allows self to update", async () => {
       const p = await seedTestPerson({ firstName: "Old" });

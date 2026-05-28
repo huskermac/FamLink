@@ -53,6 +53,10 @@ function serializePerson(
       : null,
     ageGateLevel: person.ageGateLevel,
     profilePhotoUrl: person.profilePhotoUrl,
+    isDeceased: person.isDeceased,
+    dateOfDeath: person.dateOfDeath ? person.dateOfDeath.toISOString().slice(0, 10) : null,
+    deceasedDisplayMode: person.deceasedDisplayMode ?? null,
+    deceasedShowBirthdayRemembrance: person.deceasedShowBirthdayRemembrance,
     createdAt: person.createdAt.toISOString(),
     updatedAt: person.updatedAt.toISOString()
   };
@@ -61,6 +65,12 @@ function serializePerson(
   }
   return base;
 }
+
+const MarkDeceasedSchema = z.object({
+  dateOfDeath:                     z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  deceasedDisplayMode:             z.enum(["MEMORIAL_MARKER", "IN_MEMORY_SECTION", "ARCHIVED"]),
+  deceasedShowBirthdayRemembrance: z.boolean().default(true),
+});
 
 async function personForClerkUserId(clerkUserId: string): Promise<Person | null> {
   return db.person.findUnique({ where: { userId: clerkUserId } });
@@ -184,6 +194,59 @@ personsRouter.post("/", async (req, res) => {
   });
 
   res.status(201).json(serializePerson(created, true));
+});
+
+personsRouter.patch("/:personId/deceased", async (req, res) => {
+  const paramParsed = personIdParamSchema.safeParse(req.params);
+  if (!paramParsed.success) {
+    res.status(400).json({ error: "Invalid person id" });
+    return;
+  }
+  const { personId } = paramParsed.data;
+
+  const parsed = MarkDeceasedSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
+    return;
+  }
+
+  const { userId } = authed(req);
+  const requester = await personForClerkUserId(userId);
+  if (!requester) {
+    res.status(404).json({ error: "Person record not found — complete onboarding" });
+    return;
+  }
+
+  const isAdmin = await isAdminOfSharedFamilyWithTarget(requester.id, personId);
+  if (!isAdmin) {
+    res.status(403).json({ error: "Admin role required to mark a person as deceased" });
+    return;
+  }
+
+  const dateOfDeath = new Date(`${parsed.data.dateOfDeath}T00:00:00.000Z`);
+
+  const updated = await db.$transaction(async (tx) => {
+    const person = await tx.person.update({
+      where: { id: personId },
+      data: {
+        isDeceased:                      true,
+        dateOfDeath,
+        deceasedDisplayMode:             parsed.data.deceasedDisplayMode,
+        deceasedShowBirthdayRemembrance: parsed.data.deceasedShowBirthdayRemembrance,
+      },
+    });
+    await tx.relationship.updateMany({
+      where: {
+        OR: [{ fromPersonId: personId }, { toPersonId: personId }],
+        endDate: null,
+        forgottenAt: null,
+      },
+      data: { endDate: dateOfDeath, endReason: "DEATH" },
+    });
+    return person;
+  });
+
+  res.json(serializePerson(updated, true));
 });
 
 personsRouter.get("/:personId", async (req, res) => {
