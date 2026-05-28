@@ -344,6 +344,31 @@ describe("events routes (P1-08)", () => {
       expect(res.body.error).toMatch(/broadcast/i);
     });
 
+    it("allows family admin (not organizer) to invite to PRIVATE event", async () => {
+      const organizer = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(organizer.id);
+      const secondAdmin = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: secondAdmin.id, roles: ["ADMIN"], permissions: [] }
+      });
+      const invitee = await seedGuestPerson({ firstName: "Invitee" });
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: invitee.id, roles: ["MEMBER"], permissions: [] }
+      });
+      const event = await seedTestEvent(familyGroup.id, organizer.id, { title: "Admin Invite Test" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ kind: "person", personId: invitee.id }] });
+
+      expect(res.status).toBe(201);
+      expect(Array.isArray(res.body.invitations)).toBe(true);
+      expect(res.body.invitations).toHaveLength(1);
+    });
+
     it("returns 403 when non-admin non-organizer tries to invite to a PRIVATE event", async () => {
       const admin = await seedTestPerson();
       const { familyGroup } = await seedTestFamily(admin.id);
