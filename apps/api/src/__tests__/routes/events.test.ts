@@ -178,9 +178,10 @@ describe("events routes (P1-08)", () => {
       const inv = await request(app)
         .post(`/api/v1/events/${event.id}/invitations`)
         .set("Authorization", "Bearer mock")
-        .send({ invitees: [{ personId: noAccount.id }] });
+        .send({ invitees: [{ kind: "person", personId: noAccount.id }] });
       expect(inv.status).toBe(201);
-      expect(inv.body.invited).toBe(1);
+      expect(Array.isArray(inv.body.invitations)).toBe(true);
+      expect(inv.body.invitations).toHaveLength(1);
 
       const invitation = await db.eventInvitation.findFirst({
         where: { eventId: event.id, personId: noAccount.id }
@@ -278,10 +279,11 @@ describe("events routes (P1-08)", () => {
       const res = await request(app)
         .post(`/api/v1/events/${event.id}/invitations`)
         .set("Authorization", "Bearer mock")
-        .send({ invitees: [{ personId: member.id }] });
+        .send({ invitees: [{ kind: "person", personId: member.id }] });
 
       expect(res.status).toBe(201);
-      expect(res.body.invited).toBe(1);
+      expect(Array.isArray(res.body.invitations)).toBe(true);
+      expect(res.body.invitations).toHaveLength(1);
       const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id, personId: member.id } });
       expect(inv).not.toBeNull();
     });
@@ -296,10 +298,11 @@ describe("events routes (P1-08)", () => {
       const res = await request(app)
         .post(`/api/v1/events/${event.id}/invitations`)
         .set("Authorization", "Bearer mock")
-        .send({ invitees: [{ guestEmail: "mia@example.com", guestName: "Mia Torres" }] });
+        .send({ invitees: [{ kind: "guest", guestEmail: "mia@example.com", guestName: "Mia Torres" }] });
 
       expect(res.status).toBe(201);
-      expect(res.body.invited).toBe(1);
+      expect(Array.isArray(res.body.invitations)).toBe(true);
+      expect(res.body.invitations).toHaveLength(1);
       const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id, guestEmail: "mia@example.com" } });
       expect(inv).not.toBeNull();
       expect(inv!.guestToken).not.toBeNull();
@@ -318,7 +321,7 @@ describe("events routes (P1-08)", () => {
       const res = await request(app)
         .post(`/api/v1/events/${event.id}/invitations`)
         .set("Authorization", "Bearer mock")
-        .send({ invitees: [{ guestEmail: "carol@example.com", guestName: "Carol" }] });
+        .send({ invitees: [{ kind: "guest", guestEmail: "carol@example.com", guestName: "Carol" }] });
 
       expect(res.status).toBe(201);
       const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id } });
@@ -335,10 +338,57 @@ describe("events routes (P1-08)", () => {
       const res = await request(app)
         .post(`/api/v1/events/${event.id}/invitations`)
         .set("Authorization", "Bearer mock")
-        .send({ invitees: [{ personId: "fake-id" }] });
+        .send({ invitees: [{ kind: "person", personId: "fake-id" }] });
 
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/broadcast/i);
+    });
+
+    it("returns 403 when non-admin non-organizer tries to invite to a PRIVATE event", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const nonAdmin = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: nonAdmin.id, roles: ["MEMBER"], permissions: [] }
+      });
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Private Party" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ kind: "person", personId: admin.id }] });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("skips duplicate invitation (idempotent) and returns 201 with count 0", async () => {
+      const admin = await seedTestPerson();
+      const member = await seedGuestPerson({ firstName: "Dup" });
+      const { familyGroup } = await seedTestFamily(admin.id);
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Dup Test" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "OPEN" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ kind: "person", personId: member.id }] });
+
+      const res2 = await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ kind: "person", personId: member.id }] });
+
+      expect(res2.status).toBe(201);
+      expect(res2.body.invitations).toHaveLength(0);
+
+      const count = await db.eventInvitation.count({ where: { eventId: event.id, personId: member.id } });
+      expect(count).toBe(1);
     });
   });
 

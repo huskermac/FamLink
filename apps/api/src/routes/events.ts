@@ -498,13 +498,14 @@ eventsRouter.delete("/:eventId", async (req, res) => {
   res.status(204).send();
 });
 
-const InviteeSchema = z.union([
-  z.object({ personId: z.string().min(1) }),
+const InviteeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("person"), personId: z.string() }),
   z.object({
+    kind: z.literal("guest"),
     guestEmail: z.string().email().optional(),
-    guestPhone: z.string().min(7).optional(),
-    guestName: z.string().min(1)
-  }).refine(d => d.guestEmail || d.guestPhone, { message: "guestEmail or guestPhone required" })
+    guestPhone: z.string().optional(),
+    guestName: z.string().optional()
+  })
 ]);
 
 const SendInvitationsV2Schema = z.object({
@@ -558,16 +559,16 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
   }
 
   const now = new Date();
-  let invitedCount = 0;
+  const createdInvitations: object[] = [];
 
   await db.$transaction(async (tx) => {
     for (const invitee of parsed.data.invitees) {
-      if ("personId" in invitee) {
+      if (invitee.kind === "person") {
         const existing = await tx.eventInvitation.findFirst({
           where: { eventId, personId: invitee.personId }
         });
         if (!existing) {
-          await tx.eventInvitation.create({
+          const created = await tx.eventInvitation.create({
             data: {
               eventId,
               personId: invitee.personId,
@@ -577,7 +578,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
               sentAt: now
             }
           });
-          invitedCount += 1;
+          createdInvitations.push(created);
         }
       } else {
         // External guest
@@ -592,12 +593,12 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
           }
         });
         if (!existing) {
-          await tx.eventInvitation.create({
+          const created = await tx.eventInvitation.create({
             data: {
               eventId,
               guestEmail: invitee.guestEmail ?? null,
               guestPhone: invitee.guestPhone ?? null,
-              guestName: invitee.guestName,
+              guestName: invitee.guestName ?? null,
               guestToken: generateInviteToken(),
               linkedPersonId: match?.id ?? null,
               invitedById: requester.id,
@@ -606,13 +607,13 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
               sentAt: now
             }
           });
-          invitedCount += 1;
+          createdInvitations.push(created);
         }
       }
     }
   });
 
-  res.status(201).json({ invited: invitedCount });
+  res.status(201).json({ invitations: createdInvitations });
 });
 
 eventsRouter.get("/:eventId/rsvps", async (req, res) => {
