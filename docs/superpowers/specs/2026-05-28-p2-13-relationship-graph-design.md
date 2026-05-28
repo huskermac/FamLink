@@ -148,7 +148,16 @@ In one transaction: set Person deceased fields, close all active relationships.
 
 Query params: `familyGroupId`, `invitedPersonIds[]`
 
-Returns: all Persons reachable from `invitedPersonIds` via an ACTIVE PARTNER or FRIEND relationship, where the target Person:
+Suggestion rules (automatic suggestions only — manual invites are never restricted by these rules):
+
+| Relationship | ACTIVE | ENDED | FORGOTTEN |
+|---|---|---|---|
+| SPOUSE / PARTNER | Suggest | Suggest only if invitedPerson and ex share a common CHILD in the graph | Never |
+| FRIEND | Suggest | Never | Never |
+
+For ENDED SPOUSE/PARTNER suggestions, the "via" label reads: *"Jake's ex-wife · co-parent of Emma, Jack"*
+
+Returns: all Persons matching the above rules, where the target Person:
 - is not deceased
 - is not already a member of `familyGroupId`
 - is not already in `invitedPersonIds`
@@ -159,7 +168,25 @@ Response shape:
   "suggestions": [
     {
       "person": { "id": "...", "displayName": "Mia Torres", "avatarUrl": null },
-      "via": { "personId": "...", "personName": "Jake McLaughlin", "relationshipType": "PARTNER" }
+      "via": {
+        "personId": "...",
+        "personName": "Jake McLaughlin",
+        "relationshipType": "PARTNER",
+        "relationshipState": "ACTIVE",
+        "sharedChildren": []
+      }
+    },
+    {
+      "person": { "id": "...", "displayName": "Carol Smith", "avatarUrl": null },
+      "via": {
+        "personId": "...",
+        "personName": "Tom McLaughlin",
+        "relationshipType": "SPOUSE",
+        "relationshipState": "ENDED",
+        "sharedChildren": [
+          { "id": "...", "displayName": "Jake McLaughlin" }
+        ]
+      }
     }
   ]
 }
@@ -195,15 +222,18 @@ A single Prisma migration handles:
 ### Relationship form (add/edit)
 - Add optional `startDate` field for all relationship types.
 - Qualifier field only rendered if caller is family group admin.
-- "End relationship" action: opens end-date + end-reason picker. Sets `endDate` + `endReason`, marks ENDED.
-- "Forget" action (admin): sets `forgottenAt`, hides from all lists.
+- "This relationship has ended" toggle: reveals end-reason picker + approximate date entry (year only is sufficient; stored as Jan 1 of that year). This supports day-1 setup where users record historical ex-relationships without knowing exact dates.
+- "Forget" action (admin): sets `forgottenAt`, hides from all lists and suggestion results.
 
 ---
 
 ## Testing
 
 - Unit: `markDeceased` service — assert all active relationships closed, reciprocals updated, endReason = DEATH
-- Unit: `getInviteeSuggestions` — assert deceased excluded, family members excluded, already-invited excluded, only PARTNER/FRIEND traversed
+- Unit: `getInviteeSuggestions` — assert deceased excluded, family members excluded, already-invited excluded
+- Unit: ENDED SPOUSE/PARTNER with shared child → suggested with sharedChildren populated
+- Unit: ENDED SPOUSE/PARTNER with no shared children → not suggested
+- Unit: ENDED FRIEND → not suggested regardless of shared children
 - Unit: qualifier write blocked for non-admin callers
 - Integration: full deceased flow — person marked, relationships closed, display mode respected in member list query
 - Integration: compound-type migration — STEP_PARENT rows become PARENT + qualifier:STEP with correct reciprocals
