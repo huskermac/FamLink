@@ -417,6 +417,60 @@ describe("events routes (P1-08)", () => {
     });
   });
 
+  // ── GET /invitations + invitee-suggestions (P2-12 Task 3) ───────────────
+
+  describe("GET /api/v1/events/:eventId/invitations", () => {
+    it("returns invitations for a family member", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Test" });
+      await db.eventInvitation.create({
+        data: { eventId: event.id, guestEmail: "bob@example.com", guestName: "Bob", status: "PENDING", guestToken: "tok1" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.invitations)).toBe(true);
+      expect(res.body.invitations).toHaveLength(1);
+      expect(res.body.invitations[0].guestEmail).toBe("bob@example.com");
+      expect(res.body.invitations[0].displayName).toBe("Bob");
+    });
+
+    it("returns 400 for non-member with no person record", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+
+      // clerk_no_person has no person record in the DB
+      mockGetAuth.mockReturnValue({ userId: "clerk_no_person" });
+      const res = await request(app)
+        .get(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(400); // no person record for clerk_no_person
+    });
+  });
+
+  describe("GET /api/v1/events/:eventId/invitee-suggestions", () => {
+    it("returns suggestions list (may be empty for new event)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/events/${event.id}/invitee-suggestions`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.suggestions)).toBe(true);
+    });
+  });
+
   // ── Socket.io emit integration (P2-04) ──────────────────────────────────
 
   describe("Socket.io emit calls (P2-04)", () => {

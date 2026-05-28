@@ -8,6 +8,7 @@ import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
 import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 import { generateBirthdayEvents } from "../lib/birthdayGenerator";
+import { getInviteeSuggestions } from "../lib/inviteeSuggestions";
 
 function generateInviteToken(): string {
   return crypto.randomBytes(32).toString("hex");
@@ -614,6 +615,116 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
   });
 
   res.status(201).json({ invitations: createdInvitations });
+});
+
+eventsRouter.get("/:eventId/invitations", async (req, res) => {
+  const p = eventIdParam.safeParse(req.params);
+  if (!p.success) {
+    res.status(400).json({ error: "Invalid event id" });
+    return;
+  }
+  const { eventId } = p.data;
+
+  const { userId } = authed(req);
+  const requester = await personForClerkUserId(userId);
+  if (!requester) {
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
+    return;
+  }
+
+  const event = await db.event.findUnique({ where: { id: eventId } });
+  if (!event) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+
+  const membership = await db.familyMember.findUnique({
+    where: { familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id } }
+  });
+  if (!membership) {
+    res.status(403).json({ error: "Not a member of this family" });
+    return;
+  }
+
+  const invitations = await db.eventInvitation.findMany({
+    where: { eventId },
+    orderBy: { createdAt: "asc" }
+  });
+
+  const linkedPersonIds = invitations.map(i => i.personId).filter(Boolean) as string[];
+  const persons = linkedPersonIds.length > 0
+    ? await db.person.findMany({
+        where: { id: { in: linkedPersonIds } },
+        select: { id: true, firstName: true, lastName: true, preferredName: true, profilePhotoUrl: true }
+      })
+    : [];
+  const personById = new Map(persons.map(p => [p.id, p]));
+
+  res.json({
+    invitations: invitations.map(inv => {
+      const person = inv.personId ? personById.get(inv.personId) : undefined;
+      return {
+        id:             inv.id,
+        personId:       inv.personId ?? null,
+        displayName:    person
+          ? (person.preferredName?.trim() || `${person.firstName} ${person.lastName}`.trim())
+          : (inv.guestName ?? "Guest"),
+        guestEmail:     inv.guestEmail ?? null,
+        guestPhone:     inv.guestPhone ?? null,
+        linkedPersonId: inv.linkedPersonId ?? null,
+        invitedById:    inv.invitedById ?? null,
+        status:         inv.status,
+        sentAt:         inv.sentAt?.toISOString() ?? null,
+      };
+    })
+  });
+});
+
+eventsRouter.get("/:eventId/invitee-suggestions", async (req, res) => {
+  const p = eventIdParam.safeParse(req.params);
+  if (!p.success) {
+    res.status(400).json({ error: "Invalid event id" });
+    return;
+  }
+  const { eventId } = p.data;
+
+  const { userId } = authed(req);
+  const requester = await personForClerkUserId(userId);
+  if (!requester) {
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
+    return;
+  }
+
+  const event = await db.event.findUnique({ where: { id: eventId } });
+  if (!event) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+
+  const membership = await db.familyMember.findUnique({
+    where: { familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id } }
+  });
+  if (!membership) {
+    res.status(403).json({ error: "Not a member of this family" });
+    return;
+  }
+
+  // Collect already-invited personIds (plus requester) to exclude from suggestions
+  const explicitInvites = await db.eventInvitation.findMany({
+    where: { eventId, personId: { not: null } },
+    select: { personId: true }
+  });
+  const invitedPersonIds = [
+    ...explicitInvites.map(i => i.personId as string),
+    requester.id
+  ];
+
+  const suggestions = await getInviteeSuggestions({
+    familyGroupId: event.familyGroupId,
+    invitedPersonIds
+  });
+
+  res.json({ suggestions });
 });
 
 eventsRouter.get("/:eventId/rsvps", async (req, res) => {
