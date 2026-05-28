@@ -295,6 +295,30 @@ describe("relationships routes", () => {
   });
 });
 
+describe("GET /api/v1/families/:familyId/invitee-suggestions", () => {
+  const app = createApp();
+  const mockGetAuth = vi.mocked(getAuth) as any;
+
+  beforeEach(() => {
+    mockGetAuth.mockReset();
+  });
+
+  it("returns friend of invited person not in family", async () => {
+    const { admin, familyGroup } = await seedFamilyWithTwoMembers();
+    const friend = await seedGuestPerson({ firstName: "Mia" });
+    await db.relationship.create({
+      data: { fromPersonId: admin.id, toPersonId: friend.id, type: "FRIEND",
+              familyGroupId: familyGroup.id }
+    });
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .get(`/api/v1/families/${familyGroup.id}/invitee-suggestions?invitedPersonIds=${admin.id}`)
+      .set("Authorization", "Bearer mock");
+    expect(res.status).toBe(200);
+    expect(res.body.suggestions.some((s: any) => s.person.id === friend.id)).toBe(true);
+  });
+});
+
 describe("PATCH /api/v1/relationships/:relationshipId", () => {
   const app = createApp();
   const mockGetAuth = vi.mocked(getAuth) as any;

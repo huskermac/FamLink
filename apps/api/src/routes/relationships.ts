@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db, RECIPROCAL_TYPES } from "@famlink/db";
 import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
+import { getInviteeSuggestions } from "../lib/inviteeSuggestions";
 
 function parseFlexDate(s: string): Date {
   // Accepts "2018" (→ 2018-01-01) or "2018-06-15"
@@ -306,6 +307,33 @@ familyRelationshipsRouter.get("/:familyId/relationships", async (req, res) => {
       toPerson: personSummary(r.toPerson)
     }))
   );
+});
+
+familyRelationshipsRouter.get("/:familyId/invitee-suggestions", async (req, res) => {
+  const p = familyIdParam.safeParse(req.params);
+  if (!p.success) {
+    res.status(400).json({ error: "Invalid family id" });
+    return;
+  }
+  const { familyId } = p.data;
+
+  const { userId } = authed(req);
+  const requester = await personForClerkUserId(userId);
+  if (!requester) {
+    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
+    return;
+  }
+
+  if (!(await isFamilyMember(requester.id, familyId))) {
+    res.status(403).json({ error: "Not a member of this family" });
+    return;
+  }
+
+  const raw = req.query["invitedPersonIds"];
+  const invitedPersonIds = Array.isArray(raw) ? raw.map(String) : raw ? [String(raw)] : [];
+
+  const suggestions = await getInviteeSuggestions({ familyGroupId: familyId, invitedPersonIds });
+  res.json({ suggestions });
 });
 
 /** GET /api/v1/persons/:personId/relationships — mount this router before personsRouter. */
