@@ -22,6 +22,10 @@ model Person {
   email           String?
   phone           String?
   fcmToken        String?
+  isDeceased                      Boolean   @default(false)
+  dateOfDeath                     DateTime?
+  deceasedDisplayMode             String?
+  deceasedShowBirthdayRemembrance Boolean   @default(true)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -122,10 +126,15 @@ model Relationship {
   familyGroupId String
   familyGroup   FamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
   notes         String?     @db.Text
+  startDate     DateTime?
+  endDate       DateTime?
+  endReason     String?
+  forgottenAt   DateTime?
+  qualifier     String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
-  @@unique([fromPersonId, toPersonId, familyGroupId])
+  @@unique([fromPersonId, toPersonId, familyGroupId, type])
   @@index([fromPersonId])
   @@index([toPersonId])
   @@index([familyGroupId])
