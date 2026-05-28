@@ -173,17 +173,25 @@ model Event {
 }
 
 model EventInvitation {
-  id          String   @id @default(cuid())
-  eventId     String
-  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  personId    String?
-  householdId String?
-  scope       String
-  sentAt      DateTime?
-  createdAt   DateTime @default(now())
+  id             String    @id @default(cuid())
+  eventId        String
+  event          Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  personId       String?
+  householdId    String?
+  scope          String    @default("INDIVIDUAL")
+  invitedById    String?
+  guestEmail     String?
+  guestPhone     String?
+  guestName      String?
+  guestToken     String?   @unique
+  linkedPersonId String?
+  status         String    @default("PENDING")
+  sentAt         DateTime?
+  createdAt      DateTime  @default(now())
 
   @@index([eventId])
   @@index([personId])
+  @@index([guestToken])
 }
 
 model RSVP {
