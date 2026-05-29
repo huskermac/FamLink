@@ -148,6 +148,75 @@ guestRouter.get("/event", requireGuestToken, async (req, res) => {
   });
 });
 
+const guestRsvpSchema = z.object({
+  status: z.enum(["ACCEPTED", "DECLINED"])
+});
+
+guestRouter.get("/invitation/:token", async (req, res) => {
+  const { token } = req.params;
+
+  const invitation = await db.eventInvitation.findUnique({
+    where: { guestToken: token },
+    include: {
+      event: {
+        select: {
+          id: true, title: true, description: true,
+          startAt: true, endAt: true,
+          locationName: true, locationAddress: true, locationMapUrl: true,
+          familyGroup: { select: { id: true, name: true } }
+        }
+      }
+    }
+  });
+
+  if (!invitation) {
+    res.status(404).json({ error: "Invitation not found" });
+    return;
+  }
+
+  const { event } = invitation;
+
+  res.json({
+    event: {
+      id:              event.id,
+      title:           event.title,
+      description:     event.description,
+      startAt:         event.startAt.toISOString(),
+      endAt:           event.endAt?.toISOString() ?? null,
+      locationName:    event.locationName,
+      locationAddress: event.locationAddress,
+      locationMapUrl:  event.locationMapUrl,
+      familyGroup:     event.familyGroup
+    },
+    guestName:     invitation.guestName,
+    currentStatus: invitation.status
+  });
+});
+
+guestRouter.post("/invitation/:token/rsvp", async (req, res) => {
+  const { token } = req.params;
+  const parsed = guestRsvpSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid RSVP body" });
+    return;
+  }
+
+  const invitation = await db.eventInvitation.findUnique({
+    where: { guestToken: token }
+  });
+  if (!invitation) {
+    res.status(404).json({ error: "Invitation not found" });
+    return;
+  }
+
+  await db.eventInvitation.update({
+    where: { id: invitation.id },
+    data: { status: parsed.data.status }
+  });
+
+  res.json({ ok: true, status: parsed.data.status });
+});
+
 guestRouter.post("/rsvp", requireGuestToken, async (req, res) => {
   const gr = req as GuestRequest;
   const { guest, guestJwt } = gr;
