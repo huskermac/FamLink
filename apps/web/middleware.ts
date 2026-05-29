@@ -4,6 +4,7 @@ const isPublicRoute = createRouteMatcher([
   "/",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  "/rsvp(.*)",
   // Express guest RSVP routes (P1-04) — must match /api/v1/guest/* on the API
   "/api/v1/guest/(.*)"
 ]);

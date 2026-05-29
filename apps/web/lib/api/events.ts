@@ -167,3 +167,78 @@ export function getRsvpStatus(
     method: "GET"
   });
 }
+
+// ── Invitations ───────────────────────────────────────────────────────────────
+
+export interface InviteeEntry {
+  personId?: string;
+  guestEmail?: string;
+  guestPhone?: string;
+  guestName?: string;
+}
+
+export interface InvitationRecord {
+  id: string;
+  personId: string | null;
+  displayName: string;
+  guestEmail: string | null;
+  guestPhone: string | null;
+  linkedPersonId: string | null;
+  invitedById: string | null;
+  status: string;
+  sentAt: string | null;
+}
+
+export interface InviteeSuggestion {
+  person: { id: string; displayName: string; avatarUrl: string | null };
+  via: { personId: string; personName: string; relationshipType: string; relationshipState: string };
+  sharedChildren: { id: string; displayName: string }[];
+}
+
+export async function sendInvitations(
+  eventId: string,
+  invitees: InviteeEntry[],
+  getToken: GetToken
+): Promise<{ invitations: unknown[] }> {
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/invitations`, {
+    method: "POST",
+    body: JSON.stringify({ invitees }),
+    getToken
+  });
+}
+
+export async function getEventInvitations(
+  eventId: string,
+  getToken: GetToken
+): Promise<{ invitations: InvitationRecord[] }> {
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/invitations`, { getToken });
+}
+
+export async function getEventInviteeSuggestions(
+  eventId: string,
+  getToken: GetToken
+): Promise<{ suggestions: InviteeSuggestion[] }> {
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/invitee-suggestions`, { getToken });
+}
+
+export async function getGuestInvitation(token: string): Promise<{
+  event: { id: string; title: string; startAt: string; endAt: string | null; locationName: string | null; familyGroup: { name: string } };
+  guestName: string | null;
+  currentStatus: string;
+}> {
+  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+  const res = await fetch(`${apiBase}/api/v1/guest/invitation/${token}`);
+  if (!res.ok) throw new Error("Invitation not found");
+  return res.json();
+}
+
+export async function submitGuestRsvp(token: string, status: "ACCEPTED" | "DECLINED"): Promise<{ ok: boolean; status: string }> {
+  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+  const res = await fetch(`${apiBase}/api/v1/guest/invitation/${token}/rsvp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) throw new Error("RSVP failed");
+  return res.json();
+}
