@@ -468,6 +468,24 @@ describe("events routes (P1-08)", () => {
 
       expect(res.status).toBe(403);
     });
+
+    it("returns 403 for PRIVATE event when requester is not organizer or admin", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+      const member = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(403);
+    });
   });
 
   describe("GET /api/v1/events/:eventId/invitee-suggestions", () => {

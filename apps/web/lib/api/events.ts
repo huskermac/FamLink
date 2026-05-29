@@ -232,7 +232,7 @@ export async function getGuestInvitation(token: string): Promise<{
   return res.json();
 }
 
-export async function submitGuestRsvp(token: string, status: "ACCEPTED" | "DECLINED"): Promise<{ ok: boolean; status: string }> {
+export async function submitGuestRsvp(token: string, status: "ACCEPTED" | "DECLINED" | "TENTATIVE"): Promise<{ ok: boolean; status: string }> {
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
   const res = await fetch(`${apiBase}/api/v1/guest/invitation/${token}/rsvp`, {
     method: "POST",

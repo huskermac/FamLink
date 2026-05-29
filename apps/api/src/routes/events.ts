@@ -646,6 +646,11 @@ eventsRouter.get("/:eventId/invitations", async (req, res) => {
     return;
   }
 
+  if (event.eventVisibility === "PRIVATE" && !hasAdminRole(membership) && event.createdByPersonId !== requester.id) {
+    res.status(403).json({ error: "Only the event organizer or an admin can view invitations for a private event" });
+    return;
+  }
+
   const invitations = await db.eventInvitation.findMany({
     where: { eventId },
     orderBy: { createdAt: "asc" }
@@ -706,6 +711,11 @@ eventsRouter.get("/:eventId/invitee-suggestions", async (req, res) => {
   });
   if (!membership) {
     res.status(403).json({ error: "Not a member of this family" });
+    return;
+  }
+
+  if (event.eventVisibility === "PRIVATE" && !hasAdminRole(membership) && event.createdByPersonId !== requester.id) {
+    res.status(403).json({ error: "Only the event organizer or an admin can view suggestions for a private event" });
     return;
   }
 

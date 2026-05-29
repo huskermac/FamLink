@@ -60,6 +60,44 @@ describe("Guest invitation token endpoints", () => {
     expect(inv!.status).toBe("ACCEPTED");
   });
 
+  it("POST /rsvp accepts TENTATIVE status", async () => {
+    const admin = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(admin.id);
+    const event = await seedTestEvent(familyGroup.id, admin.id);
+    const token = "test-token-tentative1";
+    await db.eventInvitation.create({
+      data: { eventId: event.id, guestEmail: "alex@example.com", guestToken: token, status: "PENDING" }
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/guest/invitation/${token}/rsvp`)
+      .send({ status: "TENTATIVE" });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("TENTATIVE");
+
+    const inv = await db.eventInvitation.findFirst({ where: { guestToken: token } });
+    expect(inv!.status).toBe("TENTATIVE");
+  });
+
+  it("POST /rsvp returns 400 when event has already ended", async () => {
+    const admin = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(admin.id);
+    const pastStart = new Date(Date.now() - 7200000); // 2 hours ago
+    const event = await seedTestEvent(familyGroup.id, admin.id, { startAt: pastStart });
+    // Set endAt in the past too
+    await db.event.update({ where: { id: event.id }, data: { endAt: new Date(Date.now() - 3600000) } });
+    const token = "test-token-past-event1";
+    await db.eventInvitation.create({
+      data: { eventId: event.id, guestEmail: "bob@example.com", guestToken: token, status: "PENDING" }
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/guest/invitation/${token}/rsvp`)
+      .send({ status: "ACCEPTED" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/ended/i);
+  });
+
   it("GET returns 404 for unknown token", async () => {
     const res = await request(app).get("/api/v1/guest/invitation/not-a-real-token");
     expect(res.status).toBe(404);

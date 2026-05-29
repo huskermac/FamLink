@@ -149,7 +149,7 @@ guestRouter.get("/event", requireGuestToken, async (req, res) => {
 });
 
 const guestRsvpSchema = z.object({
-  status: z.enum(["ACCEPTED", "DECLINED"])
+  status: z.enum(["ACCEPTED", "DECLINED", "TENTATIVE"])
 });
 
 guestRouter.get("/invitation/:token", async (req, res) => {
@@ -202,10 +202,17 @@ guestRouter.post("/invitation/:token/rsvp", async (req, res) => {
   }
 
   const invitation = await db.eventInvitation.findUnique({
-    where: { guestToken: token }
+    where: { guestToken: token },
+    include: { event: { select: { startAt: true, endAt: true } } }
   });
   if (!invitation) {
     res.status(404).json({ error: "Invitation not found" });
+    return;
+  }
+
+  const deadline = invitation.event.endAt ?? invitation.event.startAt;
+  if (new Date() > deadline) {
+    res.status(400).json({ error: "This event has ended — RSVP is no longer available" });
     return;
   }
 
