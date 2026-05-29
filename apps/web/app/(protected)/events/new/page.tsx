@@ -75,7 +75,11 @@ export default function NewEventPage() {
         },
         getToken
       );
-      router.push(`/events/${created.id}`);
+      if (created.eventVisibility === "OPEN" || created.eventVisibility === "PRIVATE") {
+        router.push(`/events/${created.id}/invite`);
+      } else {
+        router.push(`/events/${created.id}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create event.");
       setSubmitting(false);
