@@ -36,17 +36,33 @@ Guidelines bias toward caution over speed — for trivial tasks, use judgment.
 
 ---
 
+## Session Scope Authorization
+
+**Do not execute beyond what Steve authorized at session start.**
+
+When Steve authorizes a specific scope — e.g., "execute Tasks 1–5 of P3-01" or "run the P3-01 plan" — that scope is the ceiling for the session. After completing the last authorized task:
+
+1. Stop. Do not start the next plan, phase, or unrelated task.
+2. Write the session progress summary (see below).
+3. If the plan has remaining tasks, name them explicitly so Steve knows exactly where to resume.
+
+If scope is ambiguous (e.g., "let's do P3"), clarify the boundary before starting: which plan(s), which tasks, which phase items. Do not interpret ambiguity as unlimited authorization.
+
+---
+
 ## Session Checkpointing
 
 **Every session must end in a resumable state.** At the close of any session where meaningful work was done:
 
 1. **Update this file** — If the current phase or "what's next" has changed, update the "Current Phase" section above and commit the change.
 
-2. **Write a session bookmark to auto-memory** — Save a memory file at `C:\Users\swmcl\.claude\projects\c--Users-swmcl-FamLink\memory\project_session_bookmark_YYYY-MM-DD.md` covering:
-   - What was completed this session (feature names, commit SHAs)
-   - What is next (specific task or plan file)
-   - Any open questions or blockers
-   - Any design decisions made that aren't obvious from the code
+2. **Write a detailed session progress summary to auto-memory** — Save a memory file at `C:\Users\swmcl\.claude\projects\c--Users-swmcl-FamLink\memory\project_session_bookmark_YYYY-MM-DD.md` covering:
+   - **Authorized scope** — what Steve asked for this session
+   - **Completed tasks** — task name, commit SHA, brief description of what changed
+   - **Incomplete tasks** — what was NOT done, and why (if applicable)
+   - **Next authorized step** — the exact task name/number to resume from
+   - **Open questions or blockers** — anything that needs Steve's decision before work can continue
+   - **Design decisions made** — any choices made during implementation that aren't obvious from the code
 
 3. **Update `MEMORY.md`** — Add a one-line pointer to the new bookmark at the top of the index.
 
