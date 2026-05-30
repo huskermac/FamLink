@@ -5,7 +5,7 @@ import type { AuthedRequest } from "../middleware/requireAuth";
 
 export const personsRouter = Router();
 
-const ageGateEnum = z.enum(["NONE", "YOUNG_ADULT", "MINOR"]);
+const ageGateEnum = z.enum(["ADULT", "TEEN", "CHILD"]);
 
 const isoDateOnly = z
   .string()
@@ -17,7 +17,7 @@ export const CreatePersonSchema = z.object({
   lastName: z.string().min(1),
   preferredName: z.string().min(1).optional(),
   dateOfBirth: isoDateOnly,
-  ageGateLevel: ageGateEnum.optional().default("NONE"),
+  ageGateLevel: ageGateEnum.optional().default("ADULT"),
   /** Prisma `@default(cuid())` ids must not use Zod `cuid()` — formats can differ. */
   guardianPersonId: z.string().min(1).optional(),
   profilePhotoUrl: z.string().url().optional()
@@ -186,7 +186,7 @@ personsRouter.post("/", async (req, res) => {
       lastName: data.lastName,
       preferredName: data.preferredName,
       dateOfBirth,
-      ageGateLevel: data.ageGateLevel ?? "NONE",
+      ageGateLevel: data.ageGateLevel ?? "ADULT",
       guardianPersonId: data.guardianPersonId,
       profilePhotoUrl: data.profilePhotoUrl,
       userId: linkToClerk ? userId : null

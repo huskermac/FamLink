@@ -78,7 +78,7 @@ describe("calendar routes (P1-09)", () => {
       data: {
         firstName: "Later",
         lastName: "Person",
-        ageGateLevel: "NONE",
+        ageGateLevel: "ADULT",
         userId: null,
         dateOfBirth: new Date("1995-12-25T00:00:00.000Z")
       }

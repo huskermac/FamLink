@@ -50,7 +50,7 @@ const REQUESTER = {
   firstName: "Sarah",
   lastName: "Johnson",
   preferredName: null,
-  ageGateLevel: "NONE",
+  ageGateLevel: "ADULT",
   email: "sarah@example.com",
   phone: null,
   dateOfBirth: new Date("1980-03-15")
@@ -61,7 +61,7 @@ const MEMBER_TOM = {
   firstName: "Tom",
   lastName: "Johnson",
   preferredName: null,
-  ageGateLevel: "NONE",
+  ageGateLevel: "ADULT",
   email: null,
   phone: "+15551234567",
   dateOfBirth: new Date("1978-11-02")
@@ -156,7 +156,7 @@ describe("assembleFamilyContext", () => {
     expect(ctx.requestingPerson.displayName).toBe("Sally");
   });
 
-  it("excludes MINOR-gated persons from members array", async () => {
+  it("excludes CHILD-gated persons from members array", async () => {
     mockFamilyMemberFindUnique.mockResolvedValue(MEMBERSHIP_SARAH);
     mockFamilyGroupFindUniqueOrThrow.mockResolvedValue(FAMILY_GROUP);
     mockPersonFindUniqueOrThrow.mockResolvedValue(REQUESTER);
@@ -330,12 +330,12 @@ describe("formatContextForPrompt", () => {
       id: "p_sarah",
       displayName: "Sarah Johnson",
       relationship: "self",
-      ageGateLevel: "NONE",
+      ageGateLevel: "ADULT",
       contactable: true
     },
     members: [
-      { id: "p_tom", displayName: "Tom Johnson", relationship: "SPOUSE", ageGateLevel: "NONE", contactable: true },
-      { id: "p_margaret", displayName: "Margaret Johnson", relationship: "family member", ageGateLevel: "NONE", contactable: false }
+      { id: "p_tom", displayName: "Tom Johnson", relationship: "SPOUSE", ageGateLevel: "ADULT", contactable: true },
+      { id: "p_margaret", displayName: "Margaret Johnson", relationship: "family member", ageGateLevel: "ADULT", contactable: false }
     ],
     upcomingEvents: [
       {

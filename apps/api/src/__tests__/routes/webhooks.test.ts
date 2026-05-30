@@ -56,7 +56,7 @@ describe("POST /api/v1/webhooks/clerk", () => {
     expect(res.body.error).toBe("Invalid signature");
   });
 
-  it("user.created: creates Person with ageGateLevel NONE", async () => {
+  it("user.created: creates Person with ageGateLevel ADULT", async () => {
     const clerkId = `user_created_${Date.now()}`;
     const payload = {
       type: "user.created",
@@ -80,7 +80,7 @@ describe("POST /api/v1/webhooks/clerk", () => {
 
     const person = await db.person.findUnique({ where: { userId: clerkId } });
     expect(person).not.toBeNull();
-    expect(person?.ageGateLevel).toBe("NONE");
+    expect(person?.ageGateLevel).toBe("ADULT");
     expect(person?.firstName).toBe("Jane");
   });
 
@@ -120,7 +120,7 @@ describe("POST /api/v1/webhooks/clerk", () => {
         userId: clerkId,
         firstName: "Old",
         lastName: "Name",
-        ageGateLevel: "NONE"
+        ageGateLevel: "ADULT"
       }
     });
 

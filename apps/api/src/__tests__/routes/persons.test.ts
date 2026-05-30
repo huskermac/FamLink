@@ -82,7 +82,7 @@ describe("persons routes", () => {
         .send({
           firstName: "New",
           lastName: "Organizer",
-          ageGateLevel: "NONE"
+          ageGateLevel: "ADULT"
         });
       expect(res.status).toBe(201);
       expect(res.body.userId).toBe(TEST_USER_2_CLERK_ID);
@@ -98,12 +98,12 @@ describe("persons routes", () => {
         .send({
           firstName: "Child",
           lastName: "User",
-          ageGateLevel: "MINOR"
+          ageGateLevel: "CHILD"
         });
       expect(res.status).toBe(201);
       expect(res.body.userId).toBeNull();
       expect(res.body.firstName).toBe("Child");
-      expect(res.body.ageGateLevel).toBe("MINOR");
+      expect(res.body.ageGateLevel).toBe("CHILD");
     });
 
     it("returns 400 for invalid body", async () => {
@@ -162,7 +162,7 @@ describe("persons routes", () => {
         data: {
           firstName: "Ward",
           lastName: "Kid",
-          ageGateLevel: "MINOR",
+          ageGateLevel: "CHILD",
           userId: null,
           guardianPersonId: admin.id
         }
@@ -295,7 +295,7 @@ describe("persons routes", () => {
         data: {
           firstName: "Teen",
           lastName: "User",
-          ageGateLevel: "MINOR",
+          ageGateLevel: "CHILD",
           userId: TEST_USER_2_CLERK_ID,
           guardianPersonId: parent.id
         }

@@ -1,7 +1,7 @@
 export enum AgeGateLevel {
-  NONE = "NONE",
-  YOUNG_ADULT = "YOUNG_ADULT",
-  MINOR = "MINOR"
+  ADULT = "ADULT",
+  TEEN = "TEEN",
+  CHILD = "CHILD"
 }
 
 export interface Person {

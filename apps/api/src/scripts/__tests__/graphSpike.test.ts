@@ -43,7 +43,7 @@ const makePerson = (id: string, firstName: string, lastName: string): Person => 
   userId: null,
   preferredName: null,
   dateOfBirth: null,
-  ageGateLevel: "NONE",
+  ageGateLevel: "ADULT",
   guardianPersonId: null,
   profilePhotoUrl: null,
   email: null,

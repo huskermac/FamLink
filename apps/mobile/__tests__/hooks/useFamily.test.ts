@@ -30,7 +30,7 @@ describe("useMembers", () => {
   it("fetches /api/v1/families/:familyId", async () => {
     const mockFetch = jest.fn().mockResolvedValue({
       familyGroup: { id: "fam1", name: "Smiths" },
-      members: [{ person: { id: "p1", firstName: "Jane", lastName: "Smith", preferredName: null, dateOfBirth: null, ageGateLevel: "NONE", profilePhotoUrl: null, createdAt: "", updatedAt: "" }, roles: ["MEMBER"], joinedAt: "" }],
+      members: [{ person: { id: "p1", firstName: "Jane", lastName: "Smith", preferredName: null, dateOfBirth: null, ageGateLevel: "ADULT", profilePhotoUrl: null, createdAt: "", updatedAt: "" }, roles: ["MEMBER"], joinedAt: "" }],
       households: []
     });
     (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
@@ -73,7 +73,7 @@ describe("useMyPerson", () => {
 describe("usePersonRelationships", () => {
   it("fetches /api/v1/persons/:personId/relationships", async () => {
     const mockFetch = jest.fn().mockResolvedValue([
-      { id: "r1", fromPersonId: "p1", toPersonId: "p2", type: "SPOUSE", relatedPerson: { displayName: "John Smith", ageGateLevel: "NONE" } },
+      { id: "r1", fromPersonId: "p1", toPersonId: "p2", type: "SPOUSE", relatedPerson: { displayName: "John Smith", ageGateLevel: "ADULT" } },
     ]);
     (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
     const { result } = renderHook(() => usePersonRelationships("p1"), { wrapper });

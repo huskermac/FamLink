@@ -74,7 +74,7 @@ webhooksRouter.post("/", async (req: Request, res: Response) => {
           userId: clerkUserId,
           firstName,
           lastName,
-          ageGateLevel: "NONE",
+          ageGateLevel: "ADULT",
           profilePhotoUrl,
           email: primaryEmail
         },

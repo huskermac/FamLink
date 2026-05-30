@@ -27,6 +27,7 @@
 | v0.4 | April 2026 | Phase 2 planning complete. All six Phase 2 open questions resolved and locked. ADR-04 updated: Prisma 7 upgrade promoted to Phase 2, executed first. ADR-06 updated: Layer 1 AI tool registry locked (10 tools); Helicone locked for AI observability. ADR-09 updated: Socket.io Phase 2 scope defined (new event push + RSVP push only). ADR-12 added: AI Observability (Helicone). Build dependency map updated for full Phase 2 scope. Mobile (React Native + Expo) confirmed for Phase 2. Graph DB evaluation approach locked as evidence-based spike. |
 | v0.4.1 | April 2026 | P2-00 pre-flight clarifications. ADR-04 updated: Prisma canonical location is `packages/db` (not `apps/api`); upgrade targets that package. ADR-12 updated: Vercel AI Gateway OIDC auth considered and deferred — not available on Railway; direct provider keys via Helicone remain correct for current deployment target. ADR-13 added: Test framework locked — Vitest (API + web), Jest + Expo preset (mobile); Phase 1 Jest integration tests migrated to Vitest (not run alongside). |
 | v0.4.2 | April 2026 | ADR-10 updated: P2-10 photo sharing scope locked. Profile photos + event photo galleries ship in Phase 2. Family/general album, image resize pipeline, and facial recognition search explicitly deferred to Phase 3. |
+| v0.4.3 | May 2026 | ADR-07 updated: age_gate_level values renamed to ADULT / TEEN / CHILD with explicit age cutoffs. Passive-only policy for CHILD confirmed; TEEN default passive with parental permission plan deferred to Phase 3+. Open Q#4 further resolved. |
 
 ---
 
@@ -177,17 +178,30 @@ FamLink is a three-tier web and mobile application with an AI layer that is arch
 - Guest actions recorded against the person record, not a user account
 - Soft upgrade prompt shown after successful guest action — never mandatory, never blocking
 
-#### Minor Profile Handling [UPDATED v0.3 — Open Q#4 Partial Resolution]
+#### Minor Profile Handling [UPDATED v0.4.3 — Open Q#4 Further Resolved]
 
 | **Field** | **Type** | **Values / Notes** |
 |---|---|---|
-| age_gate_level | ENUM | NONE (default) / YOUNG_ADULT / MINOR — stored on the persons table |
-| guardian_person_id | UUID (nullable) | Foreign key to persons.id — links a minor record to their guardian |
+| age_gate_level | String | `ADULT` (default, 18+) / `TEEN` (12–17) / `CHILD` (<12) — stored on the persons table |
+| guardian_person_id | UUID (nullable) | Foreign key to persons.id — links a child or teen record to their guardian |
 
-- MVP scope: adults-only for account creation and all direct communications
-- Minors are passive graph nodes only — they have a person record but no user account
-- No behavioral tracking, no AI personalization, no direct communication to minor person records at MVP
-- Full COPPA compliance flow deferred — requires legal input (Open Q#4 remains partially open)
+**Age tier definitions (locked v0.4.3):**
+- **ADULT** — 18 and older. Full account, all communications, AI personalization.
+- **TEEN** — 12 through 17. Default passive (no account, no direct comms). Parental permission to activate teen accounts deferred to Phase 3+.
+- **CHILD** — Under 12. Always passive. No account, no comms, no AI exposure. Maps to COPPA threshold (under 13).
+
+**Current MVP scope:**
+- ADULT: full platform access
+- TEEN: passive graph node only — person record exists, no user account, no AI personalization, no direct communications. Default passive unless parental permission flow is activated (Phase 3+).
+- CHILD: passive graph node only — person record exists with guardian link; no account, no comms, no behavioral tracking, no AI personalization under any circumstances
+
+**Deferred (Phase 3+) — Teen Parental Permission Plan:**
+- A parental consent flow will allow guardians to activate teen (TEEN-tier) accounts
+- Teen accounts will operate in a restricted mode: limited AI features, guardian visibility into activity
+- Flow design requires legal input and COPPA compliance review before implementation
+- Until activated, all TEEN-tier persons remain passive (same as CHILD for practical purposes today)
+
+**Open Q#4 status:** Further resolved. Age tiers, cutoffs, and passive policies are locked. Full COPPA consent flow (especially the guardian activation flow for TEENs) remains open — requires legal input, pre-launch blocker.
 
 ---
 
@@ -455,7 +469,7 @@ Questions resolved in prior versions are shown with RESOLVED status for traceabi
 | 1 | Monorepo tooling: Turborepo vs. Nx vs. npm workspaces? | **RESOLVED** | — | Turborepo + npm workspaces. Locked ADR-00. Resolved v0.2. |
 | 2 | What is the exact member cap for the family subscription tier? | **OPEN** | Monetization / Stripe integration (Phase 3) | Medium priority — needed before payment build begins. |
 | 3 | AI rate limits per user per day — cost-sustainable thresholds? | **RESOLVED** | — | 20 queries/user/day (beta). Max iteration limits. No recursive tool calls. Locked ADR-06. Resolved v0.2. |
-| 4 | COPPA compliance: parental consent flow design for minor profiles? | **OPEN** | Minor account functionality | Partially resolved: age_gate_level enum and guardian_person_id added (v0.3). Full COPPA consent flow requires legal input. Pre-launch blocker. |
+| 4 | COPPA compliance: parental consent flow design for minor profiles? | **OPEN** | Minor account functionality | Further resolved v0.4.3: age tiers renamed ADULT/TEEN/CHILD with explicit cutoffs (18+/12-17/<12). CHILD always passive. TEEN default passive — parental permission activation deferred to Phase 3+. Full COPPA consent flow requires legal input. Pre-launch blocker. |
 | 5 | What US states / regions are in scope at launch? (GDPR scope?) | **OPEN** | Data residency, privacy policy, legal | Medium priority — needed before public launch. |
 | 6 | Moderation strategy for harmful or abusive family content? | **OPEN** | Platform policies, trust & safety | Medium priority — needed before public launch. |
 | P2-Q1 | AI monitoring: Helicone vs. LangSmith? | **RESOLVED** | — | Helicone locked for Phase 2. LangSmith revisit Phase 3. Locked ADR-12. Resolved v0.4. |

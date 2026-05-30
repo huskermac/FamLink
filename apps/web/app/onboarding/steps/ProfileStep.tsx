@@ -51,7 +51,7 @@ export function ProfileStep(props: ProfileStepProps): ReactElement {
         lastName: form.lastName.trim(),
         preferredName: form.preferredName.trim() || undefined,
         dateOfBirth: form.dateOfBirth.trim() || undefined,
-        ageGateLevel: "NONE" as const
+        ageGateLevel: "ADULT" as const
       };
       if (personId) {
         await apiFetch<{ id: string }>(`/api/v1/persons/${personId}`, {

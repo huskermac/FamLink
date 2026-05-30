@@ -259,7 +259,7 @@ describe("relationships routes", () => {
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
       expect(res.body[0].relatedPerson.displayName).toBeDefined();
-      expect(res.body[0].relatedPerson.ageGateLevel).toBe("NONE");
+      expect(res.body[0].relatedPerson.ageGateLevel).toBe("ADULT");
     });
   });
 

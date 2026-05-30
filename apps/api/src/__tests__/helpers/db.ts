@@ -12,7 +12,7 @@ export async function seedTestPerson(
     data: {
       firstName: "Test",
       lastName: "User",
-      ageGateLevel: "NONE",
+      ageGateLevel: "ADULT",
       userId: TEST_CLERK_ID,
       ...overrides
     }
@@ -26,7 +26,7 @@ export async function seedSecondPerson(): Promise<
     data: {
       firstName: "Test",
       lastName: "UserTwo",
-      ageGateLevel: "NONE",
+      ageGateLevel: "ADULT",
       userId: TEST_USER_2_CLERK_ID
     }
   });
@@ -81,7 +81,7 @@ export async function seedGuestPerson(
     data: {
       firstName: overrides?.firstName ?? "Guest",
       lastName: overrides?.lastName ?? "Member",
-      ageGateLevel: "NONE",
+      ageGateLevel: "ADULT",
       userId: null,
       ...overrides
     }

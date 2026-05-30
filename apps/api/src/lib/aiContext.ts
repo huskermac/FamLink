@@ -7,7 +7,7 @@
  *
  * Privacy rules:
  *  - Cross-family-group access is forbidden (verified before any fetch).
- *  - Persons with ageGateLevel = MINOR are excluded from AI context.
+ *  - Persons with ageGateLevel = CHILD are excluded from AI context.
  *  - This module never calls an LLM and never imports the AI SDK.
  */
 
@@ -15,7 +15,7 @@ import { db } from "@famlink/db";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type AgeGateLevel = "NONE" | "MINOR";
+export type AgeGateLevel = "ADULT" | "CHILD";
 
 export interface PersonSummary {
   id: string;
@@ -124,7 +124,7 @@ export async function assembleFamilyContext(
 
   // 4. Fetch non-minor family members (limit to maxMembers)
   const memberRows = await db.familyMember.findMany({
-    where: { familyGroupId, person: { ageGateLevel: { not: "MINOR" } } },
+    where: { familyGroupId, person: { ageGateLevel: { not: "CHILD" } } },
     include: { person: true },
     take: opts.maxMembers,
     orderBy: { joinedAt: "asc" }

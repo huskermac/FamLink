@@ -36,13 +36,13 @@ async function main(): Promise<void> {
       ageGateLevel: string;
 
     }> = [
-      { id: IDS.sarah, firstName: "Sarah", lastName: "Johnson", dob: "1980-03-15", userId: "clerk_sarah_dev", ageGateLevel: "NONE" },
-      { id: IDS.tom, firstName: "Tom", lastName: "Johnson", dob: "1978-11-02", userId: "clerk_tom_dev", ageGateLevel: "NONE" },
-      { id: IDS.emma, firstName: "Emma", lastName: "Johnson", dob: "2015-07-22", userId: null, ageGateLevel: "MINOR" },
-      { id: IDS.jack, firstName: "Jack", lastName: "Johnson", dob: "2013-04-10", userId: null, ageGateLevel: "MINOR" },
-      { id: IDS.margaret, firstName: "Margaret", lastName: "Johnson", dob: "1950-06-08", userId: "clerk_margaret_dev", ageGateLevel: "NONE" },
-      { id: IDS.robert, firstName: "Robert", lastName: "Johnson", dob: "1948-09-14", userId: "clerk_robert_dev", ageGateLevel: "NONE" },
-      { id: IDS.dave, firstName: "Dave", lastName: "Johnson", dob: "1975-12-30", userId: null, ageGateLevel: "NONE" }
+      { id: IDS.sarah, firstName: "Sarah", lastName: "Johnson", dob: "1980-03-15", userId: "clerk_sarah_dev", ageGateLevel: "ADULT" },
+      { id: IDS.tom, firstName: "Tom", lastName: "Johnson", dob: "1978-11-02", userId: "clerk_tom_dev", ageGateLevel: "ADULT" },
+      { id: IDS.emma, firstName: "Emma", lastName: "Johnson", dob: "2015-07-22", userId: null, ageGateLevel: "CHILD" },
+      { id: IDS.jack, firstName: "Jack", lastName: "Johnson", dob: "2013-04-10", userId: null, ageGateLevel: "CHILD" },
+      { id: IDS.margaret, firstName: "Margaret", lastName: "Johnson", dob: "1950-06-08", userId: "clerk_margaret_dev", ageGateLevel: "ADULT" },
+      { id: IDS.robert, firstName: "Robert", lastName: "Johnson", dob: "1948-09-14", userId: "clerk_robert_dev", ageGateLevel: "ADULT" },
+      { id: IDS.dave, firstName: "Dave", lastName: "Johnson", dob: "1975-12-30", userId: null, ageGateLevel: "ADULT" }
     ];
   
   for (const p of people) {

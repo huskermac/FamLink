@@ -87,7 +87,7 @@ vi.mock("../../lib/aiContext", () => ({
   assembleFamilyContext: vi.fn().mockResolvedValue({
     familyGroupId: "fam1",
     familyName: "Test Family",
-    requestingPerson: { id: "p1", displayName: "Alice", relationship: "self", ageGateLevel: "NONE", contactable: true },
+    requestingPerson: { id: "p1", displayName: "Alice", relationship: "self", ageGateLevel: "ADULT", contactable: true },
     members: [],
     upcomingEvents: [],
     upcomingBirthdays: [],

@@ -3,7 +3,7 @@
  *
  * All 10 Layer 1 tools: 9 read-only + 1 write (propose/confirm guardrail).
  * Privacy rules:
- *  - MINOR-gated persons are excluded from all responses.
+ *  - CHILD-gated persons are excluded from all responses.
  *  - Cross-family-group access is forbidden (familyGroupId checked in every tool).
  *  - create_event NEVER writes to the database — it returns a proposal only.
  *
@@ -39,7 +39,7 @@ function toPersonSummary(person: {
     id: person.id,
     displayName: buildDisplayName(person),
     relationship,
-    ageGateLevel: person.ageGateLevel as "NONE" | "MINOR",
+    ageGateLevel: person.ageGateLevel as "ADULT" | "CHILD",
     contactable: !!(person.email ?? person.phone)
   };
 }
@@ -134,7 +134,7 @@ export const get_person = tool<GetPersonInput, PersonSummary[]>({
   inputSchema: GetPersonSchema,
   execute: async ({ name, familyGroupId }) => {
     const members = await db.familyMember.findMany({
-      where: { familyGroupId, person: { ageGateLevel: { not: "MINOR" } } },
+      where: { familyGroupId, person: { ageGateLevel: { not: "CHILD" } } },
       include: { person: true },
       take: 50
     });
@@ -159,7 +159,7 @@ export const get_family_members = tool<GetFamilyMembersInput, PersonSummary[]>({
   inputSchema: GetFamilyMembersSchema,
   execute: async ({ familyGroupId }) => {
     const members = await db.familyMember.findMany({
-      where: { familyGroupId, person: { ageGateLevel: { not: "MINOR" } } },
+      where: { familyGroupId, person: { ageGateLevel: { not: "CHILD" } } },
       include: { person: true },
       orderBy: { joinedAt: "asc" }
     });
@@ -222,7 +222,7 @@ export const get_upcoming_birthdays = tool<GetUpcomingBirthdaysInput, BirthdayRe
     const members = await db.familyMember.findMany({
       where: {
         familyGroupId,
-        person: { ageGateLevel: { not: "MINOR" }, dateOfBirth: { not: null } }
+        person: { ageGateLevel: { not: "CHILD" }, dateOfBirth: { not: null } }
       },
       include: { person: true }
     });
@@ -348,7 +348,7 @@ export const get_household_members = tool<GetHouseholdMembersInput, PersonSummar
     if (!household) return [];
 
     const members = await db.householdMember.findMany({
-      where: { householdId, person: { ageGateLevel: { not: "MINOR" } } },
+      where: { householdId, person: { ageGateLevel: { not: "CHILD" } } },
       include: { person: true }
     });
     return members.map(m => toPersonSummary(m.person));
@@ -365,7 +365,7 @@ export const get_contact_info = tool<GetContactInfoInput, ContactInfoResult>({
     });
 
     if (!membership) return null;
-    if (membership.person.ageGateLevel === "MINOR") return null;
+    if (membership.person.ageGateLevel === "CHILD") return null;
 
     return {
       displayName: buildDisplayName(membership.person),

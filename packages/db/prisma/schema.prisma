@@ -14,7 +14,7 @@ model Person {
   lastName        String
   preferredName   String?
   dateOfBirth     DateTime? @db.Date
-  ageGateLevel     String    @default("NONE")
+  ageGateLevel     String    @default("ADULT")
   guardianPersonId String?
   guardian         Person?   @relation("GuardianWard", fields: [guardianPersonId], references: [id])
   wards            Person[]  @relation("GuardianWard")

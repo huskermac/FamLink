@@ -84,7 +84,7 @@ export function InviteStep(props: InviteStepProps): ReactElement {
           body: JSON.stringify({
             firstName: row.firstName.trim(),
             lastName: "Member",
-            ageGateLevel: "NONE"
+            ageGateLevel: "ADULT"
           })
         });
         await apiFetch(`/api/v1/families/${encodeURIComponent(familyGroupId)}/members`, {

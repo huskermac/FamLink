@@ -77,7 +77,7 @@ const PERSON_ALICE: PersonFixture = {
   firstName: "Alice",
   lastName: "Smith",
   preferredName: null,
-  ageGateLevel: "NONE",
+  ageGateLevel: "ADULT",
   email: "alice@example.com",
   phone: null,
   dateOfBirth: new Date("1980-06-15")
@@ -88,7 +88,7 @@ const PERSON_BOB: PersonFixture = {
   firstName: "Bob",
   lastName: "Smith",
   preferredName: "Bobby",
-  ageGateLevel: "NONE",
+  ageGateLevel: "ADULT",
   email: null,
   phone: "+15551234567",
   dateOfBirth: null
@@ -99,7 +99,7 @@ const PERSON_MINOR: PersonFixture = {
   firstName: "Tim",
   lastName: "Smith",
   preferredName: null,
-  ageGateLevel: "MINOR",
+  ageGateLevel: "CHILD",
   email: "kid@example.com",
   phone: null,
   dateOfBirth: new Date("2015-01-01")
@@ -394,7 +394,7 @@ describe("get_household_members", () => {
 // ── get_contact_info ──────────────────────────────────────────────────────────
 
 describe("get_contact_info", () => {
-  it("returns contact info for a non-minor person", async () => {
+  it("returns contact info for an adult person", async () => {
     mockFamilyMemberFindFirst.mockResolvedValue({ person: PERSON_ALICE });
 
     const result = await get_contact_info.execute!(
@@ -406,7 +406,7 @@ describe("get_contact_info", () => {
     expect(result.email).toBe("alice@example.com");
   });
 
-  it("returns null for MINOR-gated person", async () => {
+  it("returns null for CHILD-gated person", async () => {
     mockFamilyMemberFindFirst.mockResolvedValue({ person: PERSON_MINOR });
 
     const result = await get_contact_info.execute!(
