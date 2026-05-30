@@ -88,7 +88,7 @@ setDefault("CLOUDFLARE_R2_ACCESS_KEY_ID", "test-key");
 setDefault("CLOUDFLARE_R2_SECRET_ACCESS_KEY", "test-secret");
 setDefault("CLOUDFLARE_R2_BUCKET_NAME", "test-bucket");
 setDefault("CLOUDFLARE_R2_PUBLIC_URL", "https://pub.example.com");
-setDefault("STRIPE_SECRET_KEY", "sk_test_jest_placeholder_not_a_real_key");
+setDefault("STRIPE_SECRET_KEY", "jest_stripe_secret_key_placeholder_not_a_real_key");
 setDefault("STRIPE_WEBHOOK_SECRET", "whsec_" + Buffer.from("jest_stripe_webhook_secret_32!").toString("base64"));
 setDefault("STRIPE_PRICE_BASE", "price_test_base");
 setDefault("STRIPE_PRICE_BASE_SEAT", "price_test_base_seat");
