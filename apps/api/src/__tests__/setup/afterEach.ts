@@ -13,8 +13,11 @@ const tables = [
   "FamilyMember",
   "Household",
   "NotificationPreference",
+  "FamilySubscription",
   "FamilyGroup",
-  "Person"
+  "Person",
+  "Promotion",
+  "PricingTier"
 ] as const;
 
 async function truncateAll(): Promise<void> {

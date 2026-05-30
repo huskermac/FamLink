@@ -56,6 +56,7 @@ model FamilyGroup {
   members       FamilyMember[]
   relationships Relationship[]
   events        Event[]
+  subscription  FamilySubscription?
 }
 
 model Household {
@@ -85,6 +86,7 @@ model FamilyMember {
   roles         String[]
   permissions   String[]
   joinedAt      DateTime    @default(now())
+  suspendedAt   DateTime?
 
   @@unique([familyGroupId, personId])
   @@index([familyGroupId])
@@ -282,4 +284,53 @@ model AssistantMessage {
 
   @@index([conversationId])
   @@index([conversationId, createdAt])
+}
+
+model PricingTier {
+  tierKey            String   @id
+  stripePriceId      String?
+  stripeSeatPriceId  String?
+  activeUserLimit    Int?
+  trialDays          Int?
+  trialWarningDays   Int?
+  downgradeGraceDays Int      @default(7)
+  displayName        String
+  displayOrder       Int
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+
+  familySubscriptions FamilySubscription[]
+}
+
+model Promotion {
+  id               String    @id @default(cuid())
+  stripeCouponId   String
+  name             String
+  startsAt         DateTime
+  endsAt           DateTime?
+  eligibleTierKeys String[]
+  isStackable      Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+}
+
+model FamilySubscription {
+  id                        String    @id @default(cuid())
+  familyGroupId             String    @unique
+  stripeCustomerId          String?
+  stripeSubscriptionId      String?
+  tierKey                   String
+  seatCount                 Int       @default(1)
+  grandfathered             Boolean   @default(false)
+  priceLockedAt             DateTime?
+  status                    String    @default("ACTIVE")
+  trialEndsAt               DateTime?
+  trialWarningSentAt        DateTime?
+  pendingDowngradeTierKey   String?
+  pendingDowngradeSeatCount Int?
+  downgradeGraceEndsAt      DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  familyGroup FamilyGroup  @relation(fields: [familyGroupId], references: [id])
+  pricingTier PricingTier  @relation(fields: [tierKey], references: [tierKey])
 }
