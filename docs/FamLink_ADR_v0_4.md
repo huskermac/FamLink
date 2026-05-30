@@ -28,6 +28,7 @@
 | v0.4.1 | April 2026 | P2-00 pre-flight clarifications. ADR-04 updated: Prisma canonical location is `packages/db` (not `apps/api`); upgrade targets that package. ADR-12 updated: Vercel AI Gateway OIDC auth considered and deferred — not available on Railway; direct provider keys via Helicone remain correct for current deployment target. ADR-13 added: Test framework locked — Vitest (API + web), Jest + Expo preset (mobile); Phase 1 Jest integration tests migrated to Vitest (not run alongside). |
 | v0.4.2 | April 2026 | ADR-10 updated: P2-10 photo sharing scope locked. Profile photos + event photo galleries ship in Phase 2. Family/general album, image resize pipeline, and facial recognition search explicitly deferred to Phase 3. |
 | v0.4.3 | May 2026 | ADR-07 updated: age_gate_level values renamed to ADULT / TEEN / CHILD with explicit age cutoffs. Passive-only policy for CHILD confirmed; TEEN default passive with parental permission plan deferred to Phase 3+. Open Q#4 further resolved. |
+| v0.4.4 | May 2026 | ADR-11 updated: subscription tier structure and billing architecture locked. Open Q#2 resolved. |
 
 ---
 
@@ -343,11 +344,70 @@ Facial recognition search is a planned Phase 3 capability: given a person name (
 
 ---
 
-### ADR-11 — Commerce & Payments [DEFERRED — Phase 3]
+### ADR-11 — Commerce & Payments [UPDATED — v0.4.4]
 
 **Decision:** Stripe for subscriptions and payment processing. Affiliate commerce via partner APIs (Amazon, travel, venues) in Phase 3.
 
 **Rationale:** Two distinct payment concerns exist: (1) user subscriptions for the paid tier, and (2) affiliate/transactional commerce for gifts, reservations, and event services. The AI agentic layer (ADR-06) is designed with commerce tool hooks built in, so the commerce capability plugs in without an architecture change when Phase 3 begins.
+
+#### Subscription Tier Structure [LOCKED — v0.4.4]
+
+**User types:**
+- **Active** — has a Clerk account (`userId ≠ null`). Full platform access. Counts toward seat limits.
+- **Passive** — person record only (`userId = null`). Receives email/SMS invitations, RSVPs via token link, no login. Always free, never counts toward seat limits.
+
+**Tier model:**
+
+| Tier | Active users included | Passive users | Additional actives |
+|---|---|---|---|
+| **Base** | 1 (Admin) | Unlimited | Seat surcharge per additional active user |
+| **Mid** | Up to N (TBD) | Unlimited | Included up to cap |
+| **Unlimited** | Unlimited | Unlimited | — |
+
+Specific prices and exact tier counts (N) are configurable — not hardcoded. See Pricing Architecture below.
+
+**Seat-based billing:** active user count is a declared seat count, not metered. The FamilyGroup owner adjusts seat count explicitly; billing updates at the next Stripe billing cycle.
+
+#### Pricing Architecture [LOCKED — v0.4.4]
+
+Stripe is the billing engine. The app holds a thin configuration layer:
+
+**`pricing_tiers` table** — maps tier identifiers to Stripe Price IDs plus display metadata. Changing a price = create a new Stripe Price object, update this row. Existing subscribers are unaffected (grandfathered on their current Stripe Price ID).
+
+| Column | Purpose |
+|---|---|
+| `tier_key` | `BASE`, `MID`, `UNLIMITED` |
+| `stripe_price_id` | Stripe Price object ID for base subscription |
+| `stripe_seat_price_id` | Stripe Price object ID for per-seat surcharge (BASE tier only) |
+| `active_user_limit` | null = unlimited |
+| `display_name` | User-facing label |
+| `is_active` | Whether this tier is currently offered to new subscribers |
+
+**`promotions` table** — manages promotional pricing windows:
+
+| Column | Purpose |
+|---|---|
+| `stripe_coupon_id` | Stripe Coupon object reference |
+| `name` | Internal label |
+| `starts_at` | Promotion window open |
+| `ends_at` | Promotion window close (null = indefinite) |
+| `eligible_tier_keys` | Which tiers this promotion applies to |
+| `is_stackable` | Whether multiple promos can apply simultaneously |
+
+**`family_subscriptions` table** — per-FamilyGroup subscription record:
+
+| Column | Purpose |
+|---|---|
+| `family_group_id` | FK to FamilyGroup |
+| `stripe_subscription_id` | Stripe Subscription object |
+| `tier_key` | Current tier |
+| `seat_count` | Declared active user seats |
+| `grandfathered` | True if subscriber is on a legacy price |
+| `price_locked_at` | When grandfathering took effect |
+
+**Grandfathering:** implemented by not migrating existing subscriptions to new Stripe Price IDs when prices increase. Existing `stripe_subscription_id` retains its original `price_id`. The `grandfathered` flag makes these queryable for reporting and eventual migration offers.
+
+**What is NOT locked:** specific price amounts, specific N values for Mid tier, promotional discount amounts. These are all Stripe configuration, not code.
 
 ---
 
@@ -467,7 +527,7 @@ Questions resolved in prior versions are shown with RESOLVED status for traceabi
 | **#** | **Question** | **Status** | **Blocks** | **Notes** |
 |---|---|---|---|---|
 | 1 | Monorepo tooling: Turborepo vs. Nx vs. npm workspaces? | **RESOLVED** | — | Turborepo + npm workspaces. Locked ADR-00. Resolved v0.2. |
-| 2 | What is the exact member cap for the family subscription tier? | **OPEN** | Monetization / Stripe integration (Phase 3) | Medium priority — needed before payment build begins. |
+| 2 | What is the exact member cap for the family subscription tier? | **RESOLVED** | — | Resolved v0.4.4: seat-based model; Active/Passive user distinction; Base/Mid/Unlimited tiers; configurable pricing via Stripe + DB config layer; grandfathering + promotional pricing architecture locked. Locked ADR-11. |
 | 3 | AI rate limits per user per day — cost-sustainable thresholds? | **RESOLVED** | — | 20 queries/user/day (beta). Max iteration limits. No recursive tool calls. Locked ADR-06. Resolved v0.2. |
 | 4 | COPPA compliance: parental consent flow design for minor profiles? | **OPEN** | Minor account functionality | Further resolved v0.4.3: age tiers renamed ADULT/TEEN/CHILD with explicit cutoffs (18+/12-17/<12). CHILD always passive. TEEN default passive — parental permission activation deferred to Phase 3+. Full COPPA consent flow requires legal input. Pre-launch blocker. |
 | 5 | What US states / regions are in scope at launch? (GDPR scope?) | **OPEN** | Data residency, privacy policy, legal | Medium priority — needed before public launch. |
