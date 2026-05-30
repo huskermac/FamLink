@@ -1,9 +1,6 @@
-import { getAuth } from "@clerk/express";
 import { db } from "@famlink/db";
 import request from "supertest";
 import { createApp } from "../../server";
-import { seedTestPerson, seedTestFamily } from "../helpers/db";
-import { TEST_CLERK_ID } from "../helpers/auth";
 
 vi.mock("@clerk/express", () => ({
   clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => next(),

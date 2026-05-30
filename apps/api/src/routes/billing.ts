@@ -3,6 +3,7 @@ import { db } from "@famlink/db";
 import type { Request, Response } from "express";
 
 export const billingRouter = Router();
+// Registered in server.ts with express.raw() before express.json() — see Task 5
 export const billingWebhookRouter = Router();
 
 // GET /api/v1/billing/tiers — public, no auth required
