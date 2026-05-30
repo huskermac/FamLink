@@ -17,9 +17,10 @@ Guidelines bias toward caution over speed — for trivial tasks, use judgment.
 
 ---
 
-## Phase 2 Build Context
+## Current Phase
 
-- **Current phase:** Phase 2 (P2-08 is next)
+- **Phase 2:** COMPLETE (P2-00 through P2-13 + design polish, all shipped)
+- **Current phase:** Phase 3
 - **Test runner:** Vitest (API + web), Jest + Expo preset (mobile)
 - **AI observability:** Helicone
 - **Real-time:** Socket.io (`event:created`, `rsvp:updated` events)
@@ -29,9 +30,29 @@ Guidelines bias toward caution over speed — for trivial tasks, use judgment.
 
 ## Development Rules
 
-- **Commit format:** `feat: P2-XX <short description>` (or `chore:`, `fix:` as appropriate)
+- **Commit format:** `feat: P3-XX <short description>` (or `chore:`, `fix:` as appropriate)
 - **Governing document:** ADR v0.4 (`docs/FamLink_ADR_v0_4.md`) — consult before any architectural decision
 - **No decisions are locked until explicitly confirmed by Steve**
+
+---
+
+## Session Checkpointing
+
+**Every session must end in a resumable state.** At the close of any session where meaningful work was done:
+
+1. **Update this file** — If the current phase or "what's next" has changed, update the "Current Phase" section above and commit the change.
+
+2. **Write a session bookmark to auto-memory** — Save a memory file at `C:\Users\swmcl\.claude\projects\c--Users-swmcl-FamLink\memory\project_session_bookmark_YYYY-MM-DD.md` covering:
+   - What was completed this session (feature names, commit SHAs)
+   - What is next (specific task or plan file)
+   - Any open questions or blockers
+   - Any design decisions made that aren't obvious from the code
+
+3. **Update `MEMORY.md`** — Add a one-line pointer to the new bookmark at the top of the index.
+
+4. **No untracked files** — Every file touched this session must be committed or gitignored before closing.
+
+**At the start of each session**, read `MEMORY.md` to locate the most recent session bookmark and use it to resume without asking Steve to re-explain context. If something in the bookmark conflicts with the current code, trust the code and update the memory.
 
 ---
 
