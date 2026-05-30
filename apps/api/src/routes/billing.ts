@@ -183,8 +183,13 @@ async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constr
   switch (event.type) {
     case "checkout.session.completed": {
       const { familyGroupId, tierKey } = obj.metadata ?? {};
-      if (!familyGroupId || !tierKey) return;
-      const trialEnd = obj.subscription_data?.trial_end;
+      if (!familyGroupId || !tierKey || !obj.subscription) return;
+
+      // Fetch the subscription to get accurate trial status
+      const stripeSub = await (stripe.subscriptions as any).retrieve(obj.subscription) as any;
+      const status = stripeSub.status === "trialing" ? "TRIALING" : "ACTIVE";
+      const trialEndsAt = stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null;
+
       await db.familySubscription.upsert({
         where: { familyGroupId },
         create: {
@@ -192,15 +197,15 @@ async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constr
           tierKey,
           stripeCustomerId: obj.customer,
           stripeSubscriptionId: obj.subscription,
-          status: trialEnd ? "TRIALING" : "ACTIVE",
-          trialEndsAt: trialEnd ? new Date(trialEnd * 1000) : null
+          status,
+          trialEndsAt
         },
         update: {
           stripeCustomerId: obj.customer,
           stripeSubscriptionId: obj.subscription,
           tierKey,
-          status: trialEnd ? "TRIALING" : "ACTIVE",
-          trialEndsAt: trialEnd ? new Date(trialEnd * 1000) : null
+          status,
+          trialEndsAt
         }
       });
       break;

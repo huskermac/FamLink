@@ -168,6 +168,11 @@ describe("POST /api/v1/billing/webhook", () => {
     mockStripe.webhooks.constructEvent.mockImplementation((_body: string, _sig: string, _secret: string) => {
       return JSON.parse(_body);
     });
+    mockStripe.subscriptions.retrieve.mockResolvedValue({
+      status: "active",
+      trial_end: null,
+      items: { data: [] }
+    });
   });
 
   it("returns 400 for invalid signature", async () => {
@@ -203,6 +208,36 @@ describe("POST /api/v1/billing/webhook", () => {
     expect(sub?.stripeCustomerId).toBe("cus_test");
     expect(sub?.stripeSubscriptionId).toBe("sub_test");
     expect(sub?.tierKey).toBe("BASE");
+  });
+
+  it("checkout.session.completed — sets status TRIALING when subscription is in trial", async () => {
+    mockStripe.subscriptions.retrieve.mockResolvedValue({
+      status: "trialing",
+      trial_end: Math.floor(Date.now() / 1000) + 14 * 86400,
+      items: { data: [] }
+    });
+
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Family", displayOrder: 1 } });
+
+    const { body, sig } = makeStripeEvent("checkout.session.completed", {
+      metadata: { familyGroupId: familyGroup.id, tierKey: "BASE" },
+      customer: "cus_test",
+      subscription: "sub_test",
+      status: "complete"
+    });
+
+    const res = await request(app)
+      .post("/api/v1/billing/webhook")
+      .set("stripe-signature", sig)
+      .set("content-type", "application/json")
+      .send(body);
+
+    expect(res.status).toBe(200);
+    const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
+    expect(sub?.status).toBe("TRIALING");
+    expect(sub?.trialEndsAt).not.toBeNull();
   });
 
   it("customer.subscription.updated — syncs status and detects downgrade", async () => {
