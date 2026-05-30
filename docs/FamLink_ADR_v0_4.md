@@ -29,6 +29,7 @@
 | v0.4.2 | April 2026 | ADR-10 updated: P2-10 photo sharing scope locked. Profile photos + event photo galleries ship in Phase 2. Family/general album, image resize pipeline, and facial recognition search explicitly deferred to Phase 3. |
 | v0.4.3 | May 2026 | ADR-07 updated: age_gate_level values renamed to ADULT / TEEN / CHILD with explicit age cutoffs. Passive-only policy for CHILD confirmed; TEEN default passive with parental permission plan deferred to Phase 3+. Open Q#4 further resolved. |
 | v0.4.4 | May 2026 | ADR-11 updated: subscription tier structure and billing architecture locked. Open Q#2 resolved. |
+| v0.4.5 | May 2026 | ADR-14 added: geographic scope and data residency locked. Open Q#5 resolved. |
 
 ---
 
@@ -449,6 +450,38 @@ Stripe is the billing engine. The app holds a thin configuration layer:
 
 ---
 
+### ADR-14 — Geographic Scope & Data Residency [NEW — v0.4.5] [LOCKED]
+
+**Decision:** US-only for active users at launch. Passive users permitted worldwide. Full international expansion deferred to Phase 3+.
+
+**Active users (US only):**
+- Clerk signup is soft geo-restricted to US at launch — IP-based country check discourages non-US account creation. Not a hard block (VPNs exist, edge cases are handled gracefully), but the product is not marketed or supported outside the US.
+- US-only scope means GDPR does not govern the core product at launch.
+
+**Passive users (worldwide):**
+- A US active user may invite a family member anywhere in the world as a passive guest.
+- Passive person records hold minimal data: name + one contact method (email or phone).
+- No behavioral tracking, no AI personalization, no Clerk account for passive persons.
+- Legal basis for holding passive EU-resident data: legitimate interest (family coordination) + implied consent via invitation acceptance.
+- Privacy policy must acknowledge worldwide passive data collection and state the legal basis.
+
+**GDPR surface area:**
+- Technically applies to any EU-resident passive person's data, but exposure is narrow: name + contact only, no tracking, no profiling.
+- Right-to-erasure for passive persons is partially implemented via the `forgottenAt` field on Relationship records. Full erasure support (including Person record deletion) is a Phase 3+ requirement before any international marketing.
+- Right-to-access requests for passive EU persons: handled manually at launch (support ticket → admin DB lookup).
+
+**Data residency:**
+- All data hosted in Railway US region (PostgreSQL + Redis). No data leaves US infrastructure.
+- No EU data residency requirement at launch given passive-only EU exposure.
+- Revisit if active user expansion to EU is scoped in Phase 3+.
+
+**Deferred:**
+- Full GDPR compliance program (DPA, SCCs, EU data residency) — deferred to Phase 3+ international expansion
+- CCPA compliance review — medium priority, revisit before public launch given US focus
+- Hard geo-blocking on Clerk signup — deferred; soft restriction sufficient at launch
+
+---
+
 ## 4. Confirmed Technology Stack — Summary
 
 | **Category** | **Technology** | **Version / Notes** | **Status** |
@@ -530,7 +563,7 @@ Questions resolved in prior versions are shown with RESOLVED status for traceabi
 | 2 | What is the exact member cap for the family subscription tier? | **RESOLVED** | — | Resolved v0.4.4: seat-based model; Active/Passive user distinction; Base/Mid/Unlimited tiers; configurable pricing via Stripe + DB config layer; grandfathering + promotional pricing architecture locked. Locked ADR-11. |
 | 3 | AI rate limits per user per day — cost-sustainable thresholds? | **RESOLVED** | — | 20 queries/user/day (beta). Max iteration limits. No recursive tool calls. Locked ADR-06. Resolved v0.2. |
 | 4 | COPPA compliance: parental consent flow design for minor profiles? | **OPEN** | Minor account functionality | Further resolved v0.4.3: age tiers renamed ADULT/TEEN/CHILD with explicit cutoffs (18+/12-17/<12). CHILD always passive. TEEN default passive — parental permission activation deferred to Phase 3+. Full COPPA consent flow requires legal input. Pre-launch blocker. |
-| 5 | What US states / regions are in scope at launch? (GDPR scope?) | **OPEN** | Data residency, privacy policy, legal | Medium priority — needed before public launch. |
+| 5 | What US states / regions are in scope at launch? (GDPR scope?) | **RESOLVED** | — | Resolved v0.4.5: US-only active users; passive users worldwide (minimal data, invitation-consent basis). GDPR surface area narrow but present for passive EU persons — full compliance program deferred to Phase 3+ international expansion. Locked ADR-14. |
 | 6 | Moderation strategy for harmful or abusive family content? | **OPEN** | Platform policies, trust & safety | Medium priority — needed before public launch. |
 | P2-Q1 | AI monitoring: Helicone vs. LangSmith? | **RESOLVED** | — | Helicone locked for Phase 2. LangSmith revisit Phase 3. Locked ADR-12. Resolved v0.4. |
 | P2-Q2 | Layer 1 AI tool registry — which tools exactly? | **RESOLVED** | — | 10 tools locked. create_person excluded. Single-tool-call principle locked. Locked ADR-06. Resolved v0.4. |
