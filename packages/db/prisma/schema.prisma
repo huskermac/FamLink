@@ -331,6 +331,6 @@ model FamilySubscription {
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 
-  familyGroup FamilyGroup  @relation(fields: [familyGroupId], references: [id])
+  familyGroup FamilyGroup  @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
   pricingTier PricingTier  @relation(fields: [tierKey], references: [tierKey])
 }
