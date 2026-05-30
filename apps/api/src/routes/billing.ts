@@ -81,6 +81,7 @@ billingRouter.post("/checkout", async (req: Request, res: Response) => {
       ...(tier.trialDays ? { trial_period_days: tier.trialDays } : {})
     }
   });
+  if (!session.url) { res.status(502).json({ error: "Stripe did not return a URL" }); return; }
   res.json({ checkoutUrl: session.url });
 });
 
@@ -102,6 +103,7 @@ billingRouter.post("/portal", async (req: Request, res: Response) => {
     customer: sub.stripeCustomerId,
     return_url: returnUrl
   });
+  if (!session.url) { res.status(502).json({ error: "Stripe did not return a URL" }); return; }
   res.json({ portalUrl: session.url });
 });
 
@@ -125,10 +127,19 @@ billingRouter.post("/seat-impact", async (req: Request, res: Response) => {
     res.status(400).json({ error: "No seat-based subscription found" }); return;
   }
 
+  // Retrieve the Stripe subscription to get the seat price item ID
+  const stripeSub = await (stripe.subscriptions as any).retrieve(sub.stripeSubscriptionId);
+  const seatItem = stripeSub.items?.data?.find(
+    (item: any) => item.price?.id === sub.pricingTier.stripeSeatPriceId
+  );
+  if (!seatItem) {
+    res.status(400).json({ error: "Seat price item not found on subscription" }); return;
+  }
+
   const upcoming = await (stripe.invoices as any).retrieveUpcoming({
     customer: sub.stripeCustomerId!,
     subscription: sub.stripeSubscriptionId,
-    subscription_items: [{ id: sub.stripeSubscriptionId, quantity: body.data.newSeatCount }]
+    subscription_items: [{ id: seatItem.id, quantity: body.data.newSeatCount }]
   });
 
   res.json({

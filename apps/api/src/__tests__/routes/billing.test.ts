@@ -14,7 +14,7 @@ const mockStripe = vi.hoisted(() => ({
   checkout: { sessions: { create: vi.fn() } },
   billingPortal: { sessions: { create: vi.fn() } },
   invoices: { retrieveUpcoming: vi.fn() },
-  subscriptions: { update: vi.fn() },
+  subscriptions: { update: vi.fn(), retrieve: vi.fn() },
   customers: { create: vi.fn() },
   webhooks: { constructEvent: vi.fn() }
 }));
@@ -136,6 +136,9 @@ describe("POST /api/v1/billing/seat-impact", () => {
 
   it("returns billing impact when subscription and upcoming invoice are available", async () => {
     mockStripe.invoices.retrieveUpcoming.mockResolvedValue({ amount_due: 450, currency: "usd" });
+    mockStripe.subscriptions.retrieve.mockResolvedValue({
+      items: { data: [{ id: "si_test_seat", price: { id: "price_seat" } }] }
+    });
 
     const person = await seedTestPerson();
     const { familyGroup } = await seedTestFamily(person.id);
@@ -149,6 +152,6 @@ describe("POST /api/v1/billing/seat-impact", () => {
       .set("Authorization", "Bearer mock")
       .send({ newSeatCount: 3 });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ currentSeats: 2, newSeats: 3, currency: "usd" });
+    expect(res.body).toMatchObject({ currentSeats: 2, newSeats: 3, immediateCharge: 4.5, currency: "usd" });
   });
 });
