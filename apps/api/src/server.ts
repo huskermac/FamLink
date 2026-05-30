@@ -8,6 +8,7 @@ import { requestLogger } from "./middleware/requestLogger";
 import { router } from "./routes";
 import { healthRouter } from "./routes/health";
 import { webhooksRouter } from "./routes/webhooks";
+import { billingWebhookRouter } from "./routes/billing";
 import { initializeSocketServer } from "./lib/socketServer";
 
 /**
@@ -23,6 +24,11 @@ export function createApp(): express.Application {
     "/api/v1/webhooks/clerk",
     express.raw({ type: "application/json", limit: "10mb" }),
     webhooksRouter
+  );
+  app.use(
+    "/api/v1/billing/webhook",
+    express.raw({ type: "application/json", limit: "10mb" }),
+    billingWebhookRouter
   );
   app.use(express.json({ limit: "10mb" }));
   app.use(requestLogger);

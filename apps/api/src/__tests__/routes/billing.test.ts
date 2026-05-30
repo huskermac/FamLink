@@ -155,3 +155,154 @@ describe("POST /api/v1/billing/seat-impact", () => {
     expect(res.body).toMatchObject({ currentSeats: 2, newSeats: 3, immediateCharge: 4.5, currency: "usd" });
   });
 });
+
+describe("POST /api/v1/billing/webhook", () => {
+  const app = createApp();
+
+  function makeStripeEvent(type: string, data: object): { body: string; sig: string } {
+    const payload = JSON.stringify({ id: `evt_${Date.now()}`, type, data: { object: data } });
+    return { body: payload, sig: "t=1,v1=test" };
+  }
+
+  beforeEach(() => {
+    mockStripe.webhooks.constructEvent.mockImplementation((_body: string, _sig: string, _secret: string) => {
+      return JSON.parse(_body);
+    });
+  });
+
+  it("returns 400 for invalid signature", async () => {
+    mockStripe.webhooks.constructEvent.mockImplementation(() => { throw new Error("Signature invalid"); });
+    const res = await request(app)
+      .post("/api/v1/billing/webhook")
+      .set("stripe-signature", "bad")
+      .set("content-type", "application/json")
+      .send(JSON.stringify({ type: "test" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("checkout.session.completed — creates FamilySubscription", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Family", displayOrder: 1 } });
+
+    const { body, sig } = makeStripeEvent("checkout.session.completed", {
+      metadata: { familyGroupId: familyGroup.id, tierKey: "BASE" },
+      customer: "cus_test",
+      subscription: "sub_test",
+      status: "complete"
+    });
+
+    const res = await request(app)
+      .post("/api/v1/billing/webhook")
+      .set("stripe-signature", sig)
+      .set("content-type", "application/json")
+      .send(body);
+
+    expect(res.status).toBe(200);
+    const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
+    expect(sub?.stripeCustomerId).toBe("cus_test");
+    expect(sub?.stripeSubscriptionId).toBe("sub_test");
+    expect(sub?.tierKey).toBe("BASE");
+  });
+
+  it("customer.subscription.updated — syncs status and detects downgrade", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.createMany({ data: [
+      { tierKey: "MID", displayName: "Mid", displayOrder: 1, activeUserLimit: 5 },
+      { tierKey: "BASE", displayName: "Base", displayOrder: 0, activeUserLimit: 2 }
+    ]});
+    await db.familySubscription.create({
+      data: { familyGroupId: familyGroup.id, tierKey: "MID", seatCount: 4, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test", status: "ACTIVE" }
+    });
+
+    const { body, sig } = makeStripeEvent("customer.subscription.updated", {
+      id: "sub_test",
+      metadata: { familyGroupId: familyGroup.id, tierKey: "BASE" },
+      status: "active",
+      items: { data: [{ quantity: 2 }] }
+    });
+
+    const res = await request(app)
+      .post("/api/v1/billing/webhook")
+      .set("stripe-signature", sig)
+      .set("content-type", "application/json")
+      .send(body);
+
+    expect(res.status).toBe(200);
+    const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
+    expect(sub?.tierKey).toBe("BASE");
+    expect(sub?.pendingDowngradeTierKey).toBe("BASE");
+    expect(sub?.downgradeGraceEndsAt).not.toBeNull();
+  });
+
+  it("customer.subscription.deleted — sets status to CANCELED", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Family", displayOrder: 1 } });
+    await db.familySubscription.create({
+      data: { familyGroupId: familyGroup.id, tierKey: "BASE", stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test", status: "ACTIVE" }
+    });
+
+    const { body, sig } = makeStripeEvent("customer.subscription.deleted", {
+      id: "sub_test",
+      metadata: { familyGroupId: familyGroup.id }
+    });
+
+    const res = await request(app)
+      .post("/api/v1/billing/webhook")
+      .set("stripe-signature", sig)
+      .set("content-type", "application/json")
+      .send(body);
+
+    expect(res.status).toBe(200);
+    const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
+    expect(sub?.status).toBe("CANCELED");
+  });
+
+  it("invoice.payment_failed — sets status to PAST_DUE", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Family", displayOrder: 1 } });
+    await db.familySubscription.create({
+      data: { familyGroupId: familyGroup.id, tierKey: "BASE", stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test", status: "ACTIVE" }
+    });
+
+    const { body, sig } = makeStripeEvent("invoice.payment_failed", {
+      subscription: "sub_test"
+    });
+
+    const res = await request(app)
+      .post("/api/v1/billing/webhook")
+      .set("stripe-signature", sig)
+      .set("content-type", "application/json")
+      .send(body);
+
+    expect(res.status).toBe(200);
+    const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
+    expect(sub?.status).toBe("PAST_DUE");
+  });
+
+  it("invoice.payment_succeeded — clears PAST_DUE status", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Family", displayOrder: 1 } });
+    await db.familySubscription.create({
+      data: { familyGroupId: familyGroup.id, tierKey: "BASE", stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test", status: "PAST_DUE" }
+    });
+
+    const { body, sig } = makeStripeEvent("invoice.payment_succeeded", {
+      subscription: "sub_test"
+    });
+
+    const res = await request(app)
+      .post("/api/v1/billing/webhook")
+      .set("stripe-signature", sig)
+      .set("content-type", "application/json")
+      .send(body);
+
+    expect(res.status).toBe(200);
+    const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
+    expect(sub?.status).toBe("ACTIVE");
+  });
+});

@@ -149,3 +149,124 @@ billingRouter.post("/seat-impact", async (req: Request, res: Response) => {
     currency: upcoming.currency
   });
 });
+
+// --- Webhook handler ---
+
+function rawBody(req: Request): string {
+  if (Buffer.isBuffer(req.body)) return req.body.toString("utf8");
+  return typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+}
+
+billingWebhookRouter.post("/", async (req: Request, res: Response) => {
+  const sig = req.headers["stripe-signature"] as string;
+  let event: ReturnType<typeof stripe.webhooks.constructEvent>;
+
+  try {
+    event = stripe.webhooks.constructEvent(rawBody(req), sig, env.STRIPE_WEBHOOK_SECRET);
+  } catch {
+    res.status(400).json({ error: "Invalid Stripe signature" });
+    return;
+  }
+
+  try {
+    await handleStripeEvent(event);
+    res.json({ received: true });
+  } catch (err) {
+    console.error("Stripe webhook handler error", err);
+    res.status(500).json({ error: "Webhook processing failed" });
+  }
+});
+
+async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constructEvent>): Promise<void> {
+  const obj = event.data.object as any;
+
+  switch (event.type) {
+    case "checkout.session.completed": {
+      const { familyGroupId, tierKey } = obj.metadata ?? {};
+      if (!familyGroupId || !tierKey) return;
+      const trialEnd = obj.subscription_data?.trial_end;
+      await db.familySubscription.upsert({
+        where: { familyGroupId },
+        create: {
+          familyGroupId,
+          tierKey,
+          stripeCustomerId: obj.customer,
+          stripeSubscriptionId: obj.subscription,
+          status: trialEnd ? "TRIALING" : "ACTIVE",
+          trialEndsAt: trialEnd ? new Date(trialEnd * 1000) : null
+        },
+        update: {
+          stripeCustomerId: obj.customer,
+          stripeSubscriptionId: obj.subscription,
+          tierKey,
+          status: trialEnd ? "TRIALING" : "ACTIVE",
+          trialEndsAt: trialEnd ? new Date(trialEnd * 1000) : null
+        }
+      });
+      break;
+    }
+
+    case "customer.subscription.updated": {
+      const { familyGroupId, tierKey } = obj.metadata ?? {};
+      if (!familyGroupId) return;
+      const newSeatCount: number = obj.items?.data?.[0]?.quantity ?? 1;
+      const existing = await db.familySubscription.findUnique({ where: { familyGroupId }, include: { pricingTier: true } });
+      if (!existing) return;
+
+      const newTier = await db.pricingTier.findUnique({ where: { tierKey: tierKey ?? existing.tierKey } });
+      const isDowngrade = newTier !== null && newSeatCount < existing.seatCount;
+
+      const graceEndsAt = isDowngrade
+        ? new Date(Date.now() + (newTier?.downgradeGraceDays ?? 7) * 86400000)
+        : null;
+
+      await db.familySubscription.update({
+        where: { familyGroupId },
+        data: {
+          tierKey: tierKey ?? existing.tierKey,
+          seatCount: newSeatCount,
+          status: obj.status === "past_due" ? "PAST_DUE" : obj.status === "trialing" ? "TRIALING" : "ACTIVE",
+          trialEndsAt: obj.trial_end ? new Date(obj.trial_end * 1000) : existing.trialEndsAt,
+          ...(isDowngrade ? {
+            pendingDowngradeTierKey: tierKey ?? existing.tierKey,
+            pendingDowngradeSeatCount: newSeatCount,
+            downgradeGraceEndsAt: graceEndsAt
+          } : {})
+        }
+      });
+      break;
+    }
+
+    case "customer.subscription.deleted": {
+      const { familyGroupId } = obj.metadata ?? {};
+      if (!familyGroupId) return;
+      const freeTier = await db.pricingTier.findFirst({ where: { isActive: true, stripePriceId: null }, orderBy: { displayOrder: "asc" } });
+      await db.familySubscription.update({
+        where: { familyGroupId },
+        data: {
+          status: "CANCELED",
+          stripeSubscriptionId: null,
+          ...(freeTier ? { tierKey: freeTier.tierKey } : {})
+        }
+      });
+      break;
+    }
+
+    case "invoice.payment_failed": {
+      const sub = await db.familySubscription.findFirst({ where: { stripeSubscriptionId: obj.subscription } });
+      if (!sub) return;
+      await db.familySubscription.update({ where: { id: sub.id }, data: { status: "PAST_DUE" } });
+      break;
+    }
+
+    case "invoice.payment_succeeded": {
+      const sub = await db.familySubscription.findFirst({ where: { stripeSubscriptionId: obj.subscription } });
+      if (!sub || sub.status !== "PAST_DUE") return;
+      await db.familySubscription.update({ where: { id: sub.id }, data: { status: "ACTIVE" } });
+      break;
+    }
+
+    default:
+      break;
+  }
+}
