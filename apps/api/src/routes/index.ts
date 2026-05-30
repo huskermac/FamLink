@@ -13,6 +13,7 @@ import {
 import { personsRouter } from "./persons";
 import { aiRouter } from "./ai";
 import { photosRouter } from "./photos";
+import { billingRouter } from "./billing";
 
 export const router = Router();
 
@@ -28,3 +29,4 @@ router.use("/api/v1/relationships", requireAuth, relationshipsRouter);
 router.use("/api/v1/events", requireAuth, eventsRouter);
 router.use("/api/v1/ai", requireAuth, aiRouter);
 router.use("/api/v1/photos", requireAuth, photosRouter);
+router.use("/api/v1/billing", billingRouter);
