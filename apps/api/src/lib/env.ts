@@ -29,7 +29,12 @@ const envSchema = z.object({
   CLOUDFLARE_R2_ACCESS_KEY_ID: z.string().min(1),
   CLOUDFLARE_R2_SECRET_ACCESS_KEY: z.string().min(1),
   CLOUDFLARE_R2_BUCKET_NAME: z.string().min(1),
-  CLOUDFLARE_R2_PUBLIC_URL: z.string().min(1)
+  CLOUDFLARE_R2_PUBLIC_URL: z.string().min(1),
+  STRIPE_SECRET_KEY: z.string().min(1),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1),
+  STRIPE_PRICE_BASE: z.string().default("price_test_base"),
+  STRIPE_PRICE_BASE_SEAT: z.string().default("price_test_base_seat"),
+  STRIPE_PRICE_UNLIMITED: z.string().default("price_test_unlimited")
 });
 
 export type Env = z.infer<typeof envSchema>;
