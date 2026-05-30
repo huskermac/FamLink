@@ -8,8 +8,8 @@
 | **Field** | **Value** |
 |---|---|
 | Companion Document | FamLink PRD v0.1 |
-| Document Version | v0.4 — Working Draft |
-| Prior Version | v0.3 (Resend replaces SendGrid; age_gate_level enum; minor handling locked) |
+| Document Version | v0.4.6 — Working Draft |
+| Prior Version | v0.4.5 (ADR-14: geographic scope locked; Q#5 resolved) |
 | Status | Decisions locked unless marked OPEN or DEFERRED |
 | AI Architecture | First-class concern — reviewed alongside conventional stack |
 | Build Strategy | AI-assisted development (Cursor / Claude Code), small team |
@@ -30,6 +30,7 @@
 | v0.4.3 | May 2026 | ADR-07 updated: age_gate_level values renamed to ADULT / TEEN / CHILD with explicit age cutoffs. Passive-only policy for CHILD confirmed; TEEN default passive with parental permission plan deferred to Phase 3+. Open Q#4 further resolved. |
 | v0.4.4 | May 2026 | ADR-11 updated: subscription tier structure and billing architecture locked. Open Q#2 resolved. |
 | v0.4.5 | May 2026 | ADR-14 added: geographic scope and data residency locked. Open Q#5 resolved. |
+| v0.4.6 | May 2026 | ADR-15 added: content moderation strategy locked. Open Q#6 resolved. |
 
 ---
 
@@ -480,6 +481,56 @@ Stripe is the billing engine. The app holds a thin configuration layer:
 - CCPA compliance review — medium priority, revisit before public launch given US focus
 - Hard geo-blocking on Clerk signup — deferred; soft restriction sufficient at launch
 
+### ADR-15 — Content Moderation Strategy [NEW — v0.4.6] [LOCKED]
+
+**Decision:** Two-track moderation — family admin manual suppression + AI automated review. Post-publish review for text/links; pre-publish hold for images/videos. Dual escalation path to family admin and FamLink staff for both flagged and auto-suppressed content.
+
+**Manual suppression (family admin):**
+- Any family admin may suppress any content item (posts, photos, comments, event descriptions) within their family group.
+- Suppression is a soft delete — content is hidden from all members but retained in the database for audit and potential reinstatement.
+- Hard deletion requires a FamLink staff action (escalated via the staff moderation queue).
+- Suppression is logged with timestamp and acting admin ID.
+
+**AI automated moderation:**
+- All published content passes through an AI moderation pipeline. The pipeline runs asynchronously for text/links and synchronously for images/videos.
+
+*Text and link content (post-publish):*
+- Content goes live immediately upon submission.
+- AI reviews in the background; result arrives within seconds.
+- If flagged or severe: suppression applied retroactively and escalation triggered.
+- Net user experience: slight delay between live appearance and moderation action in edge cases — acceptable for text given real-time social expectations.
+
+*Image and video content (pre-publish):*
+- Content is held in a pending state after upload; not visible to other members.
+- AI review runs synchronously before release. Content appears in the feed only after AI clears it.
+- Latency is acceptable — uploads already introduce a processing wait; extending it for safety review is a reasonable tradeoff.
+- If AI cannot produce a decision (timeout, error): content defaults to held and routed to the staff queue.
+
+**Severity tiers:**
+
+| **Tier** | **AI Verdict** | **Action** |
+|---|---|---|
+| Clean | No policy concern detected | Content published/remains live; no escalation |
+| Flagged | Potential policy concern | Content remains visible; queued for family admin review; FamLink staff notified |
+| Severe | Clear policy violation | Content auto-suppressed immediately; dual escalation to family admin + FamLink staff |
+
+**Escalation — dual track:**
+- All flagged or severe verdicts trigger notifications on both tracks simultaneously.
+- **Family admin track:** In-app notification to all family group admins; surfaced in an admin moderation panel (Phase 3 deliverable).
+- **FamLink staff track:** Item routed to an internal staff moderation queue for independent review and potential hard-delete or account action.
+- Dual escalation ensures no single actor (admin or staff) has unilateral authority over disputed content.
+
+**Data model (Phase 3 implementation):**
+- `ModerationEvent` table: `contentType`, `contentId`, `verdict` (CLEAN/FLAGGED/SEVERE), `modelUsed`, `confidence`, `reviewedAt`, `reviewedBy` (null for AI), `suppressedAt`, `restoredAt`
+- Suppression state on content records: `suppressedAt`, `suppressedBy`, `suppressionSource` (ADMIN/AI/STAFF)
+- Staff queue: separate table; consumed by internal tooling outside the family-facing app
+
+**Deferred:**
+- Family admin moderation panel UI — Phase 3 deliverable
+- FamLink staff moderation tooling — Phase 3 deliverable; internal admin app outside family-facing product
+- Appeals flow (member disputes admin suppression) — deferred, post-launch
+- Fine-grained content category labels (violence, harassment, CSAM, etc.) — AI model-dependent; implement alongside model selection
+
 ---
 
 ## 4. Confirmed Technology Stack — Summary
@@ -564,7 +615,7 @@ Questions resolved in prior versions are shown with RESOLVED status for traceabi
 | 3 | AI rate limits per user per day — cost-sustainable thresholds? | **RESOLVED** | — | 20 queries/user/day (beta). Max iteration limits. No recursive tool calls. Locked ADR-06. Resolved v0.2. |
 | 4 | COPPA compliance: parental consent flow design for minor profiles? | **OPEN** | Minor account functionality | Further resolved v0.4.3: age tiers renamed ADULT/TEEN/CHILD with explicit cutoffs (18+/12-17/<12). CHILD always passive. TEEN default passive — parental permission activation deferred to Phase 3+. Full COPPA consent flow requires legal input. Pre-launch blocker. |
 | 5 | What US states / regions are in scope at launch? (GDPR scope?) | **RESOLVED** | — | Resolved v0.4.5: US-only active users; passive users worldwide (minimal data, invitation-consent basis). GDPR surface area narrow but present for passive EU persons — full compliance program deferred to Phase 3+ international expansion. Locked ADR-14. |
-| 6 | Moderation strategy for harmful or abusive family content? | **OPEN** | Platform policies, trust & safety | Medium priority — needed before public launch. |
+| 6 | Moderation strategy for harmful or abusive family content? | **RESOLVED** | — | Resolved v0.4.6: dual-track moderation — family admin manual suppression + AI automated review. Post-publish for text/links; pre-publish hold for images/videos. Dual escalation to family admin + FamLink staff. Three severity tiers: Clean / Flagged / Severe. Locked ADR-15. |
 | P2-Q1 | AI monitoring: Helicone vs. LangSmith? | **RESOLVED** | — | Helicone locked for Phase 2. LangSmith revisit Phase 3. Locked ADR-12. Resolved v0.4. |
 | P2-Q2 | Layer 1 AI tool registry — which tools exactly? | **RESOLVED** | — | 10 tools locked. create_person excluded. Single-tool-call principle locked. Locked ADR-06. Resolved v0.4. |
 | P2-Q3 | Mobile (Build Order P2-09) — Phase 2 or Phase 3? | **RESOLVED** | — | Mobile in Phase 2. Both web and mobile UIs in scope. Wedge features only. Locked ADR-02. Resolved v0.4. |
@@ -586,11 +637,11 @@ Questions resolved in prior versions are shown with RESOLVED status for traceabi
 | 4 | Resolve Open Q#4 (COPPA compliance flow) — pre-launch blocker — requires legal input | COPPA consent flow designed and locked; ADR updated |
 | 5 | Resolve Open Q#2 (subscription tier member cap) — needed before Phase 3 payment build | Monetization model member cap locked; Stripe integration plan updated |
 | 6 | Resolve Open Q#5 (launch geography / GDPR scope) — needed before public launch | Geographic scope locked; privacy policy and data residency approach confirmed |
-| 7 | Resolve Open Q#6 (content moderation strategy) — needed before public launch | Moderation approach locked; trust & safety policies documented |
+| 7 | ~~Resolve Open Q#6 (content moderation strategy)~~ **DONE** | Dual-track moderation locked: admin suppression + AI review + dual escalation. Locked ADR-15. |
 | 8 | Corporate formation (Delaware C-Corp via Clerky) — execute before any contractor or advisor engagements | Incorporation complete; IP assignment, NDA, contractor agreements executed |
 
 ---
 
-*FamLink ADR v0.4 — Working Draft — April 2026 — CONFIDENTIAL*
+*FamLink ADR v0.4.6 — Working Draft — May 2026 — CONFIDENTIAL*
 
 *This document is the authoritative technical reference for all FamLink development. Update before changing any locked decision.*
