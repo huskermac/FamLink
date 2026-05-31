@@ -14,6 +14,12 @@ import {
 import { checkSeatExpansion } from "../lib/subscriptionEnforcement";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
+class SeatExpansionRequiredError extends Error {
+  constructor(public readonly activeCount: number) {
+    super("Seat expansion required");
+  }
+}
+
 export const familiesRouter = Router();
 
 const CreateFamilySchema = z.object({
@@ -179,49 +185,46 @@ familiesRouter.post("/:familyId/members", async (req, res) => {
     return;
   }
 
-  // Seat enforcement: only for active users (those with a Clerk account)
-  if (targetPerson.userId) {
-    const activeCount = await db.familyMember.count({
-      where: {
-        familyGroupId: familyId,
-        person: { userId: { not: null } },
-        suspendedAt: null
-      }
-    });
-    const check = await checkSeatExpansion(familyId, activeCount);
-    if (check.requiresConfirmation && !body.data.confirmSeatExpansion) {
-      res.status(402).json({ seatRequired: true, currentActiveCount: activeCount });
-      return;
-    }
-    if (check.requiresConfirmation && body.data.confirmSeatExpansion) {
-      const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyId } });
-      if (sub) {
-        await db.familySubscription.update({
-          where: { familyGroupId: familyId },
-          data: { seatCount: sub.seatCount + 1 }
-        });
-      }
-    }
-  }
-
+  let member;
   try {
-    const member = await db.familyMember.create({
-      data: {
-        familyGroupId: familyId,
-        personId: body.data.personId,
-        roles: body.data.roles,
-        permissions: body.data.permissions
+    member = await db.$transaction(async (tx) => {
+      // Seat enforcement: only for active users (those with a Clerk account)
+      if (targetPerson.userId) {
+        const activeCount = await tx.familyMember.count({
+          where: {
+            familyGroupId: familyId,
+            person: { userId: { not: null } },
+            suspendedAt: null
+          }
+        });
+        const check = await checkSeatExpansion(familyId, activeCount);
+        if (check.requiresConfirmation && !body.data.confirmSeatExpansion) {
+          throw new SeatExpansionRequiredError(activeCount);
+        }
+        if (check.requiresConfirmation && body.data.confirmSeatExpansion) {
+          const sub = await tx.familySubscription.findUnique({ where: { familyGroupId: familyId } });
+          if (sub) {
+            await tx.familySubscription.update({
+              where: { familyGroupId: familyId },
+              data: { seatCount: sub.seatCount + 1 }
+            });
+          }
+        }
       }
-    });
-    res.status(201).json({
-      id: member.id,
-      familyGroupId: member.familyGroupId,
-      personId: member.personId,
-      roles: member.roles,
-      permissions: member.permissions,
-      joinedAt: member.joinedAt.toISOString()
+      return tx.familyMember.create({
+        data: {
+          familyGroupId: familyId,
+          personId: body.data.personId,
+          roles: body.data.roles,
+          permissions: body.data.permissions
+        }
+      });
     });
   } catch (e: unknown) {
+    if (e instanceof SeatExpansionRequiredError) {
+      res.status(402).json({ seatRequired: true, currentActiveCount: e.activeCount });
+      return;
+    }
     const code = typeof e === "object" && e !== null && "code" in e ? (e as { code: string }).code : "";
     if (code === "P2002") {
       res.status(400).json({ error: "Person is already a member of this family" });
@@ -229,6 +232,15 @@ familiesRouter.post("/:familyId/members", async (req, res) => {
     }
     throw e;
   }
+
+  res.status(201).json({
+    id: member.id,
+    familyGroupId: member.familyGroupId,
+    personId: member.personId,
+    roles: member.roles,
+    permissions: member.permissions,
+    joinedAt: member.joinedAt.toISOString()
+  });
 });
 
 familiesRouter.delete("/:familyId/members/:personId", async (req, res) => {
