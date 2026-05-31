@@ -10,6 +10,7 @@ import { healthRouter } from "./routes/health";
 import { webhooksRouter } from "./routes/webhooks";
 import { billingWebhookRouter } from "./routes/billing";
 import { initializeSocketServer } from "./lib/socketServer";
+import { startBillingCron } from "./jobs/billingEnforcement";
 
 /**
  * createApp — returns the Express application only.
@@ -59,5 +60,8 @@ export function createHttpServer(): http.Server {
   const app = createApp();
   const httpServer = http.createServer(app);
   initializeSocketServer(httpServer);
+  if (process.env.NODE_ENV !== "test") {
+    startBillingCron();
+  }
   return httpServer;
 }
