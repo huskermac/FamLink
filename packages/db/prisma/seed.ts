@@ -276,6 +276,46 @@ async function main(): Promise<void> {
     }
   }
 
+  // ── Pricing tiers ──────────────────────────────────────────
+  await prisma.pricingTier.createMany({
+    data: [
+      {
+        tierKey: "FREE",
+        displayName: "Free",
+        activeUserLimit: 1,
+        trialDays: null,
+        trialWarningDays: null,
+        downgradeGraceDays: 7,
+        displayOrder: 0,
+        isActive: true
+      },
+      {
+        tierKey: "BASE",
+        stripePriceId: process.env.STRIPE_PRICE_BASE ?? "price_test_base",
+        stripeSeatPriceId: process.env.STRIPE_PRICE_BASE_SEAT ?? "price_test_base_seat",
+        activeUserLimit: 5,
+        displayName: "Family",
+        trialDays: 14,
+        trialWarningDays: 3,
+        downgradeGraceDays: 7,
+        displayOrder: 1,
+        isActive: true
+      },
+      {
+        tierKey: "UNLIMITED",
+        stripePriceId: process.env.STRIPE_PRICE_UNLIMITED ?? "price_test_unlimited",
+        activeUserLimit: null,
+        displayName: "Family Unlimited",
+        trialDays: 14,
+        trialWarningDays: 3,
+        downgradeGraceDays: 7,
+        displayOrder: 2,
+        isActive: true
+      }
+    ],
+    skipDuplicates: true
+  });
+
   // eslint-disable-next-line no-console
   console.log("✅ Seed complete — Johnson family loaded");
 }
