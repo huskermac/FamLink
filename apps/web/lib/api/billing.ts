@@ -29,10 +29,14 @@ export interface SeatImpact {
 }
 
 export async function fetchTiers(): Promise<PricingTier[]> {
-  const base = process.env.NEXT_PUBLIC_API_URL;
-  const res = await fetch(`${base}/api/v1/billing/tiers`, { cache: "no-store" });
-  const data = await res.json();
-  return data.tiers;
+  try {
+    const base = process.env.NEXT_PUBLIC_API_URL;
+    const res = await fetch(`${base}/api/v1/billing/tiers`, { cache: "no-store" });
+    const data = await res.json();
+    return data.tiers ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchSubscription(getToken: () => Promise<string | null>): Promise<FamilySubscription | null> {
