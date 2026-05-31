@@ -11,6 +11,7 @@ import {
   ERROR_PERSON_BEFORE_CREATE_FAMILY,
   ERROR_PERSON_RECORD_REQUIRED
 } from "../lib/personRequiredMessages";
+import { checkSeatExpansion } from "../lib/subscriptionEnforcement";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
 export const familiesRouter = Router();
@@ -45,7 +46,8 @@ const CreateHouseholdSchema = z.object({
 const AddMemberSchema = z.object({
   personId: z.string().min(1),
   roles: z.array(z.string()).min(1),
-  permissions: z.array(z.string()).default([])
+  permissions: z.array(z.string()).default([]),
+  confirmSeatExpansion: z.boolean().optional().default(false)
 });
 
 /** Prisma `@default(cuid())` ids must not be validated with Zod `cuid()` — formats can differ. */
@@ -175,6 +177,31 @@ familiesRouter.post("/:familyId/members", async (req, res) => {
   if (!targetPerson) {
     res.status(400).json({ error: "Person not found" });
     return;
+  }
+
+  // Seat enforcement: only for active users (those with a Clerk account)
+  if (targetPerson.userId) {
+    const activeCount = await db.familyMember.count({
+      where: {
+        familyGroupId: familyId,
+        person: { userId: { not: null } },
+        suspendedAt: null
+      }
+    });
+    const check = await checkSeatExpansion(familyId, activeCount);
+    if (check.requiresConfirmation && !body.data.confirmSeatExpansion) {
+      res.status(402).json({ seatRequired: true, currentActiveCount: activeCount });
+      return;
+    }
+    if (check.requiresConfirmation && body.data.confirmSeatExpansion) {
+      const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyId } });
+      if (sub) {
+        await db.familySubscription.update({
+          where: { familyGroupId: familyId },
+          data: { seatCount: sub.seatCount + 1 }
+        });
+      }
+    }
   }
 
   try {

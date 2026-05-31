@@ -131,4 +131,41 @@ describe("families & households routes", () => {
       expect(res.body.error).toMatch(/member of the family/i);
     });
   });
+
+  describe("POST /api/v1/families/:familyId/members — seat enforcement", () => {
+    it("returns 402 with seatRequired when adding active user would exceed seat count", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const second = await seedSecondPerson();
+      await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, activeUserLimit: 5 } });
+      await db.familySubscription.create({ data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1 } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/members`)
+        .set("Authorization", "Bearer mock")
+        .send({ personId: second.id, roles: ["MEMBER"], permissions: [] });
+
+      expect(res.status).toBe(402);
+      expect(res.body.seatRequired).toBe(true);
+    });
+
+    it("adds active member when confirmSeatExpansion is true", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const second = await seedSecondPerson();
+      await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, activeUserLimit: 5 } });
+      await db.familySubscription.create({ data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1, stripeSubscriptionId: "sub_test" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/members`)
+        .set("Authorization", "Bearer mock")
+        .send({ personId: second.id, roles: ["MEMBER"], permissions: [], confirmSeatExpansion: true });
+
+      expect(res.status).toBe(201);
+      const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
+      expect(sub?.seatCount).toBe(2);
+    });
+  });
 });
