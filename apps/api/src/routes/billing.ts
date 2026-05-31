@@ -214,9 +214,14 @@ async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constr
     case "customer.subscription.updated": {
       const { familyGroupId, tierKey } = obj.metadata ?? {};
       if (!familyGroupId) return;
-      const newSeatCount: number = obj.items?.data?.[0]?.quantity ?? 1;
       const existing = await db.familySubscription.findUnique({ where: { familyGroupId }, include: { pricingTier: true } });
       if (!existing) return;
+      // Find the seat price item by matching stripeSeatPriceId
+      const seatItem = (obj.items?.data ?? []).find(
+        (item: any) => item.price?.id === existing.pricingTier.stripeSeatPriceId
+      );
+      // Fall back to total quantity of first item if no seat price item found (e.g., single-item plan)
+      const newSeatCount: number = seatItem?.quantity ?? obj.items?.data?.[0]?.quantity ?? 1;
 
       const newTier = await db.pricingTier.findUnique({ where: { tierKey: tierKey ?? existing.tierKey } });
       const isDowngrade = newTier !== null && newSeatCount < existing.seatCount;
@@ -246,7 +251,7 @@ async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constr
       const { familyGroupId } = obj.metadata ?? {};
       if (!familyGroupId) return;
       const freeTier = await db.pricingTier.findFirst({ where: { isActive: true, stripePriceId: null }, orderBy: { displayOrder: "asc" } });
-      await db.familySubscription.update({
+      await db.familySubscription.updateMany({
         where: { familyGroupId },
         data: {
           status: "CANCELED",
@@ -266,6 +271,7 @@ async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constr
 
     case "invoice.payment_succeeded": {
       const sub = await db.familySubscription.findFirst({ where: { stripeSubscriptionId: obj.subscription } });
+      // Only clear PAST_DUE; TRIALING→ACTIVE is handled by customer.subscription.updated
       if (!sub || sub.status !== "PAST_DUE") return;
       await db.familySubscription.update({ where: { id: sub.id }, data: { status: "ACTIVE" } });
       break;
