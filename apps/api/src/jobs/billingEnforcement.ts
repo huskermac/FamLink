@@ -51,7 +51,7 @@ export async function runDowngradeEnforcementPass(): Promise<void> {
         where: { id: sub.id },
         data: {
           seatCount: newSeatCount,
-          pendingDowngradeTierKey: null,
+          pendingDowngradeTierKey: null,   // tierKey was already updated by the webhook handler
           pendingDowngradeSeatCount: null,
           downgradeGraceEndsAt: null
         }
@@ -61,21 +61,22 @@ export async function runDowngradeEnforcementPass(): Promise<void> {
 
     // Suspend the newest-joined over-limit members (last in the asc-sorted list)
     const toSuspend = activeMembers.slice(-overCount);
-    for (const member of toSuspend) {
-      await db.familyMember.update({
-        where: { id: member.id },
-        data: { suspendedAt: new Date() }
-      });
-    }
-
-    await db.familySubscription.update({
-      where: { id: sub.id },
-      data: {
-        seatCount: newSeatCount,
-        pendingDowngradeTierKey: null,
-        pendingDowngradeSeatCount: null,
-        downgradeGraceEndsAt: null
+    await db.$transaction(async (tx) => {
+      for (const member of toSuspend) {
+        await tx.familyMember.update({
+          where: { id: member.id },
+          data: { suspendedAt: new Date() }
+        });
       }
+      await tx.familySubscription.update({
+        where: { id: sub.id },
+        data: {
+          seatCount: newSeatCount,
+          pendingDowngradeTierKey: null,   // tierKey was already updated by the webhook handler
+          pendingDowngradeSeatCount: null,
+          downgradeGraceEndsAt: null
+        }
+      });
     });
   }
 }
