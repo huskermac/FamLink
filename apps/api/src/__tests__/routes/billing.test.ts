@@ -341,3 +341,36 @@ describe("POST /api/v1/billing/webhook", () => {
     expect(sub?.status).toBe("ACTIVE");
   });
 });
+
+describe("GET /api/v1/billing/subscription", () => {
+  const app = createApp();
+  const mockGetAuth = vi.mocked(getAuth) as any;
+
+  beforeEach(() => mockGetAuth.mockReset());
+
+  it("returns 404 when no subscription exists for the family", async () => {
+    await seedTestPerson();
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .get("/api/v1/billing/subscription")
+      .set("Authorization", "Bearer mock");
+    expect(res.status).toBe(404);
+  });
+
+  it("returns subscription data when it exists", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Family", displayOrder: 1 } });
+    await db.familySubscription.create({
+      data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 2, status: "ACTIVE" }
+    });
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .get("/api/v1/billing/subscription")
+      .set("Authorization", "Bearer mock");
+    expect(res.status).toBe(200);
+    expect(res.body.subscription.tierKey).toBe("BASE");
+    expect(res.body.subscription.seatCount).toBe(2);
+    expect(res.body.subscription.status).toBe("ACTIVE");
+  });
+});
