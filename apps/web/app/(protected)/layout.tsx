@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { QueryProvider } from "@/components/QueryProvider";
 import { NavProvider } from "@/contexts/NavContext";
 import { NavShell } from "@/components/nav/NavShell";
@@ -10,7 +11,9 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
       <ThemeProvider>
         <NavProvider>
           <NavShell>
-            <BillingBannerServer />
+            <Suspense fallback={null}>
+              <BillingBannerServer />
+            </Suspense>
             {children}
           </NavShell>
         </NavProvider>

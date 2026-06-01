@@ -349,7 +349,8 @@ describe("GET /api/v1/billing/subscription", () => {
   beforeEach(() => mockGetAuth.mockReset());
 
   it("returns 404 when no subscription exists for the family", async () => {
-    await seedTestPerson();
+    const person = await seedTestPerson();
+    await seedTestFamily(person.id);
     mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
     const res = await request(app)
       .get("/api/v1/billing/subscription")

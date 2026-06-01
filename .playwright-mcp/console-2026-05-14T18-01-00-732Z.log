@@ -1,0 +1,8 @@
+[     296ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ webpack-internal:///(app-pages-browser)/../../node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:25630
+[     341ms] [WARNING] Clerk: Clerk has been loaded with development keys. Development instances have strict usage limits and should not be used when deploying your application to production. Learn more: https://clerk.com/docs/deployments/overview @ https://moral-marlin-29.clerk.accounts.dev/npm/@clerk/clerk-js@5/dist/clerk.browser.js:18
+[     341ms] [WARNING] Clerk: The prop "afterSignInUrl" is deprecated and should be replaced with the new "fallbackRedirectUrl" or "forceRedirectUrl" props instead. Learn more: https://clerk.com/docs/guides/custom-redirects#redirect-url-props @ https://moral-marlin-29.clerk.accounts.dev/npm/@clerk/clerk-js@5/dist/clerk.browser.js:18
+[   11171ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/api/v1/events/cmogh8p6c0006dsx5pzf8r6ez:0
+[   16473ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/api/v1/events/cmogh8p6c0006dsx5pzf8r6ez:0
+[   38649ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/api/v1/events/cmogh8p6c0006dsx5pzf8r6ez:0
+[   54289ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/api/v1/events/cmogh8p6c0006dsx5pzf8r6ez:0
+[   63091ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/api/v1/events/cmogh8p6c0006dsx5pzf8r6ez:0

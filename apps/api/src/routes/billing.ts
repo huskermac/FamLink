@@ -30,25 +30,15 @@ billingRouter.get("/tiers", async (_req: Request, res: Response) => {
   res.json({ tiers });
 });
 
-function authed(req: Request): { userId: string } {
-  const { userId } = getAuth(req);
-  if (!userId) throw Object.assign(new Error("Unauthorized"), { status: 401 });
-  return { userId };
-}
-
 // GET /api/v1/billing/subscription
 billingRouter.get("/subscription", async (req: Request, res: Response) => {
-  let userId: string;
-  try {
-    ({ userId } = authed(req));
-  } catch {
-    res.status(401).json({ error: "Unauthorized" }); return;
-  }
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
   const person = await personForClerkUserId(userId);
   if (!person) { res.status(400).json({ error: "Person record required" }); return; }
 
   const membership = await db.familyMember.findFirst({ where: { personId: person.id } });
-  if (!membership) { res.status(404).json({ error: "No family group found" }); return; }
+  if (!membership) { res.status(400).json({ error: "No family group found" }); return; }
 
   const sub = await db.familySubscription.findUnique({ where: { familyGroupId: membership.familyGroupId } });
   if (!sub) { res.status(404).json({ error: "No subscription found" }); return; }

@@ -1,0 +1,87 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]: FamLink
+      - navigation [ref=e5]:
+        - link "⊞ Dashboard" [ref=e6] [cursor=pointer]:
+          - /url: /dashboard
+          - generic [ref=e7]: ⊞
+          - text: Dashboard
+        - link "📅 Events" [ref=e8] [cursor=pointer]:
+          - /url: /events
+          - generic [ref=e9]: 📅
+          - text: Events
+        - link "👨‍👩‍👧 Family" [ref=e10] [cursor=pointer]:
+          - /url: /family
+          - generic [ref=e11]: 👨‍👩‍👧
+          - text: Family
+        - link "🗓 Calendar" [ref=e12] [cursor=pointer]:
+          - /url: /calendar
+          - generic [ref=e13]: 🗓
+          - text: Calendar
+        - link "✦ AI Assistant" [ref=e14] [cursor=pointer]:
+          - /url: /assistant
+          - generic [ref=e15]: ✦
+          - text: AI Assistant
+        - link "⚙️ Settings" [ref=e16] [cursor=pointer]:
+          - /url: /settings
+          - generic [ref=e17]: ⚙️
+          - text: Settings
+      - generic [ref=e18]:
+        - generic [ref=e27]: Steve
+        - link "⚙️" [ref=e19] [cursor=pointer]:
+          - /url: /settings
+    - main [ref=e20]:
+      - navigation "Breadcrumb" [ref=e21]:
+        - link "Events" [ref=e23] [cursor=pointer]:
+          - /url: /events
+        - generic [ref=e24]:
+          - text: ›
+          - link "cmogh8p6c0006dsx5pzf8r6ez" [ref=e25] [cursor=pointer]:
+            - /url: /events/cmogh8p6c0006dsx5pzf8r6ez
+        - generic [ref=e26]: ›edit
+      - generic [ref=e28]:
+        - heading "Edit Event" [level=1] [ref=e29]
+        - generic [ref=e30]:
+          - generic [ref=e31]:
+            - generic [ref=e32]: Title *
+            - textbox "Title *" [ref=e33]: Asher's Birthday Party
+          - generic [ref=e34]:
+            - text: Event type
+            - generic [ref=e35]:
+              - button "Holiday" [ref=e36] [cursor=pointer]: Holiday
+              - button "Birthday" [ref=e38] [cursor=pointer]: Birthday
+              - button "Sports" [ref=e40] [cursor=pointer]: Sports
+              - button "School" [ref=e42] [cursor=pointer]: School
+              - button "Other" [ref=e44] [cursor=pointer]: Other
+          - generic [ref=e46]:
+            - text: Who can see this?
+            - generic [ref=e47]:
+              - generic [ref=e48] [cursor=pointer]:
+                - radio "BroadcastEveryone in the family sees this" [checked] [ref=e49]
+                - generic [ref=e50]: BroadcastEveryone in the family sees this
+              - generic [ref=e51] [cursor=pointer]:
+                - radio "OpenInvited guests; they can bring others" [ref=e52]
+                - generic [ref=e53]: OpenInvited guests; they can bring others
+              - generic [ref=e54] [cursor=pointer]:
+                - radio "PrivateInvited guests only" [ref=e55]
+                - generic [ref=e56]: PrivateInvited guests only
+          - generic [ref=e57]:
+            - generic [ref=e58]: Start time *
+            - textbox "Start time *" [ref=e59]: 2026-05-30T14:00
+          - generic [ref=e60]:
+            - generic [ref=e61]: End time (optional)
+            - textbox "End time (optional)" [ref=e62]
+          - generic [ref=e63]:
+            - generic [ref=e64]: Location (optional)
+            - textbox "Location (optional)" [ref=e65]: Frani's clubhouse
+          - generic [ref=e66]:
+            - generic [ref=e67]: Description (optional)
+            - textbox "Description (optional)" [ref=e68]
+          - paragraph [ref=e83]: Failed to fetch
+          - generic [ref=e69]:
+            - button "Save Changes" [ref=e70]
+            - button "Cancel" [ref=e71]
+  - button "Open Next.js Dev Tools" [ref=e77] [cursor=pointer]:
+    - img [ref=e78]
+  - alert [ref=e81]
