@@ -1,3 +1,5 @@
+"use client";
+
 interface SeatExpansionModalProps {
   currentSeats: number;
   newSeats: number;

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 import { fetchSubscription, createPortalSession } from "@/lib/api/billing";
@@ -39,7 +40,7 @@ export default function BillingSettingsPage() {
     return (
       <div style={{ padding: 32 }}>
         <p style={{ color: "var(--text-secondary)", marginBottom: 16 }}>No active subscription.</p>
-        <a href="/billing/plans" style={{ color: "var(--accent)" }}>View Plans</a>
+        <Link href="/billing/plans" style={{ color: "var(--accent)" }}>View Plans</Link>
       </div>
     );
   }

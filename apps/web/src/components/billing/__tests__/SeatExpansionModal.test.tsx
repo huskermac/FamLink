@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SeatExpansionModal } from "@/components/billing/SeatExpansionModal";
 
 describe("SeatExpansionModal", () => {
@@ -12,6 +12,10 @@ describe("SeatExpansionModal", () => {
     onConfirm: vi.fn(),
     onCancel: vi.fn()
   };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it("renders seat count and charge information", () => {
     render(<SeatExpansionModal {...baseProps} />);
