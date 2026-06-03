@@ -36,6 +36,20 @@ Guidelines bias toward caution over speed — for trivial tasks, use judgment.
 
 ---
 
+## Phase Completion Gate
+
+**Do not advance to the next plan or phase until all known open items in the current plan are resolved.**
+
+Before proposing or starting any new plan (P3-02, P3-03, etc.):
+1. Read the most recent session bookmark in memory.
+2. List every item marked as incomplete, blocked, or deferred in that bookmark.
+3. Surface those items to Steve explicitly: *"Before moving to P3-XX, these items from P3-YY are unresolved: [list]. Should we close them first?"*
+4. Do not proceed until Steve either closes the items or explicitly defers them with a written decision.
+
+This applies to: missing pages, unwired UI components, broken links, deferred integrations, and anything flagged as "future work" or "follow-on" in a plan or session bookmark.
+
+---
+
 ## Session Scope Authorization
 
 **Do not execute beyond what Steve authorized at session start.**
