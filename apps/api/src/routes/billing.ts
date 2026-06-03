@@ -174,8 +174,43 @@ billingRouter.post("/seat-impact", async (req: Request, res: Response) => {
     currentSeats: sub.seatCount,
     newSeats: body.data.newSeatCount,
     immediateCharge: upcoming.amount_due / 100,
+    recurringIncrease: ((body.data.newSeatCount - sub.seatCount) * (seatItem.price?.unit_amount ?? 0)) / 100,
     currency: upcoming.currency
   });
+});
+
+// POST /api/v1/billing/activate-free
+billingRouter.post("/activate-free", async (req: Request, res: Response) => {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const person = await personForClerkUserId(userId);
+  if (!person) { res.status(400).json({ error: "Person record required" }); return; }
+
+  const membership = await db.familyMember.findFirst({ where: { personId: person.id } });
+  if (!membership) { res.status(400).json({ error: "No family group found" }); return; }
+
+  const freeTier = await db.pricingTier.findFirst({
+    where: { isActive: true, stripePriceId: null },
+    orderBy: { displayOrder: "asc" }
+  });
+  if (!freeTier) { res.status(404).json({ error: "Free tier not found" }); return; }
+
+  await db.familySubscription.upsert({
+    where: { familyGroupId: membership.familyGroupId },
+    create: {
+      familyGroupId: membership.familyGroupId,
+      tierKey: freeTier.tierKey,
+      status: "ACTIVE",
+      seatCount: 1
+    },
+    update: {
+      tierKey: freeTier.tierKey,
+      status: "ACTIVE",
+      stripeSubscriptionId: null
+    }
+  });
+
+  res.json({ activated: true });
 });
 
 // --- Webhook handler ---

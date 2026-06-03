@@ -342,6 +342,68 @@ describe("POST /api/v1/billing/webhook", () => {
   });
 });
 
+describe("POST /api/v1/billing/activate-free", () => {
+  const app = createApp();
+  const mockGetAuth = vi.mocked(getAuth) as any;
+
+  beforeEach(() => mockGetAuth.mockReset());
+
+  it("returns 401 when unauthenticated", async () => {
+    mockGetAuth.mockReturnValue({ userId: null });
+    const res = await request(app)
+      .post("/api/v1/billing/activate-free")
+      .set("Authorization", "Bearer mock");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 400 when no person record", async () => {
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .post("/api/v1/billing/activate-free")
+      .set("Authorization", "Bearer mock");
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Person record required");
+  });
+
+  it("returns 400 when no family group", async () => {
+    await seedTestPerson();
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .post("/api/v1/billing/activate-free")
+      .set("Authorization", "Bearer mock");
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("No family group found");
+  });
+
+  it("returns 404 when no free tier exists", async () => {
+    const person = await seedTestPerson();
+    await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "PAID", displayName: "Paid", displayOrder: 1, stripePriceId: "price_paid" } });
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .post("/api/v1/billing/activate-free")
+      .set("Authorization", "Bearer mock");
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe("Free tier not found");
+  });
+
+  it("returns 200 and upserts subscription with free tier", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "FREE", displayName: "Free", displayOrder: 0, isActive: true } });
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .post("/api/v1/billing/activate-free")
+      .set("Authorization", "Bearer mock");
+    expect(res.status).toBe(200);
+    expect(res.body.activated).toBe(true);
+    const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
+    expect(sub?.tierKey).toBe("FREE");
+    expect(sub?.status).toBe("ACTIVE");
+    expect(sub?.seatCount).toBe(1);
+  });
+});
+
 describe("GET /api/v1/billing/subscription", () => {
   const app = createApp();
   const mockGetAuth = vi.mocked(getAuth) as any;

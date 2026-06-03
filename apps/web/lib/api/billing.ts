@@ -25,6 +25,7 @@ export interface SeatImpact {
   currentSeats: number;
   newSeats: number;
   immediateCharge: number;
+  recurringIncrease: number;
   currency: string;
 }
 
@@ -77,4 +78,8 @@ export async function getSeatImpact(
     method: "POST",
     body: JSON.stringify({ newSeatCount })
   });
+}
+
+export async function activateFree(getToken: () => Promise<string | null>): Promise<void> {
+  await apiFetch<{ activated: boolean }>("/api/v1/billing/activate-free", { getToken, method: "POST" });
 }
