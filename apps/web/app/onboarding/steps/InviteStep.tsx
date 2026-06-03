@@ -8,6 +8,9 @@ import { Card, CardTitle } from "../../../components/ui/card";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
 import { apiFetch } from "../../../lib/api";
+import { fetchSubscription, getSeatImpact, createCheckoutSession } from "../../../lib/api/billing";
+import type { SeatImpact } from "../../../lib/api/billing";
+import { SeatExpansionModal } from "../../../components/billing/SeatExpansionModal";
 
 export type InviteeRow = {
   firstName: string;
@@ -28,6 +31,7 @@ export function InviteStep(props: InviteStepProps): ReactElement {
   const [rows, setRows] = useState<InviteeRow[]>([emptyRow()]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [seatModal, setSeatModal] = useState<{ tierKey: string; impact: SeatImpact } | null>(null);
 
   function updateRow(i: number, patch: Partial<InviteeRow>): void {
     setRows((r) => r.map((row, j) => (j === i ? { ...row, ...patch } : row)));
@@ -87,15 +91,33 @@ export function InviteStep(props: InviteStepProps): ReactElement {
             ageGateLevel: "ADULT"
           })
         });
-        await apiFetch(`/api/v1/families/${encodeURIComponent(familyGroupId)}/members`, {
-          getToken,
+        const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+        const memberUrl = `${base.replace(/\/$/, "")}/api/v1/families/${encodeURIComponent(familyGroupId)}/members`;
+        const token = await getToken();
+        const memberHeaders = new Headers({ "Content-Type": "application/json" });
+        if (token) memberHeaders.set("Authorization", `Bearer ${token}`);
+        const memberRes = await fetch(memberUrl, {
           method: "POST",
-          body: JSON.stringify({
-            personId: created.id,
-            roles: ["MEMBER"],
-            permissions: []
-          })
+          headers: memberHeaders,
+          body: JSON.stringify({ personId: created.id, roles: ["MEMBER"], permissions: [] }),
+          cache: "no-store"
         });
+
+        if (memberRes.status === 402) {
+          const sub = await fetchSubscription(getToken);
+          if (sub) {
+            const impact = await getSeatImpact(getToken, sub.seatCount + 1);
+            setSeatModal({ tierKey: sub.tierKey, impact });
+          } else {
+            setError("Seat limit reached. Please upgrade your plan.");
+          }
+          return;  // stop the loop
+        }
+
+        if (!memberRes.ok) {
+          const body = await memberRes.json().catch(() => ({}));
+          throw new Error((body as any).error ?? `API ${memberRes.status}: failed`);
+        }
       }
       router.replace("/dashboard");
     } catch (err) {
@@ -107,6 +129,38 @@ export function InviteStep(props: InviteStepProps): ReactElement {
 
   function skip(): void {
     router.replace("/dashboard");
+  }
+
+  async function handleSeatConfirm(): Promise<void> {
+    if (!seatModal) return;
+    const successUrl = `${window.location.origin}/billing/success`;
+    const cancelUrl = `${window.location.origin}/billing/plans`;
+    try {
+      const url = await createCheckoutSession(getToken, seatModal.tierKey, seatModal.impact.newSeats, successUrl, cancelUrl);
+      window.location.href = url;
+    } catch {
+      setError("Failed to start checkout. Please try again.");
+      setSeatModal(null);
+    }
+  }
+
+  function handleSeatCancel(): void {
+    setSeatModal(null);
+    setLoading(false);
+  }
+
+  if (seatModal) {
+    return (
+      <SeatExpansionModal
+        currentSeats={seatModal.impact.currentSeats}
+        newSeats={seatModal.impact.newSeats}
+        immediateCharge={seatModal.impact.immediateCharge}
+        recurringIncrease={seatModal.impact.recurringIncrease}
+        currency={seatModal.impact.currency}
+        onConfirm={() => void handleSeatConfirm()}
+        onCancel={handleSeatCancel}
+      />
+    );
   }
 
   return (
