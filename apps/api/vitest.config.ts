@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { coverageConfigDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
@@ -13,7 +13,16 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
-      thresholds: { lines: 80 }
+      thresholds: { lines: 80 },
+      // Coverage measures product code: spike scripts, test helpers/setup,
+      // and process bootstrap are excluded from the denominator.
+      exclude: [
+        ...coverageConfigDefaults.exclude,
+        "src/scripts/**",
+        "src/__tests__/**",
+        "src/index.ts",
+        "src/loadEnv.ts"
+      ]
     },
     include: ["src/**/__tests__/**/*.test.ts"],
     testTimeout: 60_000

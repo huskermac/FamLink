@@ -83,8 +83,9 @@ jobs:
 
       # turbo test depends on ^build, which runs `prisma generate` + tsc for @famlink/db
       # (the generated client is gitignored). Mobile (jest-expo) is not yet run in CI.
-      - name: Run API + web tests
-        run: npx turbo test --filter=@famlink/api --filter=famlink-web
+      # --coverage enforces the 80% line threshold in each app's vitest config (ADR-13).
+      - name: Run API + web tests (with coverage gate)
+        run: npx turbo test --filter=@famlink/api --filter=famlink-web -- --coverage
 
   build:
     runs-on: ubuntu-latest
