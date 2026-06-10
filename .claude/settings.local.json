@@ -135,7 +135,8 @@
       "Bash(git show *)",
       "PowerShell(Get-ChildItem -Recurse apps\\\\web\\\\app, apps\\\\web\\\\lib, apps\\\\web\\\\components -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Replace\\('C:\\\\Users\\\\swmcl\\\\FamLink\\\\',''\\) })",
       "PowerShell(git check-ignore .env .env.local verify-events.png verify-events-loaded.png)",
-      "PowerShell(node -e \"const s=require\\('C:/Users/swmcl/FamLink/node_modules/stripe'\\); const st=new s\\('sk_test_x'\\); console.log\\('retrieveUpcoming' in st.invoices, typeof st.invoices.retrieveUpcoming, typeof st.invoices.createPreview\\)\")"
+      "PowerShell(node -e \"const s=require\\('C:/Users/swmcl/FamLink/node_modules/stripe'\\); const st=new s\\('sk_test_x'\\); console.log\\('retrieveUpcoming' in st.invoices, typeof st.invoices.retrieveUpcoming, typeof st.invoices.createPreview\\)\")",
+      "Bash(awk -F'|' '$5+0 < 80 && $1 !~ /^-/ {print $1 \"|\" $5}')"
     ],
     "additionalDirectories": [
       "\\tmp",
