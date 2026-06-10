@@ -271,12 +271,19 @@ export function formatContextForPrompt(context: FamilyContext): string {
 
 // ── getConversationHistory ────────────────────────────────────────────────────
 
+/**
+ * Owner-scoped history read: conversationId is client-supplied, so the query
+ * always filters by the authenticated person and verified family group too —
+ * another user's (or family's) conversationId yields nothing.
+ */
 export async function getConversationHistory(
   conversationId: string,
+  personId: string,
+  familyGroupId: string,
   limit = 20
 ): Promise<{ role: "user" | "assistant"; content: string }[]> {
   const messages = await db.assistantMessage.findMany({
-    where: { conversationId },
+    where: { conversationId, personId, familyGroupId },
     orderBy: { createdAt: "asc" },
     take: limit
   });

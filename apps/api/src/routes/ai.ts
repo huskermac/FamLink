@@ -91,8 +91,8 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
   // 5. Resolve conversation ID
   const conversationId = incomingConvId ?? randomUUID();
 
-  // 6. Fetch conversation history
-  const history = await getConversationHistory(conversationId, 20);
+  // 6. Fetch conversation history (scoped to this person + family)
+  const history = await getConversationHistory(conversationId, person.id, familyGroupId, 20);
 
   // 7. Assemble family context
   const context = await assembleFamilyContext(person.id, familyGroupId);
@@ -133,11 +133,15 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
         data: [
           {
             conversationId,
+            personId: person.id,
+            familyGroupId,
             role: "user",
             content: userMessage.content
           },
           {
             conversationId,
+            personId: person.id,
+            familyGroupId,
             role: "assistant",
             content: assistantText
           }

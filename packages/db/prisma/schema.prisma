@@ -278,12 +278,18 @@ model EventPhoto {
 model AssistantMessage {
   id             String   @id @default(cuid())
   conversationId String
+  // Owner scoping (P3-00): history reads are always filtered by both — a
+  // client-supplied conversationId can never surface another user's or
+  // another family's messages.
+  personId       String
+  familyGroupId  String
   role           String   // 'user' | 'assistant'
   content        String   @db.Text
   createdAt      DateTime @default(now())
 
   @@index([conversationId])
   @@index([conversationId, createdAt])
+  @@index([personId])
 }
 
 model PricingTier {

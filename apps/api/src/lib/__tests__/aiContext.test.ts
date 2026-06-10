@@ -418,7 +418,7 @@ describe("getConversationHistory", () => {
       { id: "m2", role: "assistant", content: "Hi there!", createdAt: new Date("2026-04-01T10:00:05Z") }
     ]);
 
-    const history = await getConversationHistory("conv1");
+    const history = await getConversationHistory("conv1", "p_owner", "fam1");
 
     expect(history).toHaveLength(2);
     expect(history[0]).toEqual({ role: "user", content: "Hello" });
@@ -428,7 +428,7 @@ describe("getConversationHistory", () => {
   it("passes limit to the query", async () => {
     mockAssistantMessageFindMany.mockResolvedValue([]);
 
-    await getConversationHistory("conv1", 5);
+    await getConversationHistory("conv1", "p_owner", "fam1", 5);
 
     expect(mockAssistantMessageFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ take: 5 })
@@ -438,18 +438,18 @@ describe("getConversationHistory", () => {
   it("returns empty array if no conversation found", async () => {
     mockAssistantMessageFindMany.mockResolvedValue([]);
 
-    const history = await getConversationHistory("conv_nonexistent");
+    const history = await getConversationHistory("conv_nonexistent", "p_owner", "fam1");
     expect(history).toHaveLength(0);
   });
 
-  it("filters by conversationId", async () => {
+  it("filters by conversationId AND owner person AND family group", async () => {
     mockAssistantMessageFindMany.mockResolvedValue([]);
 
-    await getConversationHistory("conv_abc");
+    await getConversationHistory("conv_abc", "p_owner", "fam1");
 
     expect(mockAssistantMessageFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { conversationId: "conv_abc" }
+        where: { conversationId: "conv_abc", personId: "p_owner", familyGroupId: "fam1" }
       })
     );
   });
