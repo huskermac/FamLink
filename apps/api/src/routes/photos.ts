@@ -1,10 +1,9 @@
-import { Router, type Request } from "express";
+import { Router } from "express";
 import { z } from "zod";
 import { db } from "@famlink/db";
-import type { AuthedRequest } from "../middleware/requireAuth";
+import { personed } from "../middleware/requireAuth";
 import { createPresignedUpload, deleteR2Object } from "../lib/r2";
 import { activeFamilyMembership, hasAdminRole } from "../lib/familyAccess";
-import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 
 export const photosRouter = Router();
 
@@ -19,14 +18,6 @@ const confirmPhotoSchema = z.object({
 
 const eventIdParam = z.object({ eventId: z.string().min(1) });
 const photoIdParam = z.object({ photoId: z.string().min(1) });
-
-function authed(req: Request): AuthedRequest {
-  return req as unknown as AuthedRequest;
-}
-
-async function personForClerkUserId(clerkUserId: string) {
-  return db.person.findUnique({ where: { userId: clerkUserId } });
-}
 
 function serializePhoto(p: {
   id: string;
@@ -54,13 +45,7 @@ photosRouter.post("/presign", async (req, res) => {
     return;
   }
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
-
+  // Person presence is guaranteed by requirePerson; presign needs no further checks.
   const result = await createPresignedUpload(parsed.data.mimeType);
   res.json(result);
 });
@@ -80,12 +65,7 @@ photosRouter.post("/events/:eventId", async (req, res) => {
     return;
   }
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const event = await db.event.findUnique({ where: { id: eventId } });
   if (!event) {
@@ -115,12 +95,7 @@ photosRouter.get("/events/:eventId", async (req, res) => {
   }
   const { eventId } = p.data;
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const event = await db.event.findUnique({ where: { id: eventId } });
   if (!event) {
@@ -151,12 +126,7 @@ photosRouter.delete("/:photoId", async (req, res) => {
   }
   const { photoId } = p.data;
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const photo = await db.eventPhoto.findUnique({
     where: { id: photoId },

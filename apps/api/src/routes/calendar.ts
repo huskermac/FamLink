@@ -1,10 +1,10 @@
-import { Router, type Request } from "express";
+import { Router } from "express";
 import { z } from "zod";
 import { db, type Event, type Person } from "@famlink/db";
 import { birthdayMonthDayInYear, generateBirthdayEvents, type SyntheticBirthdayEvent } from "../lib/birthdayGenerator";
-import { activeFamilyMembership } from "../lib/familyAccess";
-import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
-import type { AuthedRequest } from "../middleware/requireAuth";
+import { visibleEventsWhere } from "../lib/eventVisibility";
+import { activeFamilyMembership, hasAdminRole } from "../lib/familyAccess";
+import { personed } from "../middleware/requireAuth";
 
 const familyIdParam = z.object({
   familyId: z.string().min(1)
@@ -18,17 +18,9 @@ const upcomingQuery = z.object({
   days: z.coerce.number().int().min(1).optional()
 });
 
-function authed(req: Request): AuthedRequest {
-  return req as unknown as AuthedRequest;
-}
-
-async function personForClerkUserId(clerkUserId: string) {
-  return db.person.findUnique({ where: { userId: clerkUserId } });
-}
-
+/** Returns the active membership, or null when the requester has no access. */
 async function requireFamilyMember(familyId: string, requesterPersonId: string) {
-  const m = await activeFamilyMembership(familyId, requesterPersonId);
-  return m !== null;
+  return activeFamilyMembership(familyId, requesterPersonId);
 }
 
 function serializeDbEvent(e: Event) {
@@ -111,13 +103,9 @@ calendarRouter.get("/:familyId/calendar/upcoming", async (req, res) => {
   const rawDays = q.data.days ?? 30;
   const days = Math.min(90, Math.max(1, rawDays));
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
-  if (!(await requireFamilyMember(familyId, requester.id))) {
+  const requester = personed(req).person;
+  const membership = await requireFamilyMember(familyId, requester.id);
+  if (!membership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
   }
@@ -139,7 +127,8 @@ calendarRouter.get("/:familyId/calendar/upcoming", async (req, res) => {
   const dbEvents = await db.event.findMany({
     where: {
       familyGroupId: familyId,
-      startAt: { gte: now, lte: windowEnd }
+      startAt: { gte: now, lte: windowEnd },
+      AND: await visibleEventsWhere(requester.id, hasAdminRole(membership))
     },
     orderBy: { startAt: "asc" }
   });
@@ -179,12 +168,7 @@ calendarRouter.get("/:familyId/calendar/birthdays", async (req, res) => {
   }
   const { familyId } = p.data;
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
   if (!(await requireFamilyMember(familyId, requester.id))) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
@@ -253,13 +237,9 @@ calendarRouter.get("/:familyId/calendar", async (req, res) => {
     return;
   }
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
-  if (!(await requireFamilyMember(familyId, requester.id))) {
+  const requester = personed(req).person;
+  const membership = await requireFamilyMember(familyId, requester.id);
+  if (!membership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
   }
@@ -281,7 +261,8 @@ calendarRouter.get("/:familyId/calendar", async (req, res) => {
   const dbEvents = await db.event.findMany({
     where: {
       familyGroupId: familyId,
-      startAt: { gte: startOfMonth, lt: endOfMonthExclusive }
+      startAt: { gte: startOfMonth, lt: endOfMonthExclusive },
+      AND: await visibleEventsWhere(requester.id, hasAdminRole(membership))
     },
     orderBy: { startAt: "asc" }
   });

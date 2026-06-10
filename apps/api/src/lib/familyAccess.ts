@@ -28,7 +28,7 @@ export const CREATOR_PERMISSIONS = [
 ] as const;
 
 export function hasAdminRole(m: Pick<FamilyMember, "roles">): boolean {
-  return m.roles.includes("ADMIN");
+  return (m.roles ?? []).includes("ADMIN");
 }
 
 /** ADMIN implies full access for permission gates in P1-06. */

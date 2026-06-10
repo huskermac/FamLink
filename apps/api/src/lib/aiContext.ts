@@ -12,6 +12,8 @@
  */
 
 import { db } from "@famlink/db";
+import { visibleEventsWhere } from "./eventVisibility";
+import { hasAdminRole } from "./familyAccess";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -162,7 +164,8 @@ export async function assembleFamilyContext(
   const eventRows = await db.event.findMany({
     where: {
       familyGroupId,
-      startAt: { gte: now, lte: lookAheadEnd }
+      startAt: { gte: now, lte: lookAheadEnd },
+      AND: await visibleEventsWhere(requestingPersonId, hasAdminRole(membership))
     },
     include: { rsvps: true },
     take: opts.maxEvents,

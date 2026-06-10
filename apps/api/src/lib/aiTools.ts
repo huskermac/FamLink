@@ -17,6 +17,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { db } from "@famlink/db";
 import type { PersonSummary, EventSummary } from "./aiContext";
+import { canViewEvent, visibleEventsWhere } from "./eventVisibility";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -124,11 +125,18 @@ type CreateEventResult = {
   message: string;
 };
 
+export interface ToolRequester {
+  personId: string;
+  isAdmin: boolean;
+}
+
 /**
- * Build the 10 Layer 1 tools bound to a membership-verified family group.
- * Call per request, AFTER verifying the requester belongs to `familyGroupId`.
+ * Build the 10 Layer 1 tools bound to a membership-verified family group and
+ * the requesting member. Call per request, AFTER verifying the requester
+ * belongs to `familyGroupId`. Event reads honor PRIVATE visibility for the
+ * requester (decision 2026-06-10: private events are fully hidden).
  */
-export function buildTools(familyGroupId: string) {
+export function buildTools(familyGroupId: string, requester: ToolRequester) {
   const get_person = tool<GetPersonInput, PersonSummary[]>({
     description: "Look up a person by name or relationship label within the family group.",
     inputSchema: GetPersonSchema,
@@ -249,7 +257,11 @@ export function buildTools(familyGroupId: string) {
       const end = new Date(now.getTime() + withinDays * 86_400_000);
 
       const events = await db.event.findMany({
-        where: { familyGroupId, startAt: { gte: now, lte: end } },
+        where: {
+          familyGroupId,
+          startAt: { gte: now, lte: end },
+          AND: await visibleEventsWhere(requester.personId, requester.isAdmin)
+        },
         include: { rsvps: true },
         orderBy: { startAt: "asc" },
         take: 20
@@ -283,7 +295,7 @@ export function buildTools(familyGroupId: string) {
         include: { rsvps: true }
       });
 
-      if (!event) return null;
+      if (!event || !(await canViewEvent(event, requester.personId, requester.isAdmin))) return null;
 
       // RSVP has no direct person relation — fetch persons separately
       const personIds = event.rsvps.map(r => r.personId);
@@ -317,7 +329,7 @@ export function buildTools(familyGroupId: string) {
         include: { rsvps: true }
       });
 
-      if (!event) return null;
+      if (!event || !(await canViewEvent(event, requester.personId, requester.isAdmin))) return null;
 
       const personIds = event.rsvps.map(r => r.personId);
       const persons = await db.person.findMany({

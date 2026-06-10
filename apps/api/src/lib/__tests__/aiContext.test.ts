@@ -35,6 +35,10 @@ vi.mock("@famlink/db", () => ({
     event: {
       findMany: (...args: unknown[]) => mockEventFindMany(...args)
     },
+    householdMember: {
+      // visibleEventsWhere resolves the requester's households for non-admins
+      findMany: vi.fn().mockResolvedValue([])
+    },
     assistantMessage: {
       findMany: (...args: unknown[]) => mockAssistantMessageFindMany(...args)
     }

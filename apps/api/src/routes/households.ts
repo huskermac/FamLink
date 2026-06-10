@@ -1,9 +1,8 @@
-import { Router, type Request } from "express";
+import { Router } from "express";
 import { z } from "zod";
 import { db } from "@famlink/db";
 import { activeFamilyMembership, hasAdminRole } from "../lib/familyAccess";
-import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
-import type { AuthedRequest } from "../middleware/requireAuth";
+import { personed } from "../middleware/requireAuth";
 
 export const householdsRouter = Router();
 
@@ -32,14 +31,6 @@ const householdMemberParam = z.object({
   personId: z.string().min(1)
 });
 
-function authed(req: Request): AuthedRequest {
-  return req as unknown as AuthedRequest;
-}
-
-async function personForClerkUserId(userId: string) {
-  return db.person.findUnique({ where: { userId } });
-}
-
 async function loadHouseholdWithFamily(householdId: string) {
   return db.household.findUnique({
     where: { id: householdId },
@@ -61,12 +52,7 @@ householdsRouter.put("/:householdId", async (req, res) => {
     return;
   }
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const household = await loadHouseholdWithFamily(householdId);
   if (!household) {
@@ -121,12 +107,7 @@ householdsRouter.post("/:householdId/members", async (req, res) => {
     return;
   }
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const household = await loadHouseholdWithFamily(householdId);
   if (!household) {
@@ -188,12 +169,7 @@ householdsRouter.delete("/:householdId/members/:personId", async (req, res) => {
   }
   const { householdId, personId } = p.data;
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const household = await loadHouseholdWithFamily(householdId);
   if (!household) {

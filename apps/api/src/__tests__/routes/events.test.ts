@@ -87,6 +87,9 @@ describe("events routes (P1-08)", () => {
       expect(res.body.title).toBe("Picnic");
       expect(res.body.createdByPersonId).toBe(admin.id);
       expect(res.body.familyGroupId).toBe(familyGroup.id);
+      // serialized events must include the typed fields the web client requires
+      expect(res.body.eventType).toBe("OTHER");
+      expect(res.body.eventVisibility).toBe("BROADCAST");
     });
   });
 
@@ -501,6 +504,152 @@ describe("events routes (P1-08)", () => {
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body.suggestions)).toBe(true);
+    });
+  });
+
+  describe("PUT /api/v1/events/:eventId", () => {
+    it("creator updates title, time, and eventType", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .put(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ title: "Updated Title", eventType: "PARTY", locationName: "Park" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.title).toBe("Updated Title");
+      expect(res.body.eventType).toBe("PARTY");
+      expect(res.body.locationName).toBe("Park");
+    });
+
+    it("rejects endAt before startAt", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .put(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ endAt: new Date(event.startAt.getTime() - 3_600_000).toISOString() });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("non-creator non-admin member gets 403", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+      const member = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .put(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ title: "Hijacked" });
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("DELETE /api/v1/events/:eventId", () => {
+    it("creator deletes the event; subsequent GET is 404", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const del = await request(app)
+        .delete(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(del.status).toBe(204);
+
+      const get = await request(app)
+        .get(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(get.status).toBe(404);
+    });
+
+    it("non-creator non-admin member gets 403", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+      const member = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .delete(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("GET /api/v1/events/birthday-{personId}-{year} (synthetic)", () => {
+    it("returns the synthetic birthday event for a shared family member", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const member = await seedSecondPerson();
+      await db.person.update({
+        where: { id: member.id },
+        data: { dateOfBirth: new Date("1990-06-15T00:00:00.000Z") }
+      });
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/events/birthday-${member.id}-2030`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.event.isBirthdayEvent).toBe(true);
+      expect(res.body.event.birthdayPersonId).toBe(member.id);
+      expect(res.body.event.title).toMatch(/birthday/i);
+    });
+
+    it("404 when the person has no date of birth", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const member = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/events/birthday-${member.id}-2030`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(404);
+    });
+
+    it("403 when requester shares no family with the birthday person", async () => {
+      const admin = await seedTestPerson();
+      await seedTestFamily(admin.id);
+      const stranger = await seedSecondPerson();
+      await seedTestFamily(stranger.id); // stranger's own, separate family
+      await db.person.update({
+        where: { id: stranger.id },
+        data: { dateOfBirth: new Date("1985-01-02T00:00:00.000Z") }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/events/birthday-${stranger.id}-2030`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(403);
     });
   });
 

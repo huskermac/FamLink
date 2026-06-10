@@ -212,4 +212,135 @@ describe("families & households routes", () => {
       expect(sub?.seatCount).toBe(1);
     });
   });
+
+  describe("GET /api/v1/families/:familyId", () => {
+    it("returns family group, members, and households for a member", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      await db.household.create({ data: { familyGroupId: familyGroup.id, name: "Main", country: "US" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/families/${familyGroup.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.familyGroup.id).toBe(familyGroup.id);
+      expect(res.body.members).toHaveLength(1);
+      expect(res.body.members[0].person.id).toBe(admin.id);
+      expect(res.body.households).toHaveLength(1);
+      expect(res.body.households[0].household.name).toBe("Main");
+    });
+  });
+
+  describe("PUT /api/v1/families/:familyId", () => {
+    it("admin updates name, aiEnabled, and defaultVisibility", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .put(`/api/v1/families/${familyGroup.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "Renamed Family", aiEnabled: false, defaultVisibility: "HOUSEHOLD" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe("Renamed Family");
+      expect(res.body.aiEnabled).toBe(false);
+      expect(res.body.defaultVisibility).toBe("HOUSEHOLD");
+    });
+
+    it("non-admin member gets 403", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const member = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .put(`/api/v1/families/${familyGroup.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "Hijacked Family" });
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("DELETE /api/v1/families/:familyId/members/:personId", () => {
+    it("a member can remove themselves", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const member = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .delete(`/api/v1/families/${familyGroup.id}/members/${member.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(204);
+    });
+
+    it("an admin can remove another member", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const member = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .delete(`/api/v1/families/${familyGroup.id}/members/${member.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(204);
+    });
+
+    it("a non-admin cannot remove someone else", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const member = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .delete(`/api/v1/families/${familyGroup.id}/members/${admin.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(403);
+    });
+
+    it("refuses to remove the last admin", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .delete(`/api/v1/families/${familyGroup.id}/members/${admin.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/last admin/i);
+    });
+
+    it("404 when membership does not exist", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const stranger = await seedSecondPerson();
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .delete(`/api/v1/families/${familyGroup.id}/members/${stranger.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(404);
+    });
+  });
 });

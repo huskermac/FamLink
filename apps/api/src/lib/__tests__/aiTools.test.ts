@@ -50,8 +50,11 @@ import { buildTools } from "../aiTools";
 
 const FAM_ID = "fam_test";
 
-// Tools are bound to the verified family group at build time — familyGroupId
-// is no longer a tool input (cross-family access impossible by construction).
+// Tools are bound to the verified family group + requester at build time —
+// familyGroupId is no longer a tool input (cross-family access impossible by
+// construction) and event reads honor PRIVATE visibility for the requester.
+const REQUESTER = { personId: "p_requester", isAdmin: false };
+
 const {
   get_person,
   get_family_members,
@@ -63,7 +66,7 @@ const {
   get_household_members,
   get_contact_info,
   create_event
-} = buildTools(FAM_ID);
+} = buildTools(FAM_ID, REQUESTER);
 
 interface PersonFixture {
   id: string;
@@ -121,6 +124,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: person lookups return empty (override per-test where needed)
   mockPersonFindMany.mockResolvedValue([]);
+  // visibleEventsWhere resolves the requester's households for non-admins
+  mockHouseholdMemberFindMany.mockResolvedValue([]);
 });
 
 // ── get_person ────────────────────────────────────────────────────────────────
@@ -424,7 +429,7 @@ describe("get_contact_info", () => {
   it("returns null when person is not in the bound family group", async () => {
     mockFamilyMemberFindFirst.mockResolvedValue(null);
 
-    const otherFamilyTools = buildTools("other_fam");
+    const otherFamilyTools = buildTools("other_fam", REQUESTER);
     const result = await otherFamilyTools.get_contact_info.execute!(
       { personId: "p_alice" },
       {} as never
@@ -488,19 +493,19 @@ describe("family group binding", () => {
   it("scopes queries to the familyGroupId the tools were built with", async () => {
     mockFamilyMemberFindMany.mockResolvedValue([]);
 
-    await buildTools("fam_A").get_family_members.execute!({}, {} as never);
+    await buildTools("fam_A", REQUESTER).get_family_members.execute!({}, {} as never);
     expect(mockFamilyMemberFindMany).toHaveBeenLastCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ familyGroupId: "fam_A" }) })
     );
 
-    await buildTools("fam_B").get_family_members.execute!({}, {} as never);
+    await buildTools("fam_B", REQUESTER).get_family_members.execute!({}, {} as never);
     expect(mockFamilyMemberFindMany).toHaveBeenLastCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ familyGroupId: "fam_B" }) })
     );
   });
 
   it("no tool input schema accepts a familyGroupId", () => {
-    const tools = buildTools(FAM_ID);
+    const tools = buildTools(FAM_ID, REQUESTER);
     for (const [name, t] of Object.entries(tools)) {
       const shape = (t.inputSchema as unknown as { shape: Record<string, unknown> }).shape;
       expect(Object.keys(shape), `${name} must not accept familyGroupId`).not.toContain("familyGroupId");

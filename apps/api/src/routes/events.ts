@@ -1,11 +1,11 @@
 import crypto from "crypto";
-import { Router, type Request } from "express";
+import { Router } from "express";
 import { z } from "zod";
 import { db, type Event, type EventItem } from "@famlink/db";
 import { InviteScope, RSVPStatus } from "@famlink/shared";
 import { activeFamilyMembership, hasAdminRole, hasPermission } from "../lib/familyAccess";
-import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
-import type { AuthedRequest } from "../middleware/requireAuth";
+import { personed } from "../middleware/requireAuth";
+import { canViewEvent } from "../lib/eventVisibility";
 import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 import { generateBirthdayEvents } from "../lib/birthdayGenerator";
 import { getInviteeSuggestions } from "../lib/inviteeSuggestions";
@@ -112,14 +112,6 @@ const eventIdParam = z.object({
   eventId: z.string().min(1)
 });
 
-function authed(req: Request): AuthedRequest {
-  return req as unknown as AuthedRequest;
-}
-
-async function personForClerkUserId(clerkUserId: string) {
-  return db.person.findUnique({ where: { userId: clerkUserId } });
-}
-
 function serializeEvent(e: Event) {
   return {
     id: e.id,
@@ -137,6 +129,8 @@ function serializeEvent(e: Event) {
     recurrenceRule: e.recurrenceRule,
     isBirthdayEvent: e.isBirthdayEvent,
     birthdayPersonId: e.birthdayPersonId,
+    eventType: e.eventType,
+    eventVisibility: e.eventVisibility,
     createdAt: e.createdAt.toISOString(),
     updatedAt: e.updatedAt.toISOString()
   };
@@ -168,6 +162,11 @@ async function loadEventForMember(eventId: string, requesterPersonId: string) {
   if (!membership) {
     return { error: "forbidden" as const };
   }
+  // PRIVATE events are fully hidden from non-invited members (decision
+  // 2026-06-10) — report not_found, never reveal existence.
+  if (!(await canViewEvent(event, requesterPersonId, hasAdminRole(membership)))) {
+    return { error: "not_found" as const };
+  }
   return { event, membership };
 }
 
@@ -188,12 +187,7 @@ familyEventsRouter.post("/:familyId/events", async (req, res) => {
     return;
   }
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const membership = await activeFamilyMembership(familyId, requester.id);
   if (!membership) {
@@ -252,12 +246,7 @@ eventsRouter.get("/:eventId", async (req, res) => {
   }
   const { eventId } = p.data;
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   // Synthetic birthday events: birthday-{personId}-{year}
   const bdMatch = /^birthday-(.+)-(\d{4})$/.exec(eventId);
@@ -386,12 +375,7 @@ eventsRouter.put("/:eventId", async (req, res) => {
     return;
   }
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const loaded = await loadEventForMember(eventId, requester.id);
   if (loaded.error === "not_found") {
@@ -453,12 +437,7 @@ eventsRouter.delete("/:eventId", async (req, res) => {
   }
   const { eventId } = p.data;
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const loaded = await loadEventForMember(eventId, requester.id);
   if (loaded.error === "not_found") {
@@ -511,12 +490,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
     return;
   }
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const event = await db.event.findUnique({ where: { id: eventId } });
   if (!event) {
@@ -607,12 +581,7 @@ eventsRouter.get("/:eventId/invitations", async (req, res) => {
   }
   const { eventId } = p.data;
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const event = await db.event.findUnique({ where: { id: eventId } });
   if (!event) {
@@ -673,12 +642,7 @@ eventsRouter.get("/:eventId/invitee-suggestions", async (req, res) => {
   }
   const { eventId } = p.data;
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const event = await db.event.findUnique({ where: { id: eventId } });
   if (!event) {
@@ -723,12 +687,7 @@ eventsRouter.get("/:eventId/rsvps", async (req, res) => {
   }
   const { eventId } = p.data;
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const loaded = await loadEventForMember(eventId, requester.id);
   if (loaded.error === "not_found") {
@@ -795,12 +754,7 @@ eventsRouter.put("/:eventId/rsvp", async (req, res) => {
     return;
   }
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const loaded = await loadEventForMember(eventId, requester.id);
   if (loaded.error === "not_found") {
@@ -875,12 +829,7 @@ eventsRouter.post("/:eventId/potluck", async (req, res) => {
     return;
   }
 
-  const { userId } = authed(req);
-  const requester = await personForClerkUserId(userId);
-  if (!requester) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  const requester = personed(req).person;
 
   const loaded = await loadEventForMember(eventId, requester.id);
   if (loaded.error === "not_found") {

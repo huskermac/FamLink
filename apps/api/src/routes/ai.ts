@@ -10,7 +10,7 @@ import { z } from "zod";
 import { streamText, stepCountIs } from "ai";
 import { randomUUID } from "crypto";
 import { db } from "@famlink/db";
-import type { AuthedRequest } from "../middleware/requireAuth";
+import { personed, type AuthedRequest } from "../middleware/requireAuth";
 import { anthropicClient, PRIMARY_MODEL } from "../lib/aiClient";
 import {
   checkAndIncrementAiRateLimit,
@@ -23,17 +23,12 @@ import {
   getConversationHistory
 } from "../lib/aiContext";
 import { env } from "../lib/env";
-import { activeFamilyMembership } from "../lib/familyAccess";
-import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
+import { activeFamilyMembership, hasAdminRole } from "../lib/familyAccess";
 
 export const aiRouter = Router();
 
 function authed(req: Request): AuthedRequest {
   return req as unknown as AuthedRequest;
-}
-
-async function personForClerkUserId(clerkUserId: string) {
-  return db.person.findUnique({ where: { userId: clerkUserId } });
 }
 
 // ── Validation schemas ────────────────────────────────────────────────────────
@@ -54,12 +49,8 @@ const ChatBodySchema = z.object({
 aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
   const { userId } = authed(req);
 
-  // 1. Resolve person from auth
-  const person = await personForClerkUserId(userId);
-  if (!person) {
-    res.status(400).json({ error: ERROR_PERSON_RECORD_REQUIRED });
-    return;
-  }
+  // 1. Person resolved by requirePerson middleware
+  const person = personed(req).person;
 
   // 2. Validate body
   const parsed = ChatBodySchema.safeParse(req.body);
@@ -73,6 +64,18 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
   const membership = await activeFamilyMembership(familyGroupId, person.id);
   if (!membership) {
     res.status(403).json({ error: "Forbidden: not a member of this family group" });
+    return;
+  }
+
+  // 3b. Family-level AI toggle (admins can disable AI in family settings)
+  const familyGroup = await db.familyGroup.findUnique({
+    where: { id: familyGroupId },
+    select: { aiEnabled: true }
+  });
+  if (!familyGroup?.aiEnabled) {
+    res.status(403).json({
+      error: "The AI assistant is turned off for this family. A family admin can re-enable it in settings."
+    });
     return;
   }
 
@@ -119,9 +122,10 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
       model: anthropicClient(PRIMARY_MODEL),
       system: systemPrompt,
       messages: [...history, ...messages],
-      // Tools are bound to the membership-verified family group (step 3) —
-      // the model cannot direct them at another family.
-      tools: buildTools(familyGroupId),
+      // Tools are bound to the membership-verified family group and requester
+      // (step 3) — the model cannot direct them at another family, and event
+      // reads honor PRIVATE visibility for this member.
+      tools: buildTools(familyGroupId, { personId: person.id, isAdmin: hasAdminRole(membership) }),
       stopWhen: stepCountIs(env.AI_MAX_TOOL_ITERATIONS)
     });
 

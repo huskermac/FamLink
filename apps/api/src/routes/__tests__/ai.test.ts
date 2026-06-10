@@ -24,6 +24,7 @@ vi.mock("@clerk/express", () => ({
 const mockPersonFindUnique = vi.fn();
 const mockFamilyMemberFindUnique = vi.fn();
 const mockFamilyMemberFindMany = vi.fn();
+const mockFamilyGroupFindUnique = vi.fn();
 const mockAssistantMessageCreateMany = vi.fn();
 const mockAssistantMessageFindMany = vi.fn();
 
@@ -40,6 +41,7 @@ vi.mock("@famlink/db", () => ({
       findFirst: vi.fn().mockResolvedValue(null)
     },
     familyGroup: {
+      findUnique: (...args: unknown[]) => mockFamilyGroupFindUnique(...args),
       findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "fam1", name: "Test Family" })
     },
     relationship: { findMany: vi.fn().mockResolvedValue([]) },
@@ -56,13 +58,13 @@ vi.mock("@famlink/db", () => ({
 
 // ── Mock AI SDK ───────────────────────────────────────────────────────────────
 
-const mockPipeDataStream = vi.fn((res: { end: () => void }) => {
+const mockPipeStream = vi.fn((res: { end: () => void }) => {
   res.end();
 });
 
 const mockStreamText = vi.fn().mockReturnValue({
   text: Promise.resolve("Here is your answer."),
-  pipeDataStreamToResponse: mockPipeDataStream
+  pipeUIMessageStreamToResponse: mockPipeStream
 });
 
 vi.mock("ai", () => ({
@@ -100,7 +102,7 @@ vi.mock("../../lib/aiContext", () => ({
 // ── Mock aiTools (tool definitions use db — mock to avoid side effects) ───────
 
 vi.mock("../../lib/aiTools", () => ({
-  allTools: {}
+  buildTools: () => ({})
 }));
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -119,6 +121,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAssistantMessageFindMany.mockResolvedValue([]);
   mockAssistantMessageCreateMany.mockResolvedValue({ count: 2 });
+  mockFamilyGroupFindUnique.mockResolvedValue({ aiEnabled: true });
 });
 
 // ── POST /api/v1/ai/chat ──────────────────────────────────────────────────────
@@ -161,6 +164,21 @@ describe("POST /api/v1/ai/chat", () => {
     expect(res.body.error).toContain("not a member");
   });
 
+  it("returns 403 when the family has AI disabled", async () => {
+    mockGetAuth.mockReturnValue({ userId: "clerk_user1" });
+    mockPersonFindUnique.mockResolvedValue(PERSON);
+    mockFamilyMemberFindUnique.mockResolvedValue(MEMBERSHIP);
+    mockFamilyGroupFindUnique.mockResolvedValue({ aiEnabled: false });
+
+    const app = createApp();
+    const res = await request(app)
+      .post("/api/v1/ai/chat")
+      .send(VALID_BODY);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("turned off");
+  });
+
   it("returns 429 when rate limit is exceeded", async () => {
     mockGetAuth.mockReturnValue({ userId: "clerk_user1" });
     mockPersonFindUnique.mockResolvedValue(PERSON);
@@ -175,6 +193,34 @@ describe("POST /api/v1/ai/chat", () => {
     expect(res.status).toBe(429);
     expect(res.body.error).toContain("Daily AI limit");
     expect(res.body.resetAt).toBeDefined();
+  });
+
+  it("streams a response and persists both messages with owner scoping", async () => {
+    mockGetAuth.mockReturnValue({ userId: "clerk_user1" });
+    mockPersonFindUnique.mockResolvedValue(PERSON);
+    mockFamilyMemberFindUnique.mockResolvedValue(MEMBERSHIP);
+    mockCheckAndIncrement.mockResolvedValue(ALLOWED_RATE);
+
+    const app = createApp();
+    const res = await request(app)
+      .post("/api/v1/ai/chat")
+      .send({ ...VALID_BODY, conversationId: "conv_test" });
+
+    expect(res.status).toBe(200);
+    expect(mockStreamText).toHaveBeenCalledOnce();
+    expect(mockPipeStream).toHaveBeenCalledOnce();
+
+    // persistence is fire-and-forget after the text promise resolves
+    await vi.waitFor(() => expect(mockAssistantMessageCreateMany).toHaveBeenCalledOnce());
+    const data = mockAssistantMessageCreateMany.mock.calls[0][0].data;
+    expect(data).toHaveLength(2);
+    expect(data[0]).toMatchObject({
+      conversationId: "conv_test",
+      personId: "p1",
+      familyGroupId: "fam1",
+      role: "user"
+    });
+    expect(data[1]).toMatchObject({ role: "assistant", content: "Here is your answer." });
   });
 
   it("returns 400 for invalid body", async () => {
