@@ -20,7 +20,8 @@ Guidelines bias toward caution over speed — for trivial tasks, use judgment.
 ## Current Phase
 
 - **Phase 2:** COMPLETE (P2-00 through P2-13 + design polish, all shipped)
-- **Current phase:** Phase 3
+- **Current phase:** Phase 3 — P3-01 (billing) complete; P3-00 (Privacy & Billing Integrity hardening, from the 2026-06-10 audit) Milestones 0–1 complete
+- **P3-00 remaining (Milestone 2, not yet authorized):** event visibility enforcement (private events fully hidden — decision 2026-06-10), authz middleware consolidation, aiEnabled check in /ai/chat, serializeEvent eventType/eventVisibility fix, .env.example sync, 80% coverage gate, new README
 - **Test runner:** Vitest (API + web), Jest + Expo preset (mobile)
 - **AI observability:** Helicone
 - **Real-time:** Socket.io (`event:created`, `rsvp:updated` events)
