@@ -39,7 +39,11 @@ export default function InvitePage() {
   function togglePerson(personId: string) {
     setSelectedPersonIds(prev => {
       const next = new Set(prev);
-      next.has(personId) ? next.delete(personId) : next.add(personId);
+      if (next.has(personId)) {
+        next.delete(personId);
+      } else {
+        next.add(personId);
+      }
       return next;
     });
   }

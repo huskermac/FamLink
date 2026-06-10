@@ -81,7 +81,7 @@ billingRouter.post("/checkout", async (req: Request, res: Response) => {
   const tier = await db.pricingTier.findUnique({ where: { tierKey: body.data.tierKey } });
   if (!tier) { res.status(404).json({ error: "Tier not found" }); return; }
 
-  let sub = await db.familySubscription.findUnique({ where: { familyGroupId: membership.familyGroupId } });
+  const sub = await db.familySubscription.findUnique({ where: { familyGroupId: membership.familyGroupId } });
   let customerId = sub?.stripeCustomerId ?? null;
 
   if (!customerId) {

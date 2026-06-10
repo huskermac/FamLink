@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "start:prod": "(cd ../../packages/db && npx prisma migrate deploy) && node dist/index.js",
     "type-check": "tsc --noEmit -p tsconfig.type-check.json",
+    "lint": "eslint src",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

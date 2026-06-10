@@ -82,7 +82,7 @@ describe("POST /api/v1/billing/checkout", () => {
 
   it("returns checkoutUrl for valid tier", async () => {
     const person = await seedTestPerson();
-    const { familyGroup } = await seedTestFamily(person.id);
+    await seedTestFamily(person.id);
     await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Family", displayOrder: 1, stripePriceId: "price_base", activeUserLimit: 5 } });
     mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
     const res = await request(app)
