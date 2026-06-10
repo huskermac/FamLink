@@ -1,7 +1,7 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { db } from "@famlink/db";
-import { hasAdminRole } from "../lib/familyAccess";
+import { activeFamilyMembership, hasAdminRole } from "../lib/familyAccess";
 import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
@@ -74,14 +74,7 @@ householdsRouter.put("/:householdId", async (req, res) => {
     return;
   }
 
-  const membership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: {
-        familyGroupId: household.familyGroupId,
-        personId: requester.id
-      }
-    }
-  });
+  const membership = await activeFamilyMembership(household.familyGroupId, requester.id);
   if (!membership || !hasAdminRole(membership)) {
     res.status(403).json({ error: "Only family admins can update this household" });
     return;
@@ -141,14 +134,7 @@ householdsRouter.post("/:householdId/members", async (req, res) => {
     return;
   }
 
-  const requesterMembership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: {
-        familyGroupId: household.familyGroupId,
-        personId: requester.id
-      }
-    }
-  });
+  const requesterMembership = await activeFamilyMembership(household.familyGroupId, requester.id);
   if (!requesterMembership || !hasAdminRole(requesterMembership)) {
     res.status(403).json({ error: "Only family admins can add household members" });
     return;
@@ -225,14 +211,7 @@ householdsRouter.delete("/:householdId/members/:personId", async (req, res) => {
     return;
   }
 
-  const requesterMembership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: {
-        familyGroupId: household.familyGroupId,
-        personId: requester.id
-      }
-    }
-  });
+  const requesterMembership = await activeFamilyMembership(household.familyGroupId, requester.id);
   if (!requesterMembership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;

@@ -46,7 +46,8 @@ async function loadAuthorizedEvent(guest: GuestTokenPayload) {
     db.familyMember.findFirst({
       where: {
         familyGroupId: event.familyGroupId,
-        personId: guest.personId
+        personId: guest.personId,
+        suspendedAt: null
       }
     }),
     db.rSVP.findUnique({

@@ -2,6 +2,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { db, type Person } from "@famlink/db";
 import {
+  activeFamilyMembership,
   CREATOR_PERMISSIONS,
   CREATOR_ROLES,
   hasAdminRole,
@@ -160,11 +161,7 @@ familiesRouter.post("/:familyId/members", async (req, res) => {
     return;
   }
 
-  const requesterMembership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: { familyGroupId: familyId, personId: requester.id }
-    }
-  });
+  const requesterMembership = await activeFamilyMembership(familyId, requester.id);
   if (!requesterMembership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
@@ -277,11 +274,7 @@ familiesRouter.delete("/:familyId/members/:personId", async (req, res) => {
     return;
   }
 
-  const requesterMembership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: { familyGroupId: familyId, personId: requester.id }
-    }
-  });
+  const requesterMembership = await activeFamilyMembership(familyId, requester.id);
   if (!requesterMembership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
@@ -330,11 +323,7 @@ familiesRouter.post("/:familyId/households", async (req, res) => {
     return;
   }
 
-  const membership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: { familyGroupId: familyId, personId: requester.id }
-    }
-  });
+  const membership = await activeFamilyMembership(familyId, requester.id);
   if (!membership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
@@ -389,7 +378,7 @@ familiesRouter.get("/:familyId", async (req, res) => {
   const family = await db.familyGroup.findFirst({
     where: {
       id: familyId,
-      members: { some: { personId: requester.id } }
+      members: { some: { personId: requester.id, suspendedAt: null } }
     },
     include: {
       members: {
@@ -467,11 +456,7 @@ familiesRouter.put("/:familyId", async (req, res) => {
     return;
   }
 
-  const membership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: { familyGroupId: familyId, personId: requester.id }
-    }
-  });
+  const membership = await activeFamilyMembership(familyId, requester.id);
   if (!membership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;

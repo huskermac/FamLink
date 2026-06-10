@@ -4,7 +4,7 @@ import { getAuth } from "@clerk/express";
 import { db, type FamilyMember, type Person } from "@famlink/db";
 import { stripe } from "../lib/stripeClient";
 import { env } from "../lib/env";
-import { hasAdminRole } from "../lib/familyAccess";
+import { activeFamilyMembership, hasAdminRole } from "../lib/familyAccess";
 import type { Request, Response } from "express";
 
 export const billingRouter = Router();
@@ -50,12 +50,10 @@ async function resolveBillingScope(
 
   let membership: FamilyMember | null;
   if (familyGroupId) {
-    membership = await db.familyMember.findUnique({
-      where: { familyGroupId_personId: { familyGroupId, personId: person.id } }
-    });
+    membership = await activeFamilyMembership(familyGroupId, person.id);
     if (!membership) { res.status(403).json({ error: "Not a member of this family" }); return null; }
   } else {
-    const memberships = await db.familyMember.findMany({ where: { personId: person.id }, take: 2 });
+    const memberships = await db.familyMember.findMany({ where: { personId: person.id, suspendedAt: null }, take: 2 });
     if (memberships.length === 0) { res.status(400).json({ error: "No family group found" }); return null; }
     if (memberships.length > 1) {
       res.status(400).json({ error: "familyGroupId is required when you belong to multiple families" });

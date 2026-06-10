@@ -23,6 +23,7 @@ import {
   getConversationHistory
 } from "../lib/aiContext";
 import { env } from "../lib/env";
+import { activeFamilyMembership } from "../lib/familyAccess";
 import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 
 export const aiRouter = Router();
@@ -69,9 +70,7 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
   const { messages, familyGroupId, conversationId: incomingConvId } = parsed.data;
 
   // 3. Verify family group membership
-  const membership = await db.familyMember.findUnique({
-    where: { familyGroupId_personId: { familyGroupId, personId: person.id } }
-  });
+  const membership = await activeFamilyMembership(familyGroupId, person.id);
   if (!membership) {
     res.status(403).json({ error: "Forbidden: not a member of this family group" });
     return;

@@ -83,6 +83,7 @@ async function shareAtLeastOneFamilyGroup(
   const row = await db.familyMember.findFirst({
     where: {
       personId: personIdA,
+      suspendedAt: null,
       familyGroup: {
         members: { some: { personId: personIdB } }
       }
@@ -99,6 +100,7 @@ async function isAdminOfSharedFamilyWithTarget(
   const row = await db.familyMember.findFirst({
     where: {
       personId: requesterPersonId,
+      suspendedAt: null,
       familyGroup: { members: { some: { personId: targetPersonId } } },
       OR: [{ roles: { has: "ADMIN" } }, { roles: { has: "ORGANIZER" } }]
     }

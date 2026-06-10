@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@famlink/db";
 import type { AuthedRequest } from "../middleware/requireAuth";
 import { createPresignedUpload, deleteR2Object } from "../lib/r2";
-import { hasAdminRole } from "../lib/familyAccess";
+import { activeFamilyMembership, hasAdminRole } from "../lib/familyAccess";
 import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 
 export const photosRouter = Router();
@@ -93,9 +93,7 @@ photosRouter.post("/events/:eventId", async (req, res) => {
     return;
   }
 
-  const membership = await db.familyMember.findUnique({
-    where: { familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id } }
-  });
+  const membership = await activeFamilyMembership(event.familyGroupId, requester.id);
   if (!membership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
@@ -130,9 +128,7 @@ photosRouter.get("/events/:eventId", async (req, res) => {
     return;
   }
 
-  const membership = await db.familyMember.findUnique({
-    where: { familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id } }
-  });
+  const membership = await activeFamilyMembership(event.familyGroupId, requester.id);
   if (!membership) {
     res.status(403).json({ error: "Not authorized to view photos for this event" });
     return;
@@ -173,9 +169,7 @@ photosRouter.delete("/:photoId", async (req, res) => {
 
   const isUploader = photo.uploadedById === requester.id;
   if (!isUploader) {
-    const membership = await db.familyMember.findUnique({
-      where: { familyGroupId_personId: { familyGroupId: photo.event.familyGroupId, personId: requester.id } }
-    });
+    const membership = await activeFamilyMembership(photo.event.familyGroupId, requester.id);
     const isAdmin = membership ? hasAdminRole(membership) : false;
     if (!isAdmin) {
       res.status(403).json({ error: "Only the uploader or a family admin can delete this photo" });

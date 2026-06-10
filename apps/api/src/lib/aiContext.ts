@@ -108,7 +108,7 @@ export async function assembleFamilyContext(
   const membership = await db.familyMember.findUnique({
     where: { familyGroupId_personId: { familyGroupId, personId: requestingPersonId } }
   });
-  if (!membership) {
+  if (!membership || membership.suspendedAt) {
     throw new Error("Unauthorized: person is not a member of this family group");
   }
 

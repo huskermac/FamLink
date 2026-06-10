@@ -3,7 +3,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { db, type Event, type EventItem } from "@famlink/db";
 import { InviteScope, RSVPStatus } from "@famlink/shared";
-import { hasAdminRole, hasPermission } from "../lib/familyAccess";
+import { activeFamilyMembership, hasAdminRole, hasPermission } from "../lib/familyAccess";
 import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
 import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
@@ -164,11 +164,7 @@ async function loadEventForMember(eventId: string, requesterPersonId: string) {
   if (!event) {
     return { error: "not_found" as const };
   }
-  const membership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requesterPersonId }
-    }
-  });
+  const membership = await activeFamilyMembership(event.familyGroupId, requesterPersonId);
   if (!membership) {
     return { error: "forbidden" as const };
   }
@@ -199,11 +195,7 @@ familyEventsRouter.post("/:familyId/events", async (req, res) => {
     return;
   }
 
-  const membership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: { familyGroupId: familyId, personId: requester.id }
-    }
-  });
+  const membership = await activeFamilyMembership(familyId, requester.id);
   if (!membership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
@@ -283,7 +275,7 @@ eventsRouter.get("/:eventId", async (req, res) => {
     }
 
     const requesterFamilies = await db.familyMember.findMany({
-      where: { personId: requester.id },
+      where: { personId: requester.id, suspendedAt: null },
       select: { familyGroupId: true }
     });
     const requesterFamilyIds = requesterFamilies.map((m) => m.familyGroupId);
@@ -413,11 +405,7 @@ eventsRouter.put("/:eventId", async (req, res) => {
   const { event } = loaded;
 
   const isCreator = event.createdByPersonId === requester.id;
-  const membership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id }
-    }
-  });
+  const membership = await activeFamilyMembership(event.familyGroupId, requester.id);
   const isAdmin = membership ? hasAdminRole(membership) : false;
   if (!isCreator && !isAdmin) {
     res.status(403).json({ error: "Only the event creator or a family admin can update this event" });
@@ -483,11 +471,7 @@ eventsRouter.delete("/:eventId", async (req, res) => {
   }
   const { event } = loaded;
 
-  const membership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id }
-    }
-  });
+  const membership = await activeFamilyMembership(event.familyGroupId, requester.id);
   const isCreator = event.createdByPersonId === requester.id;
   const isAdmin = membership ? hasAdminRole(membership) : false;
   if (!isCreator && !isAdmin) {
@@ -545,9 +529,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
     return;
   }
 
-  const membership = await db.familyMember.findUnique({
-    where: { familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id } }
-  });
+  const membership = await activeFamilyMembership(event.familyGroupId, requester.id);
   if (!membership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
@@ -638,9 +620,7 @@ eventsRouter.get("/:eventId/invitations", async (req, res) => {
     return;
   }
 
-  const membership = await db.familyMember.findUnique({
-    where: { familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id } }
-  });
+  const membership = await activeFamilyMembership(event.familyGroupId, requester.id);
   if (!membership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
@@ -706,9 +686,7 @@ eventsRouter.get("/:eventId/invitee-suggestions", async (req, res) => {
     return;
   }
 
-  const membership = await db.familyMember.findUnique({
-    where: { familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id } }
-  });
+  const membership = await activeFamilyMembership(event.familyGroupId, requester.id);
   if (!membership) {
     res.status(403).json({ error: "Not a member of this family" });
     return;
@@ -915,11 +893,7 @@ eventsRouter.post("/:eventId/potluck", async (req, res) => {
   }
   const { event } = loaded;
 
-  const membership = await db.familyMember.findUnique({
-    where: {
-      familyGroupId_personId: { familyGroupId: event.familyGroupId, personId: requester.id }
-    }
-  });
+  const membership = await activeFamilyMembership(event.familyGroupId, requester.id);
   const isCreator = event.createdByPersonId === requester.id;
   const isAdmin = membership ? hasAdminRole(membership) : false;
   if (!isCreator && !isAdmin) {

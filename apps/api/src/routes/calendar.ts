@@ -2,6 +2,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { db, type Event, type Person } from "@famlink/db";
 import { birthdayMonthDayInYear, generateBirthdayEvents, type SyntheticBirthdayEvent } from "../lib/birthdayGenerator";
+import { activeFamilyMembership } from "../lib/familyAccess";
 import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
@@ -26,9 +27,7 @@ async function personForClerkUserId(clerkUserId: string) {
 }
 
 async function requireFamilyMember(familyId: string, requesterPersonId: string) {
-  const m = await db.familyMember.findUnique({
-    where: { familyGroupId_personId: { familyGroupId: familyId, personId: requesterPersonId } }
-  });
+  const m = await activeFamilyMembership(familyId, requesterPersonId);
   return m !== null;
 }
 

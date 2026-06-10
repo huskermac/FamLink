@@ -108,7 +108,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
       if (person) {
         const memberships = await db.familyMember.findMany({
-          where: { personId: person.id },
+          where: { personId: person.id, suspendedAt: null },
           select: { familyGroupId: true }
         });
         for (const { familyGroupId } of memberships) {

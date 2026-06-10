@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { db, RECIPROCAL_TYPES } from "@famlink/db";
+import { activeFamilyMembership } from "../lib/familyAccess";
 import { ERROR_PERSON_RECORD_REQUIRED } from "../lib/personRequiredMessages";
 import type { AuthedRequest } from "../middleware/requireAuth";
 import { getInviteeSuggestions } from "../lib/inviteeSuggestions";
@@ -74,9 +75,7 @@ async function personForClerkUserId(clerkUserId: string) {
 }
 
 async function isFamilyMember(personId: string, familyGroupId: string): Promise<boolean> {
-  const m = await db.familyMember.findUnique({
-    where: { familyGroupId_personId: { familyGroupId, personId } }
-  });
+  const m = await activeFamilyMembership(familyGroupId, personId);
   return m !== null;
 }
 
@@ -84,6 +83,7 @@ async function shareAtLeastOneFamilyGroup(personIdA: string, personIdB: string):
   const row = await db.familyMember.findFirst({
     where: {
       personId: personIdA,
+      suspendedAt: null,
       familyGroup: { members: { some: { personId: personIdB } } }
     }
   });
@@ -296,7 +296,7 @@ familyRelationshipsRouter.get("/:familyId/relationships", async (req, res) => {
   });
 
   const isAdmin = await db.familyMember.findFirst({
-    where: { personId: requester.id, familyGroupId: familyId, roles: { has: "ADMIN" } }
+    where: { personId: requester.id, familyGroupId: familyId, suspendedAt: null, roles: { has: "ADMIN" } }
   });
   const includeQualifier = isAdmin !== null;
 
@@ -364,7 +364,7 @@ personRelationshipsRouter.get("/:personId/relationships", async (req, res) => {
       fromPersonId: personId,
       forgottenAt: null,
       familyGroup: {
-        members: { some: { personId: requester.id } }
+        members: { some: { personId: requester.id, suspendedAt: null } }
       }
     },
     include: {
@@ -473,7 +473,7 @@ relationshipsRouter.patch("/:relationshipId", async (req, res) => {
   const forgetParsed = ForgetRelationshipSchema.safeParse(req.body);
   if (forgetParsed.success) {
     const isAdmin = await db.familyMember.findFirst({
-      where: { personId: requester.id, familyGroupId: rel.familyGroupId, roles: { has: "ADMIN" } }
+      where: { personId: requester.id, familyGroupId: rel.familyGroupId, suspendedAt: null, roles: { has: "ADMIN" } }
     });
     if (!isAdmin) {
       res.status(403).json({ error: "Admin role required to forget a relationship" });
