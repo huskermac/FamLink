@@ -156,18 +156,20 @@ billingRouter.post("/seat-impact", async (req: Request, res: Response) => {
   }
 
   // Retrieve the Stripe subscription to get the seat price item ID
-  const stripeSub = await (stripe.subscriptions as any).retrieve(sub.stripeSubscriptionId);
-  const seatItem = stripeSub.items?.data?.find(
-    (item: any) => item.price?.id === sub.pricingTier.stripeSeatPriceId
+  const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+  const seatItem = stripeSub.items.data.find(
+    (item) => item.price?.id === sub.pricingTier.stripeSeatPriceId
   );
   if (!seatItem) {
     res.status(400).json({ error: "Seat price item not found on subscription" }); return;
   }
 
-  const upcoming = await (stripe.invoices as any).retrieveUpcoming({
+  const upcoming = await stripe.invoices.createPreview({
     customer: sub.stripeCustomerId!,
     subscription: sub.stripeSubscriptionId,
-    subscription_items: [{ id: seatItem.id, quantity: body.data.newSeatCount }]
+    subscription_details: {
+      items: [{ id: seatItem.id, quantity: body.data.newSeatCount }]
+    }
   });
 
   res.json({
@@ -249,7 +251,7 @@ async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constr
       if (!familyGroupId || !tierKey || !obj.subscription) return;
 
       // Fetch the subscription to get accurate trial status
-      const stripeSub = await (stripe.subscriptions as any).retrieve(obj.subscription) as any;
+      const stripeSub = await stripe.subscriptions.retrieve(obj.subscription as string);
       const status = stripeSub.status === "trialing" ? "TRIALING" : "ACTIVE";
       const trialEndsAt = stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null;
 

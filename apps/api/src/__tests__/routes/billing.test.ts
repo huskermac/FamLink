@@ -13,7 +13,7 @@ vi.mock("@clerk/express", () => ({
 const mockStripe = vi.hoisted(() => ({
   checkout: { sessions: { create: vi.fn() } },
   billingPortal: { sessions: { create: vi.fn() } },
-  invoices: { retrieveUpcoming: vi.fn() },
+  invoices: { createPreview: vi.fn() },
   subscriptions: { update: vi.fn(), retrieve: vi.fn() },
   customers: { create: vi.fn() },
   webhooks: { constructEvent: vi.fn() }
@@ -135,9 +135,9 @@ describe("POST /api/v1/billing/seat-impact", () => {
   beforeEach(() => mockGetAuth.mockReset());
 
   it("returns billing impact when subscription and upcoming invoice are available", async () => {
-    mockStripe.invoices.retrieveUpcoming.mockResolvedValue({ amount_due: 450, currency: "usd" });
+    mockStripe.invoices.createPreview.mockResolvedValue({ amount_due: 450, currency: "usd" });
     mockStripe.subscriptions.retrieve.mockResolvedValue({
-      items: { data: [{ id: "si_test_seat", price: { id: "price_seat" } }] }
+      items: { data: [{ id: "si_test_seat", price: { id: "price_seat", unit_amount: 300 } }] }
     });
 
     const person = await seedTestPerson();
@@ -152,7 +152,12 @@ describe("POST /api/v1/billing/seat-impact", () => {
       .set("Authorization", "Bearer mock")
       .send({ newSeatCount: 3 });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ currentSeats: 2, newSeats: 3, immediateCharge: 4.5, currency: "usd" });
+    expect(res.body).toMatchObject({ currentSeats: 2, newSeats: 3, immediateCharge: 4.5, recurringIncrease: 3, currency: "usd" });
+    expect(mockStripe.invoices.createPreview).toHaveBeenCalledWith({
+      customer: "cus_test",
+      subscription: "sub_test",
+      subscription_details: { items: [{ id: "si_test_seat", quantity: 3 }] }
+    });
   });
 });
 
