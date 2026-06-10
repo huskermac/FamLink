@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
 import { getAuth } from "@clerk/express";
-import { db } from "@famlink/db";
+import { db, type FamilyMember, type Person } from "@famlink/db";
 import { stripe } from "../lib/stripeClient";
 import { env } from "../lib/env";
+import { hasAdminRole } from "../lib/familyAccess";
 import type { Request, Response } from "express";
 
 export const billingRouter = Router();
@@ -21,6 +22,56 @@ async function familySubscriptionForFamily(familyGroupId: string) {
   });
 }
 
+const FamilyScopeBodySchema = z.object({ familyGroupId: z.string().min(1).optional() });
+
+interface BillingScope {
+  person: Person;
+  membership: FamilyMember;
+}
+
+/**
+ * Resolve the requester and the target family for a billing operation.
+ * - `familyGroupId` given → requester must be a member of that family.
+ * - omitted → only valid when the requester belongs to exactly ONE family
+ *   (never a silent findFirst pick for multi-family users).
+ * Billing mutations additionally require the ADMIN role (decision 2026-06-10).
+ * Writes the error response and returns null on failure.
+ */
+async function resolveBillingScope(
+  req: Request,
+  res: Response,
+  familyGroupId: string | undefined,
+  opts: { requireAdmin?: boolean } = {}
+): Promise<BillingScope | null> {
+  const { userId } = getAuth(req);
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return null; }
+  const person = await personForClerkUserId(userId);
+  if (!person) { res.status(400).json({ error: "Person record required" }); return null; }
+
+  let membership: FamilyMember | null;
+  if (familyGroupId) {
+    membership = await db.familyMember.findUnique({
+      where: { familyGroupId_personId: { familyGroupId, personId: person.id } }
+    });
+    if (!membership) { res.status(403).json({ error: "Not a member of this family" }); return null; }
+  } else {
+    const memberships = await db.familyMember.findMany({ where: { personId: person.id }, take: 2 });
+    if (memberships.length === 0) { res.status(400).json({ error: "No family group found" }); return null; }
+    if (memberships.length > 1) {
+      res.status(400).json({ error: "familyGroupId is required when you belong to multiple families" });
+      return null;
+    }
+    membership = memberships[0];
+  }
+
+  if (opts.requireAdmin && !hasAdminRole(membership)) {
+    res.status(403).json({ error: "Only a family admin can manage billing" });
+    return null;
+  }
+
+  return { person, membership };
+}
+
 // GET /api/v1/billing/tiers — public, no auth required
 billingRouter.get("/tiers", async (_req: Request, res: Response) => {
   const tiers = await db.pricingTier.findMany({
@@ -30,17 +81,16 @@ billingRouter.get("/tiers", async (_req: Request, res: Response) => {
   res.json({ tiers });
 });
 
-// GET /api/v1/billing/subscription
+// GET /api/v1/billing/subscription?familyGroupId=...
+// Readable by any member of the family (banners); mutations below are admin-only.
 billingRouter.get("/subscription", async (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const person = await personForClerkUserId(userId);
-  if (!person) { res.status(400).json({ error: "Person record required" }); return; }
+  const q = z.object({ familyGroupId: z.string().min(1).optional() }).safeParse(req.query);
+  if (!q.success) { res.status(400).json({ error: "Invalid query" }); return; }
 
-  const membership = await db.familyMember.findFirst({ where: { personId: person.id } });
-  if (!membership) { res.status(400).json({ error: "No family group found" }); return; }
+  const scope = await resolveBillingScope(req, res, q.data.familyGroupId);
+  if (!scope) return;
 
-  const sub = await db.familySubscription.findUnique({ where: { familyGroupId: membership.familyGroupId } });
+  const sub = await db.familySubscription.findUnique({ where: { familyGroupId: scope.membership.familyGroupId } });
   if (!sub) { res.status(404).json({ error: "No subscription found" }); return; }
 
   res.json({
@@ -58,7 +108,7 @@ billingRouter.get("/subscription", async (req: Request, res: Response) => {
   });
 });
 
-const CheckoutSchema = z.object({
+const CheckoutSchema = FamilyScopeBodySchema.extend({
   tierKey: z.string().min(1),
   seats: z.number().int().positive().default(1),
   successUrl: z.string().url(),
@@ -67,16 +117,12 @@ const CheckoutSchema = z.object({
 
 // POST /api/v1/billing/checkout
 billingRouter.post("/checkout", async (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const person = await personForClerkUserId(userId);
-  if (!person) { res.status(400).json({ error: "Person record required" }); return; }
-
   const body = CheckoutSchema.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "Invalid body" }); return; }
 
-  const membership = await db.familyMember.findFirst({ where: { personId: person.id }, include: { familyGroup: true } });
-  if (!membership) { res.status(400).json({ error: "No family group found" }); return; }
+  const scope = await resolveBillingScope(req, res, body.data.familyGroupId, { requireAdmin: true });
+  if (!scope) return;
+  const { membership } = scope;
 
   const tier = await db.pricingTier.findUnique({ where: { tierKey: body.data.tierKey } });
   if (!tier) { res.status(404).json({ error: "Tier not found" }); return; }
@@ -115,13 +161,12 @@ billingRouter.post("/checkout", async (req: Request, res: Response) => {
 
 // POST /api/v1/billing/portal
 billingRouter.post("/portal", async (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const person = await personForClerkUserId(userId);
-  if (!person) { res.status(400).json({ error: "Person record required" }); return; }
+  const body = FamilyScopeBodySchema.safeParse(req.body ?? {});
+  if (!body.success) { res.status(400).json({ error: "Invalid body" }); return; }
 
-  const membership = await db.familyMember.findFirst({ where: { personId: person.id } });
-  if (!membership) { res.status(400).json({ error: "No family group found" }); return; }
+  const scope = await resolveBillingScope(req, res, body.data.familyGroupId, { requireAdmin: true });
+  if (!scope) return;
+  const { membership } = scope;
 
   const sub = await db.familySubscription.findUnique({ where: { familyGroupId: membership.familyGroupId } });
   if (!sub?.stripeCustomerId) { res.status(404).json({ error: "No billing account found" }); return; }
@@ -135,20 +180,16 @@ billingRouter.post("/portal", async (req: Request, res: Response) => {
   res.json({ portalUrl: session.url });
 });
 
-const SeatImpactSchema = z.object({ newSeatCount: z.number().int().positive() });
+const SeatImpactSchema = FamilyScopeBodySchema.extend({ newSeatCount: z.number().int().positive() });
 
 // POST /api/v1/billing/seat-impact
 billingRouter.post("/seat-impact", async (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const person = await personForClerkUserId(userId);
-  if (!person) { res.status(400).json({ error: "Person record required" }); return; }
-
   const body = SeatImpactSchema.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "Invalid body" }); return; }
 
-  const membership = await db.familyMember.findFirst({ where: { personId: person.id } });
-  if (!membership) { res.status(400).json({ error: "No family group found" }); return; }
+  const scope = await resolveBillingScope(req, res, body.data.familyGroupId, { requireAdmin: true });
+  if (!scope) return;
+  const { membership } = scope;
 
   const sub = await familySubscriptionForFamily(membership.familyGroupId);
   if (!sub?.stripeSubscriptionId || !sub.pricingTier.stripeSeatPriceId) {
@@ -183,19 +224,28 @@ billingRouter.post("/seat-impact", async (req: Request, res: Response) => {
 
 // POST /api/v1/billing/activate-free
 billingRouter.post("/activate-free", async (req: Request, res: Response) => {
-  const { userId } = getAuth(req);
-  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const person = await personForClerkUserId(userId);
-  if (!person) { res.status(400).json({ error: "Person record required" }); return; }
+  const body = FamilyScopeBodySchema.safeParse(req.body ?? {});
+  if (!body.success) { res.status(400).json({ error: "Invalid body" }); return; }
 
-  const membership = await db.familyMember.findFirst({ where: { personId: person.id } });
-  if (!membership) { res.status(400).json({ error: "No family group found" }); return; }
+  const scope = await resolveBillingScope(req, res, body.data.familyGroupId, { requireAdmin: true });
+  if (!scope) return;
+  const { membership } = scope;
 
   const freeTier = await db.pricingTier.findFirst({
     where: { isActive: true, stripePriceId: null },
     orderBy: { displayOrder: "asc" }
   });
   if (!freeTier) { res.status(404).json({ error: "Free tier not found" }); return; }
+
+  // Stripe is the source of truth (decision 2026-06-10): cancel any live paid
+  // subscription FIRST so the customer stops being charged; the
+  // customer.subscription.deleted webhook is the confirmation path.
+  const existing = await db.familySubscription.findUnique({
+    where: { familyGroupId: membership.familyGroupId }
+  });
+  if (existing?.stripeSubscriptionId) {
+    await stripe.subscriptions.cancel(existing.stripeSubscriptionId);
+  }
 
   await db.familySubscription.upsert({
     where: { familyGroupId: membership.familyGroupId },

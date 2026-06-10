@@ -104,9 +104,9 @@ export function InviteStep(props: InviteStepProps): ReactElement {
         });
 
         if (memberRes.status === 402) {
-          const sub = await fetchSubscription(getToken);
+          const sub = await fetchSubscription(getToken, familyGroupId);
           if (sub) {
-            const impact = await getSeatImpact(getToken, sub.seatCount + 1);
+            const impact = await getSeatImpact(getToken, sub.seatCount + 1, familyGroupId);
             setSeatModal({ tierKey: sub.tierKey, impact });
           } else {
             setError("Seat limit reached. Please upgrade your plan.");
@@ -136,7 +136,7 @@ export function InviteStep(props: InviteStepProps): ReactElement {
     const successUrl = `${window.location.origin}/billing/success`;
     const cancelUrl = `${window.location.origin}/billing/plans`;
     try {
-      const url = await createCheckoutSession(getToken, seatModal.tierKey, seatModal.impact.newSeats, successUrl, cancelUrl);
+      const url = await createCheckoutSession(getToken, seatModal.tierKey, seatModal.impact.newSeats, successUrl, cancelUrl, familyGroupId);
       window.location.href = url;
     } catch {
       setError("Failed to start checkout. Please try again.");

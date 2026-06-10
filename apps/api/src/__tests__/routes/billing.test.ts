@@ -2,8 +2,8 @@ import { db } from "@famlink/db";
 import request from "supertest";
 import { createApp } from "../../server";
 import { getAuth } from "@clerk/express";
-import { seedTestPerson, seedTestFamily } from "../helpers/db";
-import { TEST_CLERK_ID } from "../helpers/auth";
+import { seedTestPerson, seedTestFamily, seedSecondPerson } from "../helpers/db";
+import { TEST_CLERK_ID, TEST_USER_2_CLERK_ID } from "../helpers/auth";
 
 vi.mock("@clerk/express", () => ({
   clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -14,7 +14,7 @@ const mockStripe = vi.hoisted(() => ({
   checkout: { sessions: { create: vi.fn() } },
   billingPortal: { sessions: { create: vi.fn() } },
   invoices: { createPreview: vi.fn() },
-  subscriptions: { update: vi.fn(), retrieve: vi.fn() },
+  subscriptions: { update: vi.fn(), retrieve: vi.fn(), cancel: vi.fn() },
   customers: { create: vi.fn() },
   webhooks: { constructEvent: vi.fn() }
 }));
@@ -406,6 +406,111 @@ describe("POST /api/v1/billing/activate-free", () => {
     expect(sub?.tierKey).toBe("FREE");
     expect(sub?.status).toBe("ACTIVE");
     expect(sub?.seatCount).toBe(1);
+  });
+
+  it("cancels the live Stripe subscription before switching to free (Stripe = SOT)", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.createMany({
+      data: [
+        { tierKey: "FREE", displayName: "Free", displayOrder: 0, isActive: true },
+        { tierKey: "BASE", displayName: "Family", displayOrder: 1, stripePriceId: "price_base" }
+      ]
+    });
+    await db.familySubscription.create({
+      data: {
+        familyGroupId: familyGroup.id,
+        tierKey: "BASE",
+        seatCount: 3,
+        stripeCustomerId: "cus_live",
+        stripeSubscriptionId: "sub_live"
+      }
+    });
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .post("/api/v1/billing/activate-free")
+      .set("Authorization", "Bearer mock");
+    expect(res.status).toBe(200);
+    expect(mockStripe.subscriptions.cancel).toHaveBeenCalledWith("sub_live");
+    const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
+    expect(sub?.tierKey).toBe("FREE");
+    expect(sub?.stripeSubscriptionId).toBeNull();
+  });
+
+  it("returns 403 for a non-admin member", async () => {
+    const admin = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(admin.id);
+    const member = await seedSecondPerson();
+    await db.familyMember.create({
+      data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+    });
+    await db.pricingTier.create({ data: { tierKey: "FREE", displayName: "Free", displayOrder: 0, isActive: true } });
+    mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+    const res = await request(app)
+      .post("/api/v1/billing/activate-free")
+      .set("Authorization", "Bearer mock");
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("Only a family admin can manage billing");
+  });
+});
+
+describe("billing family scoping", () => {
+  const app = createApp();
+  const mockGetAuth = vi.mocked(getAuth) as any;
+
+  beforeEach(() => mockGetAuth.mockReset());
+
+  it("requires explicit familyGroupId when the user belongs to multiple families", async () => {
+    const person = await seedTestPerson();
+    await seedTestFamily(person.id);
+    await seedTestFamily(person.id); // second family
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .get("/api/v1/billing/subscription")
+      .set("Authorization", "Bearer mock");
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("familyGroupId is required");
+  });
+
+  it("acts on the named family when familyGroupId is provided", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup: famA } = await seedTestFamily(person.id);
+    const { familyGroup: famB } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Family", displayOrder: 1 } });
+    await db.familySubscription.create({
+      data: { familyGroupId: famB.id, tierKey: "BASE", seatCount: 4, status: "ACTIVE" }
+    });
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+
+    const resB = await request(app)
+      .get(`/api/v1/billing/subscription?familyGroupId=${famB.id}`)
+      .set("Authorization", "Bearer mock");
+    expect(resB.status).toBe(200);
+    expect(resB.body.subscription.seatCount).toBe(4);
+
+    const resA = await request(app)
+      .get(`/api/v1/billing/subscription?familyGroupId=${famA.id}`)
+      .set("Authorization", "Bearer mock");
+    expect(resA.status).toBe(404); // famA has no subscription — no silent fallback
+  });
+
+  it("rejects a familyGroupId the user is not a member of", async () => {
+    await seedTestPerson(); // requester — not a member of the family below
+    const owner = await seedSecondPerson();
+    const { familyGroup } = await seedTestFamily(owner.id);
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .post("/api/v1/billing/checkout")
+      .set("Authorization", "Bearer mock")
+      .send({
+        familyGroupId: familyGroup.id,
+        tierKey: "BASE",
+        seats: 1,
+        successUrl: "http://localhost:3000/s",
+        cancelUrl: "http://localhost:3000/c"
+      });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("Not a member of this family");
   });
 });
 

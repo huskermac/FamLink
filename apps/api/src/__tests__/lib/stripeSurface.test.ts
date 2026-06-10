@@ -18,6 +18,8 @@ const usedMethods: Array<[string, unknown]> = [
   ["checkout.sessions.create", stripe.checkout.sessions.create],
   ["billingPortal.sessions.create", stripe.billingPortal.sessions.create],
   ["subscriptions.retrieve", stripe.subscriptions.retrieve],
+  ["subscriptions.update", stripe.subscriptions.update],
+  ["subscriptions.cancel", stripe.subscriptions.cancel],
   ["invoices.createPreview", stripe.invoices.createPreview],
   ["webhooks.constructEvent", stripe.webhooks.constructEvent]
 ];

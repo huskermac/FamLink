@@ -40,9 +40,15 @@ export async function fetchTiers(): Promise<PricingTier[]> {
   }
 }
 
-export async function fetchSubscription(getToken: () => Promise<string | null>): Promise<FamilySubscription | null> {
+// familyGroupId is optional for single-family users; the API requires it once
+// a user belongs to more than one family. Billing mutations are admin-only.
+export async function fetchSubscription(
+  getToken: () => Promise<string | null>,
+  familyGroupId?: string
+): Promise<FamilySubscription | null> {
   try {
-    const data = await apiFetch<{ subscription: FamilySubscription }>("/api/v1/billing/subscription", { getToken });
+    const qs = familyGroupId ? `?familyGroupId=${encodeURIComponent(familyGroupId)}` : "";
+    const data = await apiFetch<{ subscription: FamilySubscription }>(`/api/v1/billing/subscription${qs}`, { getToken });
     return data.subscription;
   } catch {
     return null;
@@ -54,32 +60,48 @@ export async function createCheckoutSession(
   tierKey: string,
   seats: number,
   successUrl: string,
-  cancelUrl: string
+  cancelUrl: string,
+  familyGroupId?: string
 ): Promise<string> {
   const data = await apiFetch<{ checkoutUrl: string }>("/api/v1/billing/checkout", {
     getToken,
     method: "POST",
-    body: JSON.stringify({ tierKey, seats, successUrl, cancelUrl })
+    body: JSON.stringify({ tierKey, seats, successUrl, cancelUrl, familyGroupId })
   });
   return data.checkoutUrl;
 }
 
-export async function createPortalSession(getToken: () => Promise<string | null>): Promise<string> {
-  const data = await apiFetch<{ portalUrl: string }>("/api/v1/billing/portal", { getToken, method: "POST" });
+export async function createPortalSession(
+  getToken: () => Promise<string | null>,
+  familyGroupId?: string
+): Promise<string> {
+  const data = await apiFetch<{ portalUrl: string }>("/api/v1/billing/portal", {
+    getToken,
+    method: "POST",
+    body: JSON.stringify({ familyGroupId })
+  });
   return data.portalUrl;
 }
 
 export async function getSeatImpact(
   getToken: () => Promise<string | null>,
-  newSeatCount: number
+  newSeatCount: number,
+  familyGroupId?: string
 ): Promise<SeatImpact> {
   return apiFetch<SeatImpact>("/api/v1/billing/seat-impact", {
     getToken,
     method: "POST",
-    body: JSON.stringify({ newSeatCount })
+    body: JSON.stringify({ newSeatCount, familyGroupId })
   });
 }
 
-export async function activateFree(getToken: () => Promise<string | null>): Promise<void> {
-  await apiFetch<{ activated: boolean }>("/api/v1/billing/activate-free", { getToken, method: "POST" });
+export async function activateFree(
+  getToken: () => Promise<string | null>,
+  familyGroupId?: string
+): Promise<void> {
+  await apiFetch<{ activated: boolean }>("/api/v1/billing/activate-free", {
+    getToken,
+    method: "POST",
+    body: JSON.stringify({ familyGroupId })
+  });
 }
