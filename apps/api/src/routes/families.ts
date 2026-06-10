@@ -12,13 +12,8 @@ import {
   ERROR_PERSON_RECORD_REQUIRED
 } from "../lib/personRequiredMessages";
 import { checkSeatExpansion } from "../lib/subscriptionEnforcement";
+import { stripe } from "../lib/stripeClient";
 import type { AuthedRequest } from "../middleware/requireAuth";
-
-class SeatExpansionRequiredError extends Error {
-  constructor(public readonly activeCount: number) {
-    super("Seat expansion required");
-  }
-}
 
 export const familiesRouter = Router();
 
@@ -185,46 +180,62 @@ familiesRouter.post("/:familyId/members", async (req, res) => {
     return;
   }
 
-  let member;
-  try {
-    member = await db.$transaction(async (tx) => {
-      // Seat enforcement: only for active users (those with a Clerk account)
-      if (targetPerson.userId) {
-        const activeCount = await tx.familyMember.count({
-          where: {
-            familyGroupId: familyId,
-            person: { userId: { not: null } },
-            suspendedAt: null
-          }
-        });
-        const check = await checkSeatExpansion(familyId, activeCount);
-        if (check.requiresConfirmation && !body.data.confirmSeatExpansion) {
-          throw new SeatExpansionRequiredError(activeCount);
-        }
-        if (check.requiresConfirmation && body.data.confirmSeatExpansion) {
-          const sub = await tx.familySubscription.findUnique({ where: { familyGroupId: familyId } });
-          if (sub) {
-            await tx.familySubscription.update({
-              where: { familyGroupId: familyId },
-              data: { seatCount: sub.seatCount + 1 }
-            });
-          }
-        }
+  // Seat enforcement: only for active users (those with a Clerk account)
+  if (targetPerson.userId) {
+    const activeCount = await db.familyMember.count({
+      where: {
+        familyGroupId: familyId,
+        person: { userId: { not: null } },
+        suspendedAt: null
       }
-      return tx.familyMember.create({
-        data: {
-          familyGroupId: familyId,
-          personId: body.data.personId,
-          roles: body.data.roles,
-          permissions: body.data.permissions
-        }
-      });
     });
-  } catch (e: unknown) {
-    if (e instanceof SeatExpansionRequiredError) {
-      res.status(402).json({ seatRequired: true, currentActiveCount: e.activeCount });
+    const check = await checkSeatExpansion(familyId, activeCount);
+    if (check.requiresConfirmation && !body.data.confirmSeatExpansion) {
+      res.status(402).json({ seatRequired: true, currentActiveCount: activeCount });
       return;
     }
+    if (check.requiresConfirmation && body.data.confirmSeatExpansion) {
+      const sub = await db.familySubscription.findUnique({
+        where: { familyGroupId: familyId },
+        include: { pricingTier: true }
+      });
+      if (sub?.stripeSubscriptionId && sub.pricingTier.stripeSeatPriceId) {
+        // Stripe is the source of truth (decision 2026-06-10): bump the seat
+        // item quantity there; local seatCount converges via the
+        // customer.subscription.updated webhook.
+        const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+        const seatItem = stripeSub.items.data.find(
+          (item) => item.price?.id === sub.pricingTier.stripeSeatPriceId
+        );
+        if (!seatItem) {
+          res.status(400).json({ error: "Seat price item not found on subscription" });
+          return;
+        }
+        await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+          items: [{ id: seatItem.id, quantity: sub.seatCount + 1 }],
+          proration_behavior: "create_prorations"
+        });
+      } else if (sub) {
+        // No Stripe subscription to bill (e.g. free tier) — DB-only bump.
+        await db.familySubscription.update({
+          where: { familyGroupId: familyId },
+          data: { seatCount: sub.seatCount + 1 }
+        });
+      }
+    }
+  }
+
+  let member;
+  try {
+    member = await db.familyMember.create({
+      data: {
+        familyGroupId: familyId,
+        personId: body.data.personId,
+        roles: body.data.roles,
+        permissions: body.data.permissions
+      }
+    });
+  } catch (e: unknown) {
     const code = typeof e === "object" && e !== null && "code" in e ? (e as { code: string }).code : "";
     if (code === "P2002") {
       res.status(400).json({ error: "Person is already a member of this family" });

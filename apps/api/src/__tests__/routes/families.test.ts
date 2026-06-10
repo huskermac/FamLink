@@ -18,12 +18,24 @@ vi.mock("@clerk/express", () => ({
   getAuth: vi.fn()
 }));
 
+const mockStripe = vi.hoisted(() => ({
+  subscriptions: { retrieve: vi.fn(), update: vi.fn() }
+}));
+
+vi.mock("stripe", () => {
+  function MockStripe() { return mockStripe; }
+  MockStripe.prototype = mockStripe;
+  return { default: MockStripe };
+});
+
 describe("families & households routes", () => {
   const app = createApp();
   const mockGetAuth = vi.mocked(getAuth) as any;
 
   beforeEach(() => {
     mockGetAuth.mockReset();
+    mockStripe.subscriptions.retrieve.mockReset();
+    mockStripe.subscriptions.update.mockReset();
   });
 
   describe("POST /api/v1/families", () => {
@@ -150,12 +162,12 @@ describe("families & households routes", () => {
       expect(res.body.seatRequired).toBe(true);
     });
 
-    it("adds active member when confirmSeatExpansion is true", async () => {
+    it("adds active member with a DB-only seat bump when there is no Stripe seat price (free tier)", async () => {
       const admin = await seedTestPerson();
       const { familyGroup } = await seedTestFamily(admin.id);
       const second = await seedSecondPerson();
       await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, activeUserLimit: 5 } });
-      await db.familySubscription.create({ data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1, stripeSubscriptionId: "sub_test" } });
+      await db.familySubscription.create({ data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1 } });
 
       mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
       const res = await request(app)
@@ -166,6 +178,38 @@ describe("families & households routes", () => {
       expect(res.status).toBe(201);
       const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
       expect(sub?.seatCount).toBe(2);
+      expect(mockStripe.subscriptions.update).not.toHaveBeenCalled();
+    });
+
+    it("confirmed expansion on a paid plan bumps the Stripe seat quantity, not the DB (Stripe = SOT)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const second = await seedSecondPerson();
+      await db.pricingTier.create({
+        data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, activeUserLimit: 5, stripePriceId: "price_base", stripeSeatPriceId: "price_seat" }
+      });
+      await db.familySubscription.create({
+        data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test" }
+      });
+      mockStripe.subscriptions.retrieve.mockResolvedValue({
+        items: { data: [{ id: "si_seat", price: { id: "price_seat" } }] }
+      });
+      mockStripe.subscriptions.update.mockResolvedValue({});
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/members`)
+        .set("Authorization", "Bearer mock")
+        .send({ personId: second.id, roles: ["MEMBER"], permissions: [], confirmSeatExpansion: true });
+
+      expect(res.status).toBe(201);
+      expect(mockStripe.subscriptions.update).toHaveBeenCalledWith("sub_test", {
+        items: [{ id: "si_seat", quantity: 2 }],
+        proration_behavior: "create_prorations"
+      });
+      // seatCount converges via the customer.subscription.updated webhook
+      const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
+      expect(sub?.seatCount).toBe(1);
     });
   });
 });
