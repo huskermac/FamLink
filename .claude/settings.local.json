@@ -132,7 +132,10 @@
       "Bash(git -C /c/Users/swmcl/FamLink show 55d3580:apps/web/middleware.ts)",
       "Bash(git -C /c/Users/swmcl/FamLink show 55d3580:apps/web/lib/api/events.ts)",
       "Bash(mkdir -p /c/Users/swmcl/FamLink/apps/web/app/rsvp/\\\\[token\\\\])",
-      "Bash(git show *)"
+      "Bash(git show *)",
+      "PowerShell(Get-ChildItem -Recurse apps\\\\web\\\\app, apps\\\\web\\\\lib, apps\\\\web\\\\components -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Replace\\('C:\\\\Users\\\\swmcl\\\\FamLink\\\\',''\\) })",
+      "PowerShell(git check-ignore .env .env.local verify-events.png verify-events-loaded.png)",
+      "PowerShell(node -e \"const s=require\\('C:/Users/swmcl/FamLink/node_modules/stripe'\\); const st=new s\\('sk_test_x'\\); console.log\\('retrieveUpcoming' in st.invoices, typeof st.invoices.retrieveUpcoming, typeof st.invoices.createPreview\\)\")"
     ],
     "additionalDirectories": [
       "\\tmp",
