@@ -44,7 +44,15 @@ vi.mock("@famlink/db", () => ({
 }));
 
 // Import tools AFTER mocks are set up
-import {
+import { buildTools } from "../aiTools";
+
+// ── Fixtures ──────────────────────────────────────────────────────────────────
+
+const FAM_ID = "fam_test";
+
+// Tools are bound to the verified family group at build time — familyGroupId
+// is no longer a tool input (cross-family access impossible by construction).
+const {
   get_person,
   get_family_members,
   get_relationship_path,
@@ -55,11 +63,7 @@ import {
   get_household_members,
   get_contact_info,
   create_event
-} from "../aiTools";
-
-// ── Fixtures ──────────────────────────────────────────────────────────────────
-
-const FAM_ID = "fam_test";
+} = buildTools(FAM_ID);
 
 interface PersonFixture {
   id: string;
@@ -125,7 +129,7 @@ describe("get_person", () => {
   it("returns matching persons by partial name", async () => {
     mockFamilyMemberFindMany.mockResolvedValue([makeMember(PERSON_ALICE), makeMember(PERSON_BOB)]);
 
-    const result = await get_person.execute!({ name: "alice", familyGroupId: FAM_ID }, {} as never);
+    const result = await get_person.execute!({ name: "alice" }, {} as never);
 
     expect(result).toHaveLength(1);
     expect((result as { displayName: string }[])[0].displayName).toBe("Alice Smith");
@@ -134,7 +138,7 @@ describe("get_person", () => {
   it("returns empty array when no match", async () => {
     mockFamilyMemberFindMany.mockResolvedValue([makeMember(PERSON_ALICE)]);
 
-    const result = await get_person.execute!({ name: "nobody", familyGroupId: FAM_ID }, {} as never);
+    const result = await get_person.execute!({ name: "nobody" }, {} as never);
 
     expect(result).toHaveLength(0);
   });
@@ -142,7 +146,7 @@ describe("get_person", () => {
   it("matches by preferredName", async () => {
     mockFamilyMemberFindMany.mockResolvedValue([makeMember(PERSON_BOB)]);
 
-    const result = await get_person.execute!({ name: "Bobby", familyGroupId: FAM_ID }, {} as never);
+    const result = await get_person.execute!({ name: "Bobby" }, {} as never);
 
     expect(result).toHaveLength(1);
     expect((result as { displayName: string }[])[0].displayName).toBe("Bobby");
@@ -155,7 +159,7 @@ describe("get_family_members", () => {
   it("returns all non-minor members", async () => {
     mockFamilyMemberFindMany.mockResolvedValue([makeMember(PERSON_ALICE), makeMember(PERSON_BOB)]);
 
-    const result = await get_family_members.execute!({ familyGroupId: FAM_ID }, {} as never) as { id: string }[];
+    const result = await get_family_members.execute!({}, {} as never) as { id: string }[];
 
     expect(result).toHaveLength(2);
     expect(result.map(r => r.id)).toContain("p_alice");
@@ -164,7 +168,7 @@ describe("get_family_members", () => {
   it("returns empty array when no members", async () => {
     mockFamilyMemberFindMany.mockResolvedValue([]);
 
-    const result = await get_family_members.execute!({ familyGroupId: FAM_ID }, {} as never);
+    const result = await get_family_members.execute!({}, {} as never);
 
     expect(result).toHaveLength(0);
   });
@@ -177,7 +181,7 @@ describe("get_relationship_path", () => {
     mockQueryRaw.mockResolvedValue([{ depth: 1, type_path: ["PARENT"] }]);
 
     const result = await get_relationship_path.execute!(
-      { fromPersonId: "p_alice", toPersonId: "p_bob", familyGroupId: FAM_ID },
+      { fromPersonId: "p_alice", toPersonId: "p_bob" },
       {} as never
     ) as { description: string; path: string[] };
 
@@ -189,7 +193,7 @@ describe("get_relationship_path", () => {
     mockQueryRaw.mockResolvedValue([]);
 
     const result = await get_relationship_path.execute!(
-      { fromPersonId: "p_alice", toPersonId: "p_nobody", familyGroupId: FAM_ID },
+      { fromPersonId: "p_alice", toPersonId: "p_nobody" },
       {} as never
     ) as { description: string; path: null };
 
@@ -201,7 +205,7 @@ describe("get_relationship_path", () => {
     mockQueryRaw.mockResolvedValue([{ depth: 2, type_path: ["PARENT", "SIBLING"] }]);
 
     const result = await get_relationship_path.execute!(
-      { fromPersonId: "p_alice", toPersonId: "p_bob", familyGroupId: FAM_ID },
+      { fromPersonId: "p_alice", toPersonId: "p_bob" },
       {} as never
     ) as { description: string };
 
@@ -219,7 +223,7 @@ describe("get_upcoming_birthdays", () => {
     mockFamilyMemberFindMany.mockResolvedValue([makeMember(PERSON_ALICE)]);
 
     const result = await get_upcoming_birthdays.execute!(
-      { familyGroupId: FAM_ID, withinDays: 30 },
+      { withinDays: 30 },
       {} as never
     ) as { name: string; daysUntil: number }[];
 
@@ -238,7 +242,7 @@ describe("get_upcoming_birthdays", () => {
     mockFamilyMemberFindMany.mockResolvedValue([makeMember(PERSON_ALICE)]);
 
     const result = await get_upcoming_birthdays.execute!(
-      { familyGroupId: FAM_ID, withinDays: 30 },
+      { withinDays: 30 },
       {} as never
     ) as unknown[];
 
@@ -267,7 +271,7 @@ describe("get_upcoming_events", () => {
     ]);
 
     const result = await get_upcoming_events.execute!(
-      { familyGroupId: FAM_ID },
+      {},
       {} as never
     ) as { id: string; rsvpSummary: { yes: number; pending: number } }[];
 
@@ -283,7 +287,7 @@ describe("get_upcoming_events", () => {
     mockEventFindMany.mockResolvedValue([]);
 
     const result = await get_upcoming_events.execute!(
-      { familyGroupId: FAM_ID },
+      {},
       {} as never
     );
 
@@ -308,7 +312,7 @@ describe("get_event_details", () => {
     mockPersonFindMany.mockResolvedValue([PERSON_ALICE]);
 
     const result = await get_event_details.execute!(
-      { eventId: "ev1", familyGroupId: FAM_ID },
+      { eventId: "ev1" },
       {} as never
     ) as { title: string; rsvps: { personName: string }[] };
 
@@ -320,7 +324,7 @@ describe("get_event_details", () => {
     mockEventFindFirst.mockResolvedValue(null);
 
     const result = await get_event_details.execute!(
-      { eventId: "ev_other", familyGroupId: FAM_ID },
+      { eventId: "ev_other" },
       {} as never
     );
 
@@ -343,7 +347,7 @@ describe("get_rsvp_status", () => {
     mockPersonFindMany.mockResolvedValue([PERSON_ALICE, PERSON_BOB]);
 
     const result = await get_rsvp_status.execute!(
-      { eventId: "ev1", familyGroupId: FAM_ID },
+      { eventId: "ev1" },
       {} as never
     ) as { yes: string[]; no: string[] };
 
@@ -355,7 +359,7 @@ describe("get_rsvp_status", () => {
     mockEventFindFirst.mockResolvedValue(null);
 
     const result = await get_rsvp_status.execute!(
-      { eventId: "ev_other", familyGroupId: FAM_ID },
+      { eventId: "ev_other" },
       {} as never
     );
 
@@ -371,7 +375,7 @@ describe("get_household_members", () => {
     mockHouseholdMemberFindMany.mockResolvedValue([{ person: PERSON_ALICE }]);
 
     const result = await get_household_members.execute!(
-      { householdId: "hh1", familyGroupId: FAM_ID },
+      { householdId: "hh1" },
       {} as never
     ) as { id: string }[];
 
@@ -383,7 +387,7 @@ describe("get_household_members", () => {
     mockHouseholdFindFirst.mockResolvedValue(null);
 
     const result = await get_household_members.execute!(
-      { householdId: "hh_other", familyGroupId: FAM_ID },
+      { householdId: "hh_other" },
       {} as never
     );
 
@@ -398,7 +402,7 @@ describe("get_contact_info", () => {
     mockFamilyMemberFindFirst.mockResolvedValue({ person: PERSON_ALICE });
 
     const result = await get_contact_info.execute!(
-      { personId: "p_alice", familyGroupId: FAM_ID },
+      { personId: "p_alice" },
       {} as never
     ) as { displayName: string; email: string | null };
 
@@ -410,22 +414,28 @@ describe("get_contact_info", () => {
     mockFamilyMemberFindFirst.mockResolvedValue({ person: PERSON_MINOR });
 
     const result = await get_contact_info.execute!(
-      { personId: "p_minor", familyGroupId: FAM_ID },
+      { personId: "p_minor" },
       {} as never
     );
 
     expect(result).toBeNull();
   });
 
-  it("returns null when person is not in the family group", async () => {
+  it("returns null when person is not in the bound family group", async () => {
     mockFamilyMemberFindFirst.mockResolvedValue(null);
 
-    const result = await get_contact_info.execute!(
-      { personId: "p_alice", familyGroupId: "other_fam" },
+    const otherFamilyTools = buildTools("other_fam");
+    const result = await otherFamilyTools.get_contact_info.execute!(
+      { personId: "p_alice" },
       {} as never
     );
 
     expect(result).toBeNull();
+    expect(mockFamilyMemberFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { personId: "p_alice", familyGroupId: "other_fam" }
+      })
+    );
   });
 });
 
@@ -436,23 +446,22 @@ describe("create_event", () => {
     const result = await create_event.execute!(
       {
         title: "Birthday Party",
-        startTime: "2026-05-01T15:00:00Z",
-        familyGroupId: FAM_ID
+        startTime: "2026-05-01T15:00:00Z"
       },
       {} as never
-    ) as { proposed: boolean; confirmationRequired: boolean; event: { title: string } };
+    ) as { proposed: boolean; confirmationRequired: boolean; event: { title: string; familyGroupId: string } };
 
     expect(result.proposed).toBe(true);
     expect(result.confirmationRequired).toBe(true);
     expect(result.event.title).toBe("Birthday Party");
+    expect(result.event.familyGroupId).toBe(FAM_ID);
   });
 
   it("does NOT write to the database", async () => {
     await create_event.execute!(
       {
         title: "Test Event",
-        startTime: "2026-05-01T15:00:00Z",
-        familyGroupId: FAM_ID
+        startTime: "2026-05-01T15:00:00Z"
       },
       {} as never
     );
@@ -464,12 +473,37 @@ describe("create_event", () => {
     const result = await create_event.execute!(
       {
         title: "Cookout",
-        startTime: "2026-07-04T17:00:00Z",
-        familyGroupId: FAM_ID
+        startTime: "2026-07-04T17:00:00Z"
       },
       {} as never
     ) as { message: string };
 
     expect(result.message).toContain("confirm");
+  });
+});
+
+// ── family group binding (C2 guard) ──────────────────────────────────────────
+
+describe("family group binding", () => {
+  it("scopes queries to the familyGroupId the tools were built with", async () => {
+    mockFamilyMemberFindMany.mockResolvedValue([]);
+
+    await buildTools("fam_A").get_family_members.execute!({}, {} as never);
+    expect(mockFamilyMemberFindMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ familyGroupId: "fam_A" }) })
+    );
+
+    await buildTools("fam_B").get_family_members.execute!({}, {} as never);
+    expect(mockFamilyMemberFindMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ familyGroupId: "fam_B" }) })
+    );
+  });
+
+  it("no tool input schema accepts a familyGroupId", () => {
+    const tools = buildTools(FAM_ID);
+    for (const [name, t] of Object.entries(tools)) {
+      const shape = (t.inputSchema as unknown as { shape: Record<string, unknown> }).shape;
+      expect(Object.keys(shape), `${name} must not accept familyGroupId`).not.toContain("familyGroupId");
+    }
   });
 });

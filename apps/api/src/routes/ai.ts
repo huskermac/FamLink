@@ -16,7 +16,7 @@ import {
   checkAndIncrementAiRateLimit,
   getRateLimitStatus
 } from "../lib/aiRateLimit";
-import { allTools } from "../lib/aiTools";
+import { buildTools } from "../lib/aiTools";
 import {
   assembleFamilyContext,
   formatContextForPrompt,
@@ -120,7 +120,9 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
       model: anthropicClient(PRIMARY_MODEL),
       system: systemPrompt,
       messages: [...history, ...messages],
-      tools: allTools,
+      // Tools are bound to the membership-verified family group (step 3) —
+      // the model cannot direct them at another family.
+      tools: buildTools(familyGroupId),
       stopWhen: stepCountIs(env.AI_MAX_TOOL_ITERATIONS)
     });
 
