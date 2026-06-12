@@ -12,8 +12,10 @@ builder      = "railpack"
 buildCommand = "npm install && npx turbo build --filter=@famlink/api"
 
 [deploy]
-# Run Prisma migrations against the live DB, then start the compiled API
-startCommand         = "npx prisma migrate deploy --schema=packages/db/prisma/schema.prisma && node apps/api/dist/index.js"
+# Run Prisma migrations against the live DB, then start the compiled API.
+# Prisma 7: the datasource url lives in prisma.config.ts, so point at the
+# config (--schema alone fails with "datasource.url property is required").
+startCommand         = "npx prisma migrate deploy --config=packages/db/prisma.config.ts && node apps/api/dist/index.js"
 healthcheckPath      = "/health"
 healthcheckTimeout   = 300
 restartPolicyType    = "on_failure"
