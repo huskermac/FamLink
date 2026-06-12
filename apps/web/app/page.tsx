@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import Link from "next/link";
 import { Button } from "../components/ui/button";
 
 export default function HomePage(): ReactElement {
@@ -9,8 +10,9 @@ export default function HomePage(): ReactElement {
         <p className="text-slate-400">A focused hub for family coordination, across web and mobile.</p>
       </div>
       <div className="flex gap-3">
-        <Button>Open web app</Button>
-        <Button variant="outline">Open mobile app</Button>
+        <Link href="/dashboard">
+          <Button className="px-4 py-2">Open web app</Button>
+        </Link>
       </div>
     </main>
   );
