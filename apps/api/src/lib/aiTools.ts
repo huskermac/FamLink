@@ -9,11 +9,15 @@
  *    route verified membership for, so the model cannot supply a different one.
  *  - create_event NEVER writes to the database — it returns a proposal only.
  *
- * AI SDK v6: uses `inputSchema` (not `parameters`). When OUTPUT isn't `never`,
- * the `execute` property is available — pass explicit generics to `tool<I, O>`.
+ * AI SDK v6 note: tools are plain `Tool` objects (no `tool<I, O>()` helper) and
+ * every `inputSchema` is cast via `as unknown as Tool["inputSchema"]`. Both are
+ * load-bearing: checking a zod-3 schema against the SDK's FlexibleSchema
+ * conditional types makes tsc instantiation explode (OOM even at 12GB heap).
+ * Inputs are cast per-execute; outputs are pinned by explicit return types.
+ * Revisit when zod is upgraded to v4 (native standard-schema support).
  */
 
-import { tool } from "ai";
+import type { Tool, ToolSet } from "ai";
 import { z } from "zod";
 import { db } from "@famlink/db";
 import type { PersonSummary, EventSummary } from "./aiContext";
@@ -68,7 +72,6 @@ const GetPersonSchema = z.object({
 type GetPersonInput = z.infer<typeof GetPersonSchema>;
 
 const GetFamilyMembersSchema = z.object({});
-type GetFamilyMembersInput = z.infer<typeof GetFamilyMembersSchema>;
 
 const GetRelationshipPathSchema = z.object({
   fromPersonId: z.string(),
@@ -136,11 +139,12 @@ export interface ToolRequester {
  * belongs to `familyGroupId`. Event reads honor PRIVATE visibility for the
  * requester (decision 2026-06-10: private events are fully hidden).
  */
-export function buildTools(familyGroupId: string, requester: ToolRequester) {
-  const get_person = tool<GetPersonInput, PersonSummary[]>({
+export function buildTools(familyGroupId: string, requester: ToolRequester): ToolSet {
+  const get_person: Tool = {
     description: "Look up a person by name or relationship label within the family group.",
-    inputSchema: GetPersonSchema,
-    execute: async ({ name }) => {
+    inputSchema: GetPersonSchema as unknown as Tool["inputSchema"],
+    execute: async (input): Promise<PersonSummary[]> => {
+      const { name } = input as GetPersonInput;
       const members = await db.familyMember.findMany({
         where: { familyGroupId, person: { ageGateLevel: { not: "CHILD" } } },
         include: { person: true },
@@ -160,12 +164,12 @@ export function buildTools(familyGroupId: string, requester: ToolRequester) {
         .slice(0, 5)
         .map(m => toPersonSummary(m.person));
     }
-  });
+  };
 
-  const get_family_members = tool<GetFamilyMembersInput, PersonSummary[]>({
+  const get_family_members: Tool = {
     description: "List all non-minor members of the family group.",
-    inputSchema: GetFamilyMembersSchema,
-    execute: async () => {
+    inputSchema: GetFamilyMembersSchema as unknown as Tool["inputSchema"],
+    execute: async (): Promise<PersonSummary[]> => {
       const members = await db.familyMember.findMany({
         where: { familyGroupId, person: { ageGateLevel: { not: "CHILD" } } },
         include: { person: true },
@@ -173,12 +177,13 @@ export function buildTools(familyGroupId: string, requester: ToolRequester) {
       });
       return members.map(m => toPersonSummary(m.person));
     }
-  });
+  };
 
-  const get_relationship_path = tool<GetRelationshipPathInput, RelPathResult>({
+  const get_relationship_path: Tool = {
     description: "Explain how two people are related within the family group using multi-hop traversal.",
-    inputSchema: GetRelationshipPathSchema,
-    execute: async ({ fromPersonId, toPersonId }) => {
+    inputSchema: GetRelationshipPathSchema as unknown as Tool["inputSchema"],
+    execute: async (input): Promise<RelPathResult> => {
+      const { fromPersonId, toPersonId } = input as GetRelationshipPathInput;
       const maxDepth = 4;
 
       const rows = await db.$queryRaw<RelPathRow[]>`
@@ -221,12 +226,13 @@ export function buildTools(familyGroupId: string, requester: ToolRequester) {
 
       return { path: rows[0].type_path, description: describeRelationshipPath(rows[0].type_path) };
     }
-  });
+  };
 
-  const get_upcoming_birthdays = tool<GetUpcomingBirthdaysInput, BirthdayResult>({
+  const get_upcoming_birthdays: Tool = {
     description: "Return family members with birthdays within a given number of days.",
-    inputSchema: GetUpcomingBirthdaysSchema,
-    execute: async ({ withinDays }) => {
+    inputSchema: GetUpcomingBirthdaysSchema as unknown as Tool["inputSchema"],
+    execute: async (input): Promise<BirthdayResult> => {
+      const { withinDays } = input as GetUpcomingBirthdaysInput;
       const members = await db.familyMember.findMany({
         where: {
           familyGroupId,
@@ -247,12 +253,13 @@ export function buildTools(familyGroupId: string, requester: ToolRequester) {
         .filter(b => b.daysUntil <= withinDays)
         .sort((a, b) => a.daysUntil - b.daysUntil);
     }
-  });
+  };
 
-  const get_upcoming_events = tool<GetUpcomingEventsInput, EventSummary[]>({
+  const get_upcoming_events: Tool = {
     description: "List upcoming events on the family calendar.",
-    inputSchema: GetUpcomingEventsSchema,
-    execute: async ({ withinDays = 30 }) => {
+    inputSchema: GetUpcomingEventsSchema as unknown as Tool["inputSchema"],
+    execute: async (input): Promise<EventSummary[]> => {
+      const { withinDays = 30 } = input as GetUpcomingEventsInput;
       const now = new Date();
       const end = new Date(now.getTime() + withinDays * 86_400_000);
 
@@ -284,12 +291,13 @@ export function buildTools(familyGroupId: string, requester: ToolRequester) {
         };
       });
     }
-  });
+  };
 
-  const get_event_details = tool<GetEventDetailsInput, EventDetailsResult>({
+  const get_event_details: Tool = {
     description: "Return full details for a specific event including all RSVPs with person names.",
-    inputSchema: GetEventDetailsSchema,
-    execute: async ({ eventId }) => {
+    inputSchema: GetEventDetailsSchema as unknown as Tool["inputSchema"],
+    execute: async (input): Promise<EventDetailsResult> => {
+      const { eventId } = input as GetEventDetailsInput;
       const event = await db.event.findFirst({
         where: { id: eventId, familyGroupId },
         include: { rsvps: true }
@@ -318,12 +326,13 @@ export function buildTools(familyGroupId: string, requester: ToolRequester) {
         })
       };
     }
-  });
+  };
 
-  const get_rsvp_status = tool<GetRsvpStatusInput, RsvpStatusResult>({
+  const get_rsvp_status: Tool = {
     description: "Return attendance breakdown for an event with person names in each status group.",
-    inputSchema: GetRsvpStatusSchema,
-    execute: async ({ eventId }) => {
+    inputSchema: GetRsvpStatusSchema as unknown as Tool["inputSchema"],
+    execute: async (input): Promise<RsvpStatusResult> => {
+      const { eventId } = input as GetRsvpStatusInput;
       const event = await db.event.findFirst({
         where: { id: eventId, familyGroupId },
         include: { rsvps: true }
@@ -350,12 +359,13 @@ export function buildTools(familyGroupId: string, requester: ToolRequester) {
 
       return groups;
     }
-  });
+  };
 
-  const get_household_members = tool<GetHouseholdMembersInput, PersonSummary[]>({
+  const get_household_members: Tool = {
     description: "List non-minor members of a specific household within the family group.",
-    inputSchema: GetHouseholdMembersSchema,
-    execute: async ({ householdId }) => {
+    inputSchema: GetHouseholdMembersSchema as unknown as Tool["inputSchema"],
+    execute: async (input): Promise<PersonSummary[]> => {
+      const { householdId } = input as GetHouseholdMembersInput;
       const household = await db.household.findFirst({ where: { id: householdId, familyGroupId } });
       if (!household) return [];
 
@@ -365,12 +375,13 @@ export function buildTools(familyGroupId: string, requester: ToolRequester) {
       });
       return members.map(m => toPersonSummary(m.person));
     }
-  });
+  };
 
-  const get_contact_info = tool<GetContactInfoInput, ContactInfoResult>({
+  const get_contact_info: Tool = {
     description: "Return contact information for a non-minor person in the family group.",
-    inputSchema: GetContactInfoSchema,
-    execute: async ({ personId }) => {
+    inputSchema: GetContactInfoSchema as unknown as Tool["inputSchema"],
+    execute: async (input): Promise<ContactInfoResult> => {
+      const { personId } = input as GetContactInfoInput;
       const membership = await db.familyMember.findFirst({
         where: { personId, familyGroupId },
         include: { person: true }
@@ -385,14 +396,15 @@ export function buildTools(familyGroupId: string, requester: ToolRequester) {
         phone: membership.person.phone ?? null
       };
     }
-  });
+  };
 
-  const create_event = tool<CreateEventInput, CreateEventResult>({
+  const create_event: Tool = {
     description:
       "Draft a new event proposal. Does NOT create the event — returns a proposal for user confirmation. " +
       "The frontend must call POST /api/v1/events after the user confirms.",
-    inputSchema: CreateEventSchema,
-    execute: async ({ title, startTime, endTime, location, description }) => {
+    inputSchema: CreateEventSchema as unknown as Tool["inputSchema"],
+    execute: async (input): Promise<CreateEventResult> => {
+      const { title, startTime, endTime, location, description } = input as CreateEventInput;
       // GUARDRAIL: intentionally never calls db.event.create or any write.
       return {
         proposed: true,
@@ -408,7 +420,7 @@ export function buildTools(familyGroupId: string, requester: ToolRequester) {
         message: "I've drafted this event. Please confirm to create it."
       };
     }
-  });
+  };
 
   return {
     get_person,

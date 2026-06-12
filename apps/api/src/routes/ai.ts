@@ -130,7 +130,7 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
     });
 
     // 10. Persist messages after streaming (fire and forget — non-blocking)
-    result.text.then(async (assistantText) => {
+    Promise.resolve(result.text).then(async (assistantText) => {
       if (!assistantText) return;
       await db.assistantMessage.createMany({
         data: [

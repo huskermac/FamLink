@@ -1,13 +1,8 @@
 {
   "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true },
   "exclude": [
     "src/**/__tests__/**",
-    "src/lib/aiTools.ts",
-    "src/lib/aiClient.ts",
-    "src/routes/ai.ts",
-    "src/routes/index.ts",
-    "src/server.ts",
-    "src/index.ts",
     "node_modules"
   ]
 }
