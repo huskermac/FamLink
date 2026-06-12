@@ -5,6 +5,8 @@ export interface PricingTier {
   displayName: string;
   activeUserLimit: number | null;
   stripePriceId: string | null;
+  /** Active seats covered by the base price; only seats beyond this are billed. */
+  includedSeats: number;
   trialDays: number | null;
   displayOrder: number;
   isActive: boolean;

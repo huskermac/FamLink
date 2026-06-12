@@ -203,13 +203,41 @@ describe("families & households routes", () => {
         .send({ personId: second.id, roles: ["MEMBER"], permissions: [], confirmSeatExpansion: true });
 
       expect(res.status).toBe(201);
+      // seatCount 1 + 1 new = 2 total; 1 is included in the base price → bill 1
       expect(mockStripe.subscriptions.update).toHaveBeenCalledWith("sub_test", {
-        items: [{ id: "si_seat", quantity: 2 }],
+        items: [{ id: "si_seat", quantity: 1 }],
         proration_behavior: "create_prorations"
       });
       // seatCount converges via the customer.subscription.updated webhook
       const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
       expect(sub?.seatCount).toBe(1);
+    });
+
+    it("adds the seat item by price when none exists yet (first overflow seat)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const second = await seedSecondPerson();
+      await db.pricingTier.create({
+        data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, activeUserLimit: 5, stripePriceId: "price_base", stripeSeatPriceId: "price_seat", includedSeats: 1 }
+      });
+      await db.familySubscription.create({
+        data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test" }
+      });
+      // No seat item on the subscription yet — family was within the allowance
+      mockStripe.subscriptions.retrieve.mockResolvedValue({ items: { data: [] } });
+      mockStripe.subscriptions.update.mockResolvedValue({});
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/members`)
+        .set("Authorization", "Bearer mock")
+        .send({ personId: second.id, roles: ["MEMBER"], permissions: [], confirmSeatExpansion: true });
+
+      expect(res.status).toBe(201);
+      expect(mockStripe.subscriptions.update).toHaveBeenCalledWith("sub_test", {
+        items: [{ price: "price_seat", quantity: 1 }],
+        proration_behavior: "create_prorations"
+      });
     });
   });
 

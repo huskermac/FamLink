@@ -21,6 +21,7 @@ const usedMethods: Array<[string, unknown]> = [
   ["subscriptions.update", stripe.subscriptions.update],
   ["subscriptions.cancel", stripe.subscriptions.cancel],
   ["invoices.createPreview", stripe.invoices.createPreview],
+  ["prices.retrieve", stripe.prices.retrieve],
   ["webhooks.constructEvent", stripe.webhooks.constructEvent]
 ];
 

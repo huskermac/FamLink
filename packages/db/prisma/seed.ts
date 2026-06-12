@@ -293,6 +293,8 @@ async function main(): Promise<void> {
         tierKey: "BASE",
         stripePriceId: process.env.STRIPE_PRICE_BASE ?? "price_test_base",
         stripeSeatPriceId: process.env.STRIPE_PRICE_BASE_SEAT ?? "price_test_base_seat",
+        // Base price covers this many active seats; only the overflow is billed
+        includedSeats: 1,
         activeUserLimit: 5,
         displayName: "Family",
         trialDays: 14,

@@ -137,8 +137,11 @@ billingRouter.post("/checkout", async (req: Request, res: Response) => {
   if (tier.stripePriceId) {
     lineItems.push({ price: tier.stripePriceId, quantity: 1 });
   }
-  if (tier.stripeSeatPriceId && body.data.seats > 0) {
-    lineItems.push({ price: tier.stripeSeatPriceId, quantity: body.data.seats });
+  // `seats` is the TOTAL active-user count; the base price covers
+  // tier.includedSeats of them and only the overflow is billed.
+  const billableSeats = Math.max(0, body.data.seats - tier.includedSeats);
+  if (tier.stripeSeatPriceId && billableSeats > 0) {
+    lineItems.push({ price: tier.stripeSeatPriceId, quantity: billableSeats });
   }
 
   const session = await stripe.checkout.sessions.create({
@@ -194,20 +197,42 @@ billingRouter.post("/seat-impact", async (req: Request, res: Response) => {
     res.status(400).json({ error: "No seat-based subscription found" }); return;
   }
 
-  // Retrieve the Stripe subscription to get the seat price item ID
+  // Seat counts are totals; only seats beyond the tier's included allowance
+  // are billed on the per-seat price.
+  const newBillable = Math.max(0, body.data.newSeatCount - sub.pricingTier.includedSeats);
+
+  // Retrieve the Stripe subscription to find an existing seat item (absent
+  // while the family is still within the included allowance).
   const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
   const seatItem = stripeSub.items.data.find(
     (item) => item.price?.id === sub.pricingTier.stripeSeatPriceId
   );
-  if (!seatItem) {
-    res.status(400).json({ error: "Seat price item not found on subscription" }); return;
+  const currentBillable = seatItem?.quantity ?? 0;
+
+  if (newBillable === currentBillable) {
+    res.json({
+      currentSeats: sub.seatCount,
+      newSeats: body.data.newSeatCount,
+      immediateCharge: 0,
+      recurringIncrease: 0,
+      currency: stripeSub.currency
+    });
+    return;
   }
+
+  const seatUnitAmount = seatItem?.price?.unit_amount
+    ?? (await stripe.prices.retrieve(sub.pricingTier.stripeSeatPriceId)).unit_amount
+    ?? 0;
 
   const upcoming = await stripe.invoices.createPreview({
     customer: sub.stripeCustomerId!,
     subscription: sub.stripeSubscriptionId,
     subscription_details: {
-      items: [{ id: seatItem.id, quantity: body.data.newSeatCount }]
+      items: [
+        seatItem
+          ? { id: seatItem.id, quantity: newBillable }
+          : { price: sub.pricingTier.stripeSeatPriceId, quantity: newBillable }
+      ]
     }
   });
 
@@ -215,7 +240,7 @@ billingRouter.post("/seat-impact", async (req: Request, res: Response) => {
     currentSeats: sub.seatCount,
     newSeats: body.data.newSeatCount,
     immediateCharge: upcoming.amount_due / 100,
-    recurringIncrease: ((body.data.newSeatCount - sub.seatCount) * (seatItem.price?.unit_amount ?? 0)) / 100,
+    recurringIncrease: ((newBillable - currentBillable) * seatUnitAmount) / 100,
     currency: upcoming.currency
   });
 });
@@ -290,6 +315,18 @@ billingWebhookRouter.post("/", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Total seat allowance = the tier's included seats + the billed quantity on
+ * the per-seat price item (absent while the family is within the allowance).
+ */
+function totalSeatsFromStripeItems(
+  items: Array<{ price?: { id?: string | null } | null; quantity?: number }> | undefined,
+  tier: { stripeSeatPriceId: string | null; includedSeats: number }
+): number {
+  const seatItem = (items ?? []).find((i) => i.price?.id === tier.stripeSeatPriceId);
+  return (seatItem?.quantity ?? 0) + tier.includedSeats;
+}
+
 async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constructEvent>): Promise<void> {
   const obj = event.data.object as any;
 
@@ -298,10 +335,15 @@ async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constr
       const { familyGroupId, tierKey } = obj.metadata ?? {};
       if (!familyGroupId || !tierKey || !obj.subscription) return;
 
-      // Fetch the subscription to get accurate trial status
+      // Fetch the subscription to get accurate trial status + seat quantity
       const stripeSub = await stripe.subscriptions.retrieve(obj.subscription as string);
       const status = stripeSub.status === "trialing" ? "TRIALING" : "ACTIVE";
       const trialEndsAt = stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null;
+
+      const tier = await db.pricingTier.findUnique({ where: { tierKey } });
+      const seatCount = tier
+        ? totalSeatsFromStripeItems(stripeSub.items.data, tier)
+        : 1;
 
       await db.familySubscription.upsert({
         where: { familyGroupId },
@@ -311,14 +353,16 @@ async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constr
           stripeCustomerId: obj.customer,
           stripeSubscriptionId: obj.subscription,
           status,
-          trialEndsAt
+          trialEndsAt,
+          seatCount
         },
         update: {
           stripeCustomerId: obj.customer,
           stripeSubscriptionId: obj.subscription,
           tierKey,
           status,
-          trialEndsAt
+          trialEndsAt,
+          seatCount
         }
       });
       break;
@@ -329,14 +373,12 @@ async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constr
       if (!familyGroupId) return;
       const existing = await db.familySubscription.findUnique({ where: { familyGroupId }, include: { pricingTier: true } });
       if (!existing) return;
-      // Find the seat price item by matching stripeSeatPriceId
-      const seatItem = (obj.items?.data ?? []).find(
-        (item: any) => item.price?.id === existing.pricingTier.stripeSeatPriceId
-      );
-      // Fall back to total quantity of first item if no seat price item found (e.g., single-item plan)
-      const newSeatCount: number = seatItem?.quantity ?? obj.items?.data?.[0]?.quantity ?? 1;
 
       const newTier = await db.pricingTier.findUnique({ where: { tierKey: tierKey ?? existing.tierKey } });
+      const newSeatCount = totalSeatsFromStripeItems(
+        obj.items?.data,
+        newTier ?? existing.pricingTier
+      );
       const isDowngrade = newTier !== null && newSeatCount < existing.seatCount;
 
       const graceEndsAt = isDowngrade

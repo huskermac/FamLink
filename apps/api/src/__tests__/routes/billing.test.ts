@@ -14,6 +14,7 @@ const mockStripe = vi.hoisted(() => ({
   checkout: { sessions: { create: vi.fn() } },
   billingPortal: { sessions: { create: vi.fn() } },
   invoices: { createPreview: vi.fn() },
+  prices: { retrieve: vi.fn() },
   subscriptions: { update: vi.fn(), retrieve: vi.fn(), cancel: vi.fn() },
   customers: { create: vi.fn() },
   webhooks: { constructEvent: vi.fn() }
@@ -92,6 +93,41 @@ describe("POST /api/v1/billing/checkout", () => {
     expect(res.status).toBe(200);
     expect(res.body.checkoutUrl).toBe("https://checkout.stripe.com/test");
   });
+
+  it("bills only seats beyond the included allowance at checkout", async () => {
+    const person = await seedTestPerson();
+    await seedTestFamily(person.id);
+    await db.pricingTier.create({
+      data: { tierKey: "FAM12", displayName: "Family", displayOrder: 1, stripePriceId: "price_base", stripeSeatPriceId: "price_seat", includedSeats: 12, activeUserLimit: 50 }
+    });
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .post("/api/v1/billing/checkout")
+      .set("Authorization", "Bearer mock")
+      .send({ tierKey: "FAM12", seats: 14, successUrl: "http://localhost:3000/s", cancelUrl: "http://localhost:3000/c" });
+    expect(res.status).toBe(200);
+    const args = mockStripe.checkout.sessions.create.mock.calls.at(-1)[0];
+    expect(args.line_items).toEqual([
+      { price: "price_base", quantity: 1 },
+      { price: "price_seat", quantity: 2 } // 14 total - 12 included
+    ]);
+  });
+
+  it("adds no seat line item when seats are within the included allowance", async () => {
+    const person = await seedTestPerson();
+    await seedTestFamily(person.id);
+    await db.pricingTier.create({
+      data: { tierKey: "FAM12", displayName: "Family", displayOrder: 1, stripePriceId: "price_base", stripeSeatPriceId: "price_seat", includedSeats: 12, activeUserLimit: 50 }
+    });
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .post("/api/v1/billing/checkout")
+      .set("Authorization", "Bearer mock")
+      .send({ tierKey: "FAM12", seats: 5, successUrl: "http://localhost:3000/s", cancelUrl: "http://localhost:3000/c" });
+    expect(res.status).toBe(200);
+    const args = mockStripe.checkout.sessions.create.mock.calls.at(-1)[0];
+    expect(args.line_items).toEqual([{ price: "price_base", quantity: 1 }]);
+  });
 });
 
 describe("POST /api/v1/billing/portal", () => {
@@ -134,15 +170,16 @@ describe("POST /api/v1/billing/seat-impact", () => {
 
   beforeEach(() => mockGetAuth.mockReset());
 
-  it("returns billing impact when subscription and upcoming invoice are available", async () => {
+  it("returns billing impact — bills only seats beyond the included allowance", async () => {
     mockStripe.invoices.createPreview.mockResolvedValue({ amount_due: 450, currency: "usd" });
+    // seatCount 2 = 1 included + 1 billed, so the seat item exists with qty 1
     mockStripe.subscriptions.retrieve.mockResolvedValue({
-      items: { data: [{ id: "si_test_seat", price: { id: "price_seat", unit_amount: 300 } }] }
+      items: { data: [{ id: "si_test_seat", quantity: 1, price: { id: "price_seat", unit_amount: 300 } }] }
     });
 
     const person = await seedTestPerson();
     const { familyGroup } = await seedTestFamily(person.id);
-    await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Family", displayOrder: 1, stripePriceId: "price_base", stripeSeatPriceId: "price_seat", activeUserLimit: 5 } });
+    await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Family", displayOrder: 1, stripePriceId: "price_base", stripeSeatPriceId: "price_seat", includedSeats: 1, activeUserLimit: 5 } });
     await db.familySubscription.create({
       data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 2, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test" }
     });
@@ -156,8 +193,54 @@ describe("POST /api/v1/billing/seat-impact", () => {
     expect(mockStripe.invoices.createPreview).toHaveBeenCalledWith({
       customer: "cus_test",
       subscription: "sub_test",
-      subscription_details: { items: [{ id: "si_test_seat", quantity: 3 }] }
+      subscription_details: { items: [{ id: "si_test_seat", quantity: 2 }] }
     });
+  });
+
+  it("adds the seat item by price when the family is still within the included allowance", async () => {
+    mockStripe.invoices.createPreview.mockResolvedValue({ amount_due: 200, currency: "usd" });
+    mockStripe.prices.retrieve.mockResolvedValue({ unit_amount: 200 });
+    // seatCount 3 = all included, no seat item on the subscription yet
+    mockStripe.subscriptions.retrieve.mockResolvedValue({ items: { data: [] } });
+
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "FAM12", displayName: "Family", displayOrder: 1, stripePriceId: "price_base", stripeSeatPriceId: "price_seat", includedSeats: 3, activeUserLimit: 50 } });
+    await db.familySubscription.create({
+      data: { familyGroupId: familyGroup.id, tierKey: "FAM12", seatCount: 3, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test" }
+    });
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .post("/api/v1/billing/seat-impact")
+      .set("Authorization", "Bearer mock")
+      .send({ newSeatCount: 4 });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ currentSeats: 3, newSeats: 4, immediateCharge: 2, recurringIncrease: 2, currency: "usd" });
+    expect(mockStripe.invoices.createPreview).toHaveBeenCalledWith({
+      customer: "cus_test",
+      subscription: "sub_test",
+      subscription_details: { items: [{ price: "price_seat", quantity: 1 }] }
+    });
+  });
+
+  it("reports zero impact when the new total is still within the included allowance", async () => {
+    mockStripe.invoices.createPreview.mockClear();
+    mockStripe.subscriptions.retrieve.mockResolvedValue({ items: { data: [] }, currency: "usd" });
+
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "FAM12", displayName: "Family", displayOrder: 1, stripePriceId: "price_base", stripeSeatPriceId: "price_seat", includedSeats: 12, activeUserLimit: 50 } });
+    await db.familySubscription.create({
+      data: { familyGroupId: familyGroup.id, tierKey: "FAM12", seatCount: 12, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test" }
+    });
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const res = await request(app)
+      .post("/api/v1/billing/seat-impact")
+      .set("Authorization", "Bearer mock")
+      .send({ newSeatCount: 5 });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ currentSeats: 12, newSeats: 5, immediateCharge: 0, recurringIncrease: 0 });
+    expect(mockStripe.invoices.createPreview).not.toHaveBeenCalled();
   });
 });
 

@@ -197,21 +197,31 @@ familiesRouter.post("/:familyId/members", async (req, res) => {
         include: { pricingTier: true }
       });
       if (sub?.stripeSubscriptionId && sub.pricingTier.stripeSeatPriceId) {
-        // Stripe is the source of truth (decision 2026-06-10): bump the seat
-        // item quantity there; local seatCount converges via the
-        // customer.subscription.updated webhook.
-        const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
-        const seatItem = stripeSub.items.data.find(
-          (item) => item.price?.id === sub.pricingTier.stripeSeatPriceId
-        );
-        if (!seatItem) {
-          res.status(400).json({ error: "Seat price item not found on subscription" });
-          return;
+        // Stripe is the source of truth (decision 2026-06-10): bill only the
+        // seats beyond the tier's included allowance. The seat item may not
+        // exist yet (family was within the allowance) — add it by price then.
+        // Local seatCount converges via the customer.subscription.updated webhook.
+        const newBillable = Math.max(0, sub.seatCount + 1 - sub.pricingTier.includedSeats);
+        if (newBillable === 0) {
+          // Still covered by the base price — nothing to bill.
+          await db.familySubscription.update({
+            where: { familyGroupId: familyId },
+            data: { seatCount: sub.seatCount + 1 }
+          });
+        } else {
+          const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+          const seatItem = stripeSub.items.data.find(
+            (item) => item.price?.id === sub.pricingTier.stripeSeatPriceId
+          );
+          await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+            items: [
+              seatItem
+                ? { id: seatItem.id, quantity: newBillable }
+                : { price: sub.pricingTier.stripeSeatPriceId, quantity: newBillable }
+            ],
+            proration_behavior: "create_prorations"
+          });
         }
-        await stripe.subscriptions.update(sub.stripeSubscriptionId, {
-          items: [{ id: seatItem.id, quantity: sub.seatCount + 1 }],
-          proration_behavior: "create_prorations"
-        });
       } else if (sub) {
         // No Stripe subscription to bill (e.g. free tier) — DB-only bump.
         await db.familySubscription.update({
