@@ -5,6 +5,7 @@ import { db, type FamilyMember, type Person } from "@famlink/db";
 import { stripe } from "../lib/stripeClient";
 import { env } from "../lib/env";
 import { activeFamilyMembership, hasAdminRole } from "../lib/familyAccess";
+import { asyncHandler } from "../middleware/asyncHandler";
 import type { Request, Response } from "express";
 
 export const billingRouter = Router();
@@ -71,17 +72,17 @@ async function resolveBillingScope(
 }
 
 // GET /api/v1/billing/tiers — public, no auth required
-billingRouter.get("/tiers", async (_req: Request, res: Response) => {
+billingRouter.get("/tiers", asyncHandler(async (_req: Request, res: Response) => {
   const tiers = await db.pricingTier.findMany({
     where: { isActive: true },
     orderBy: { displayOrder: "asc" }
   });
   res.json({ tiers });
-});
+}));
 
 // GET /api/v1/billing/subscription?familyGroupId=...
 // Readable by any member of the family (banners); mutations below are admin-only.
-billingRouter.get("/subscription", async (req: Request, res: Response) => {
+billingRouter.get("/subscription", asyncHandler(async (req: Request, res: Response) => {
   const q = z.object({ familyGroupId: z.string().min(1).optional() }).safeParse(req.query);
   if (!q.success) { res.status(400).json({ error: "Invalid query" }); return; }
 
@@ -104,7 +105,7 @@ billingRouter.get("/subscription", async (req: Request, res: Response) => {
       grandfathered: sub.grandfathered
     }
   });
-});
+}));
 
 const CheckoutSchema = FamilyScopeBodySchema.extend({
   tierKey: z.string().min(1),
@@ -114,7 +115,7 @@ const CheckoutSchema = FamilyScopeBodySchema.extend({
 });
 
 // POST /api/v1/billing/checkout
-billingRouter.post("/checkout", async (req: Request, res: Response) => {
+billingRouter.post("/checkout", asyncHandler(async (req: Request, res: Response) => {
   const body = CheckoutSchema.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "Invalid body" }); return; }
 
@@ -158,10 +159,10 @@ billingRouter.post("/checkout", async (req: Request, res: Response) => {
   });
   if (!session.url) { res.status(502).json({ error: "Stripe did not return a URL" }); return; }
   res.json({ checkoutUrl: session.url });
-});
+}));
 
 // POST /api/v1/billing/portal
-billingRouter.post("/portal", async (req: Request, res: Response) => {
+billingRouter.post("/portal", asyncHandler(async (req: Request, res: Response) => {
   const body = FamilyScopeBodySchema.safeParse(req.body ?? {});
   if (!body.success) { res.status(400).json({ error: "Invalid body" }); return; }
 
@@ -179,12 +180,12 @@ billingRouter.post("/portal", async (req: Request, res: Response) => {
   });
   if (!session.url) { res.status(502).json({ error: "Stripe did not return a URL" }); return; }
   res.json({ portalUrl: session.url });
-});
+}));
 
 const SeatImpactSchema = FamilyScopeBodySchema.extend({ newSeatCount: z.number().int().positive() });
 
 // POST /api/v1/billing/seat-impact
-billingRouter.post("/seat-impact", async (req: Request, res: Response) => {
+billingRouter.post("/seat-impact", asyncHandler(async (req: Request, res: Response) => {
   const body = SeatImpactSchema.safeParse(req.body);
   if (!body.success) { res.status(400).json({ error: "Invalid body" }); return; }
 
@@ -243,10 +244,10 @@ billingRouter.post("/seat-impact", async (req: Request, res: Response) => {
     recurringIncrease: ((newBillable - currentBillable) * seatUnitAmount) / 100,
     currency: upcoming.currency
   });
-});
+}));
 
 // POST /api/v1/billing/activate-free
-billingRouter.post("/activate-free", async (req: Request, res: Response) => {
+billingRouter.post("/activate-free", asyncHandler(async (req: Request, res: Response) => {
   const body = FamilyScopeBodySchema.safeParse(req.body ?? {});
   if (!body.success) { res.status(400).json({ error: "Invalid body" }); return; }
 
@@ -286,7 +287,7 @@ billingRouter.post("/activate-free", async (req: Request, res: Response) => {
   });
 
   res.json({ activated: true });
-});
+}));
 
 // --- Webhook handler ---
 
@@ -295,7 +296,7 @@ function rawBody(req: Request): string {
   return typeof req.body === "string" ? req.body : JSON.stringify(req.body);
 }
 
-billingWebhookRouter.post("/", async (req: Request, res: Response) => {
+billingWebhookRouter.post("/", asyncHandler(async (req: Request, res: Response) => {
   const sig = req.headers["stripe-signature"] as string;
   let event: ReturnType<typeof stripe.webhooks.constructEvent>;
 
@@ -313,7 +314,7 @@ billingWebhookRouter.post("/", async (req: Request, res: Response) => {
     console.error("Stripe webhook handler error", err);
     res.status(500).json({ error: "Webhook processing failed" });
   }
-});
+}));
 
 /**
  * Total seat allowance = the tier's included seats + the billed quantity on
