@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useEffect, useState } from "react";
 import { fetchSubscription, createPortalSession } from "@/lib/api/billing";
 import type { FamilySubscription } from "@/lib/api/billing";
+import { getMyFamilies } from "@/lib/api/family";
 
 const STATUS_LABELS: Record<string, string> = {
   ACTIVE: "Active",
@@ -17,17 +18,27 @@ const STATUS_LABELS: Record<string, string> = {
 export default function BillingSettingsPage() {
   const { getToken } = useAuth();
   const [sub, setSub] = useState<FamilySubscription | null>(null);
+  const [familyId, setFamilyId] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
-    fetchSubscription(getToken).then(setSub).finally(() => setLoading(false));
+    // Billing is family-scoped; use the same first family the app shell shows.
+    getMyFamilies(getToken)
+      .then((families) => {
+        const id = families[0]?.familyGroup.id;
+        setFamilyId(id);
+        return fetchSubscription(getToken, id);
+      })
+      .then(setSub)
+      .catch(() => setSub(null))
+      .finally(() => setLoading(false));
   }, [getToken]);
 
   async function handleManage() {
     setRedirecting(true);
     try {
-      const url = await createPortalSession(getToken);
+      const url = await createPortalSession(getToken, familyId);
       window.open(url, "_blank");
     } finally {
       setRedirecting(false);

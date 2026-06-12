@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchTiers, fetchSubscription, createCheckoutSession } from "@/lib/api/billing";
 import type { PricingTier } from "@/lib/api/billing";
+import { getMyFamilies } from "@/lib/api/family";
 
 export default function CheckoutPage() {
   const { getToken } = useAuth();
@@ -13,6 +14,7 @@ export default function CheckoutPage() {
   const tierKey = searchParams?.get("tier") ?? null;
 
   const [tiers, setTiers] = useState<PricingTier[]>([]);
+  const [familyId, setFamilyId] = useState<string | undefined>(undefined);
   const [seats, setSeats] = useState(1);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -23,10 +25,21 @@ export default function CheckoutPage() {
       setLoading(false);
       return;
     }
-    Promise.all([fetchTiers(), fetchSubscription(getToken)]).then(([tiers, sub]) => {
-      setTiers(tiers);
-      if (sub?.seatCount) setSeats(sub.seatCount);
-    }).finally(() => setLoading(false));
+    // Billing is family-scoped; use the same first family the app shell shows.
+    (async () => {
+      try {
+        const families = await getMyFamilies(getToken);
+        const id = families[0]?.familyGroup.id;
+        setFamilyId(id);
+        const [tierList, sub] = await Promise.all([fetchTiers(), fetchSubscription(getToken, id)]);
+        setTiers(tierList);
+        if (sub?.seatCount) setSeats(sub.seatCount);
+      } catch {
+        // page still renders; checkout button will surface any API error
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [getToken, tierKey]);
 
   async function handleCheckout() {
@@ -36,7 +49,7 @@ export default function CheckoutPage() {
     try {
       const successUrl = `${window.location.origin}/billing/success`;
       const cancelUrl = `${window.location.origin}/billing/plans`;
-      const checkoutUrl = await createCheckoutSession(getToken, tierKey, seats, successUrl, cancelUrl);
+      const checkoutUrl = await createCheckoutSession(getToken, tierKey, seats, successUrl, cancelUrl, familyId);
       window.location.href = checkoutUrl;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useState } from "react";
 import { activateFree } from "@/lib/api/billing";
+import { getMyFamilies } from "@/lib/api/family";
 
 export default function ActivateFreePage() {
   const router = useRouter();
@@ -15,7 +16,8 @@ export default function ActivateFreePage() {
     setLoading(true);
     setError(null);
     try {
-      await activateFree(getToken);
+      const families = await getMyFamilies(getToken);
+      await activateFree(getToken, families[0]?.familyGroup.id);
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
