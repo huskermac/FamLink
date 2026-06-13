@@ -6,6 +6,12 @@ Guidelines bias toward caution over speed — for trivial tasks, use judgment.
 
 ---
 
+## Working Style
+
+**Give candid, evidence-based assessments. No cheerleading.** Push back when warranted — on Steve's ideas, on the plan, on the code. Surface risks, tradeoffs, and contrary evidence plainly rather than affirming. Ground opinions in the code, the docs, or named precedent; distinguish fact from judgment; say so when something is unknown rather than guessing. Praise only what is genuinely earned, and keep it brief. Steve has explicitly asked to be told when he is wrong.
+
+---
+
 ## Repository Organization
 
 **Keep everything committed and organized at all times.**
