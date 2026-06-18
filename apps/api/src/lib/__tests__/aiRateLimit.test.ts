@@ -27,7 +27,8 @@ const mockRedis = {
     const next = current + 1;
     store.set(key, String(next));
     return next;
-  })
+  }),
+  expire: vi.fn(async () => 1)
 };
 
 beforeEach(() => {
@@ -67,7 +68,17 @@ describe("checkAndIncrementAiRateLimit", () => {
 
     expect(result.allowed).toBe(false);
     expect(result.remaining).toBe(0);
-    expect(mockRedis.incr).not.toHaveBeenCalled();
+  });
+
+  it("never grants more than the daily limit across concurrent calls", async () => {
+    // 30 simultaneous requests against a fresh counter — only 20 may be allowed.
+    const results = await Promise.all(
+      Array.from({ length: 30 }, () =>
+        checkAndIncrementAiRateLimit("user_concurrent")
+      )
+    );
+    const allowed = results.filter((r) => r.allowed).length;
+    expect(allowed).toBe(20);
   });
 
   it("allows exactly the 20th call and returns remaining: 0", async () => {
@@ -84,18 +95,20 @@ describe("checkAndIncrementAiRateLimit", () => {
     await checkAndIncrementAiRateLimit("user_eve");
 
     const today = new Date().toISOString().split("T")[0];
-    expect(mockRedis.get).toHaveBeenCalledWith(`ai:rate:user_eve:${today}`);
+    expect(mockRedis.incr).toHaveBeenCalledWith(`ai:rate:user_eve:${today}`);
   });
 
-  it("sets TTL of 86400 on key creation", async () => {
+  it("sets TTL of 86400 only on the first request of the day", async () => {
     await checkAndIncrementAiRateLimit("user_frank");
-
-    expect(mockRedis.set).toHaveBeenCalledWith(
+    expect(mockRedis.expire).toHaveBeenCalledWith(
       expect.stringContaining("user_frank"),
-      1,
-      "EX",
       86400
     );
+
+    // Second call same day must not re-arm the TTL (would extend the window).
+    mockRedis.expire.mockClear();
+    await checkAndIncrementAiRateLimit("user_frank");
+    expect(mockRedis.expire).not.toHaveBeenCalled();
   });
 });
 

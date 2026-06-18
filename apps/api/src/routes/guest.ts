@@ -5,8 +5,12 @@ import { db } from "@famlink/db";
 import type { GuestTokenPayload } from "../lib/guestToken";
 import type { GuestRequest } from "../middleware/guestAuth";
 import { requireGuestToken } from "../middleware/guestAuth";
+import { guestRateLimiter } from "../middleware/rateLimit";
 
 export const guestRouter = Router();
+
+// All guest endpoints are public or token-based — rate-limit per IP.
+guestRouter.use(guestRateLimiter);
 
 const rsvpBodySchema = z.object({
   status: z.nativeEnum(RSVPStatus)

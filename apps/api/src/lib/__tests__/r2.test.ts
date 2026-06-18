@@ -32,23 +32,28 @@ beforeEach(() => {
 });
 
 describe("createPresignedUpload", () => {
-  it("returns uploadUrl from getSignedUrl and key with .jpg ext for image/jpeg", async () => {
-    const result = await createPresignedUpload("image/jpeg");
+  it("returns uploadUrl and an uploader-scoped key with .jpg ext for image/jpeg", async () => {
+    const result = await createPresignedUpload("image/jpeg", "person_1");
     expect(result.uploadUrl).toBe("https://r2.example.com/presigned-url");
-    expect(result.key).toMatch(/^[0-9a-f-]{36}\.jpg$/);
+    expect(result.key).toMatch(/^uploads\/person_1\/[0-9a-f-]{36}\.jpg$/);
     expect(result.publicUrl).toBe(`https://pub.example.com/${result.key}`);
   });
 
   it("uses .png extension for image/png", async () => {
-    const result = await createPresignedUpload("image/png");
+    const result = await createPresignedUpload("image/png", "person_1");
     expect(result.key).toMatch(/\.png$/);
   });
 
   it("uses .jpg extension for image/webp and image/heic", async () => {
-    const resultWebp = await createPresignedUpload("image/webp");
-    const resultHeic = await createPresignedUpload("image/heic");
+    const resultWebp = await createPresignedUpload("image/webp", "person_1");
+    const resultHeic = await createPresignedUpload("image/heic", "person_1");
     expect(resultWebp.key).toMatch(/\.jpg$/);
     expect(resultHeic.key).toMatch(/\.jpg$/);
+  });
+
+  it("scopes the key under the requesting person's prefix", async () => {
+    const result = await createPresignedUpload("image/jpeg", "person_abc");
+    expect(result.key.startsWith("uploads/person_abc/")).toBe(true);
   });
 });
 

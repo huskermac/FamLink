@@ -35,9 +35,9 @@ export function PhotoGallery({ eventId }: Props) {
     setUploading(true);
     setError(null);
     try {
-      const { uploadUrl, key, publicUrl } = await presignUpload(mimeType, getToken);
+      const { uploadUrl, key } = await presignUpload(mimeType, getToken);
       await uploadToR2(uploadUrl, file, mimeType);
-      await confirmEventPhoto(eventId, key, publicUrl, getToken);
+      await confirmEventPhoto(eventId, key, getToken);
       await qc.invalidateQueries({ queryKey: ["event-photos", eventId] });
     } catch {
       setError("Upload failed. Please try again.");

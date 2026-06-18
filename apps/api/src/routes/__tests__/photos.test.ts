@@ -36,7 +36,9 @@ const mockDeleteR2Object = vi.fn();
 
 vi.mock("../../lib/r2", () => ({
   createPresignedUpload: (...a: unknown[]) => mockCreatePresignedUpload(...a),
-  deleteR2Object: (...a: unknown[]) => mockDeleteR2Object(...a)
+  deleteR2Object: (...a: unknown[]) => mockDeleteR2Object(...a),
+  publicUrlForKey: (key: string) => `https://pub.example.com/${key}`,
+  uploadKeyPrefix: (ownerPersonId: string) => `uploads/${ownerPersonId}/`
 }));
 
 const PERSON = { id: "p1", userId: "clerk_u1", firstName: "Alice", lastName: "Smith" };
@@ -128,16 +130,51 @@ describe("POST /api/v1/photos/events/:eventId", () => {
     mockFamilyMemberFindUnique.mockResolvedValue(FAMILY_MEMBER);
     mockEventPhotoCreate.mockResolvedValue({
       id: "ph1", eventId: "ev1", uploadedById: "p1",
-      key: "abc.jpg", url: "https://pub.example.com/abc.jpg",
+      key: "uploads/p1/abc.jpg", url: "https://pub.example.com/uploads/p1/abc.jpg",
       createdAt: new Date("2026-04-25T00:00:00Z")
     });
     const app = createApp();
     const res = await request(app)
       .post("/api/v1/photos/events/ev1")
       .set("Authorization", "Bearer token")
-      .send({ key: "abc.jpg", url: "https://pub.example.com/abc.jpg" });
+      .send({ key: "uploads/p1/abc.jpg" });
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ id: "ph1", eventId: "ev1" });
+  });
+
+  it("rejects a key outside the requester's own upload prefix", async () => {
+    authAs("clerk_u1");
+    mockPersonFindUnique.mockResolvedValue(PERSON);
+    mockEventFindUnique.mockResolvedValue(EVENT);
+    mockFamilyMemberFindUnique.mockResolvedValue(FAMILY_MEMBER);
+    const app = createApp();
+    const res = await request(app)
+      .post("/api/v1/photos/events/ev1")
+      .set("Authorization", "Bearer token")
+      .send({ key: "uploads/p_other/abc.jpg" });
+    expect(res.status).toBe(400);
+    expect(mockEventPhotoCreate).not.toHaveBeenCalled();
+  });
+
+  it("derives the URL server-side and ignores any client-supplied url", async () => {
+    authAs("clerk_u1");
+    mockPersonFindUnique.mockResolvedValue(PERSON);
+    mockEventFindUnique.mockResolvedValue(EVENT);
+    mockFamilyMemberFindUnique.mockResolvedValue(FAMILY_MEMBER);
+    mockEventPhotoCreate.mockResolvedValue({
+      id: "ph1", eventId: "ev1", uploadedById: "p1",
+      key: "uploads/p1/abc.jpg", url: "ignored",
+      createdAt: new Date("2026-04-25T00:00:00Z")
+    });
+    const app = createApp();
+    await request(app)
+      .post("/api/v1/photos/events/ev1")
+      .set("Authorization", "Bearer token")
+      .send({ key: "uploads/p1/abc.jpg", url: "https://evil.example.com/x.jpg" });
+
+    const storedUrl = mockEventPhotoCreate.mock.calls[0][0].data.url as string;
+    expect(storedUrl).not.toContain("evil.example.com");
+    expect(storedUrl).toContain("uploads/p1/abc.jpg");
   });
 });
 
