@@ -8,8 +8,8 @@
 | **Field** | **Value** |
 |---|---|
 | Companion Document | FamLink PRD v0.1 |
-| Document Version | v0.4.6 — Working Draft |
-| Prior Version | v0.4.5 (ADR-14: geographic scope locked; Q#5 resolved) |
+| Document Version | v0.4.7 — Working Draft |
+| Prior Version | v0.4.6 (ADR-15: content moderation strategy locked; Q#6 resolved) |
 | Status | Decisions locked unless marked OPEN or DEFERRED |
 | AI Architecture | First-class concern — reviewed alongside conventional stack |
 | Build Strategy | AI-assisted development (Cursor / Claude Code), small team |
@@ -31,6 +31,7 @@
 | v0.4.4 | May 2026 | ADR-11 updated: subscription tier structure and billing architecture locked. Open Q#2 resolved. |
 | v0.4.5 | May 2026 | ADR-14 added: geographic scope and data residency locked. Open Q#5 resolved. |
 | v0.4.6 | May 2026 | ADR-15 added: content moderation strategy locked. Open Q#6 resolved. |
+| v0.4.7 | June 2026 | Phase 3 reconciliation to shipped reality. ADR-02 updated: Next.js upgraded 14.2.35 → 15.2.8 (App Router) during Phase 3 deploy bring-up. ADR-11 updated: Stripe subscription billing shipped in P3-01 (not deferred); `includedSeats` refinement added — base price covers a configurable number of active seats, only the overflow is billed. ADR-13 updated: 80% line-coverage threshold now CI-enforced (vitest `coverage.thresholds` + GitHub Actions gate). P3-00 Privacy & Billing Integrity hardening recorded: private events fully hidden, billing admin-only with Stripe as source of truth, per-family AI tool binding, atomic AI rate-limit, server-derived photo URLs, guest-endpoint rate limiting. |
 
 ---
 
@@ -81,7 +82,7 @@ FamLink is a three-tier web and mobile application with an AI layer that is arch
 
 | **Package** | **Path** | **Purpose** |
 |---|---|---|
-| web | apps/web | Next.js 14 frontend application |
+| web | apps/web | Next.js 15 frontend application |
 | mobile | apps/mobile | React Native + Expo application |
 | api | apps/api | Node.js + Express REST API |
 | shared | packages/shared | Shared TypeScript types, utilities, constants |
@@ -91,7 +92,7 @@ FamLink is a three-tier web and mobile application with an AI layer that is arch
 
 ### ADR-01 — Frontend Framework [LOCKED]
 
-**Decision:** React (TypeScript) — web application built with Next.js 14 App Router. Pinned to v14.2.35 (security patch applied during Phase 0; upgraded from 14.1.0 to address a known CVE).
+**Decision:** React (TypeScript) — web application built with Next.js App Router. Originally pinned to v14.2.35 (Phase 0 security patch from 14.1.0); upgraded to v15.2.8 during Phase 3 deploy bring-up.
 
 **Rationale:** React is the dominant frontend framework with the largest ecosystem, best AI coding tool support, and most available talent. Next.js adds SSR, API routes, and file-based routing out of the box. TypeScript strict mode is mandatory — it prevents an entire class of runtime errors especially costly in AI-assisted build workflows.
 
@@ -370,6 +371,8 @@ Specific prices and exact tier counts (N) are configurable — not hardcoded. Se
 
 **Seat-based billing:** active user count is a declared seat count, not metered. The FamilyGroup owner adjusts seat count explicitly; billing updates at the next Stripe billing cycle.
 
+**`includedSeats` refinement [v0.4.7]:** each tier row carries an `includedSeats` count — the base price covers that many active seats, and only the overflow is billed at the per-seat price. Shipped in P3-01.
+
 #### Pricing Architecture [LOCKED — v0.4.4]
 
 Stripe is the billing engine. The app holds a thin configuration layer:
@@ -445,7 +448,7 @@ Stripe is the billing engine. The app holds a thin configuration layer:
 | `apps/web` | Vitest | `vi.mock()` — API calls mocked | jsdom |
 | `apps/mobile` | Jest + `jest-expo` preset | Jest mocks | React Native (Expo) |
 
-**Coverage threshold:** 80% line coverage minimum on all new files across all packages.
+**Coverage threshold:** 80% line coverage minimum across all packages — CI-enforced via vitest `coverage.thresholds` (API + web) and the GitHub Actions test gate [v0.4.7].
 
 **Migration note:** The Phase 1 `globalSetup`/`globalTeardown` real-database pattern is replaced by module-level Prisma mocks (`vi.mock('@famlink/db')`). This gives faster, deterministic unit tests. Integration tests requiring a live database are explicitly out of scope for the Phase 2 test suite — if needed in future, they would be a separate `test:integration` script.
 
@@ -537,7 +540,7 @@ Stripe is the billing engine. The app holds a thin configuration layer:
 
 | **Category** | **Technology** | **Version / Notes** | **Status** |
 |---|---|---|---|
-| Frontend Framework | Next.js (React) | v14.2.35 — App Router (security-patched) | **LOCKED** |
+| Frontend Framework | Next.js (React) | v15.2.8 — App Router (upgraded Phase 3) | **LOCKED** |
 | Frontend Language | TypeScript | Strict mode | **LOCKED** |
 | Styling | Tailwind CSS + shadcn/ui | Utility-first; unstyled components | **LOCKED** |
 | State — Server | TanStack Query (React Query) | v5 | **LOCKED** |
