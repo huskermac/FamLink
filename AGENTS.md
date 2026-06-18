@@ -103,6 +103,18 @@ Strong success criteria enable independent looping. Weak criteria ("make it work
 
 ---
 
+## LLM Council
+
+For every non-trivial `/goal` run, explicitly invoke `$llm-council`.
+
+The council must review:
+1. The implementation plan before repository writes.
+2. The verified delivery before the goal is marked complete.
+
+Codex remains responsible for implementation and must independently validate reviewer findings.
+
+---
+
 ## 5. Security
 
 - Do not introduce security vulnerabilities (injection, XSS, etc.)
