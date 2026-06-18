@@ -26,9 +26,10 @@ Guidelines bias toward caution over speed — for trivial tasks, use judgment.
 ## Current Phase
 
 - **Phase 2:** COMPLETE (P2-00 through P2-13 + design polish, all shipped)
-- **Current phase:** Phase 3 — P3-01 (billing) complete; P3-00 (Privacy & Billing Integrity hardening, from the 2026-06-10 audit) Milestones 0–2 COMPLETE
-- **P3-00 remaining (Milestone 3 polish, not yet authorized):** atomic AI rate-limit INCR, server-side photo URL derivation + family-scoped R2 keys, guest endpoint rate limiting, family-scoped guest contact matching, ADR reconciliation to v0.4.7, remove stray verify-*.png
-- **Next major plans:** P3-02 Layer 2 AI, P3-03 Image Pipeline, P3-04 Group Chat, P3-05 Layer 3 Agentic AI
+- **Current phase:** Phase 3 — P3-01 (billing) complete; **P3-00 (Privacy & Billing Integrity hardening) COMPLETE** (Milestones 0–3 all shipped 2026-06-18). M3 closed atomic AI rate-limit, server-side photo URLs + uploader-scoped R2 keys, guest-endpoint rate limiting, ADR reconciliation to v0.4.7, stray-png removal. "Family-scoped contact matching" was investigated and closed as a non-issue (membership gate makes it inert).
+- **Ops baseline (2026-06-18):** dev/test DB on local Postgres 18 (Railway = prod-only); Railway Postgres password + GitHub PAT both rotated.
+- **Backlog from M3 review (not started):** (1) cross-family invitation visibility — an invited+linked person should see the "foreign" event in their upcoming list unless declined (net-new feature); (2) person-photo URL trust — `updatePersonPhotoUrl` accepts a client URL, same class as the event-photo fix.
+- **Next major plans:** P3-02 Layer 2 AI (design per-family AI budget first), P3-03 Image Pipeline, P3-04 Group Chat, P3-05 Layer 3 Agentic AI
 - **Test runner:** Vitest (API + web), Jest + Expo preset (mobile)
 - **AI observability:** Helicone
 - **Real-time:** Socket.io (`event:created`, `rsvp:updated` events)
