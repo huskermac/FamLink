@@ -32,9 +32,9 @@ Before editing implementation files:
    - Expected files to change
    - Verification strategy
 3. Run the reviewer.
-4. For `VERDICT: REVISE`, verify each blocker, revise the plan, and rerun the
-   review.
-5. Begin implementation only after `VERDICT: PASS`.
+4. Verify each `BLOCKER`, revise the plan for open blockers, and rerun the
+   review when needed.
+5. Begin implementation when no open `BLOCKER` findings remain.
 
 ## Delivery gate
 
@@ -47,16 +47,25 @@ After implementation and local verification:
    - Commands run and their results
    - Known limitations or risks
 2. Run the reviewer.
-3. For `VERDICT: REVISE`, verify each blocker independently, make the necessary
-   corrections, rerun local verification, and request another review.
-4. Declare the goal complete only after `VERDICT: PASS`.
+3. Verify each `BLOCKER` independently, make necessary corrections for open
+   blockers, rerun local verification, and request another review when needed.
+4. Declare the goal complete when no open `BLOCKER` findings remain.
 
 ## Boundaries
 
-- Limit each gate to three review attempts.
-- If the reviewer fails, returns malformed output, or still blocks after three
-  attempts, stop the gate and report the unresolved issue. Never silently
-  bypass the reviewer.
+- You own the verdict, not the reviewer. `MAJOR`, `MINOR`, and `NIT` findings do
+  not block; apply the ones worth applying and move on.
+- A `BLOCKER` you believe is wrong is not binding. State why you disagree. If
+  disagreement remains about whether it blocks, escalate to the user instead
+  of looping.
+- Limit each gate to two review rounds. After a re-review, check convergence. If
+  the new findings are strictly lower-severity than the previous round (for
+  example, `BLOCKER` findings become only `MINOR` or `NIT` findings), stop and
+  proceed.
+- Always surface the reviewer's notes to the user. Never silently absorb or
+  discard them.
+- If the reviewer fails or returns malformed output, stop the gate and report
+  the unresolved issue. Never silently bypass the reviewer.
 - Treat reviewer notes as advice, not authority. Validate every claim before
   changing the repository.
 - Do not let council feedback expand the user's requested scope.

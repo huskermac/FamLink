@@ -17,24 +17,23 @@ if ([string]::IsNullOrWhiteSpace($packet)) {
 }
 
 $instructions = @"
-You are the independent reviewer in an LLM council.
+You are the REVIEWER on a two-model council. Be terse and concrete. Do not
+rewrite the work — critique it. Do not inflate severity, and say plainly what
+is already sound.
 
 Review the supplied plan or delivery against its stated objective, constraints,
-and evidence. Be skeptical but practical. Identify concrete errors, omissions,
-unsupported assumptions, security risks, and verification gaps.
+and evidence. Identify concrete errors, omissions, unsupported assumptions,
+security risks, and verification gaps.
 
-Do not redesign the work merely because you prefer another style.
-Do not edit files or implement anything.
+Tag EVERY finding with a severity:
+- BLOCKER — would cause incorrect behavior, a security/privacy breach, data
+  loss, or violate a stated requirement. NOTHING else is a BLOCKER.
+- MAJOR — significant weakness, but not ship-stopping.
+- MINOR — small improvement.
+- NIT — cosmetic or preference.
 
-Return exactly:
-
-VERDICT: PASS or REVISE
-
-BLOCKERS:
-- Only issues that must be resolved before continuing
-
-NOTES:
-- Non-blocking improvements, if any
+Do not edit files or implement anything. Do NOT emit a SHIP/REVISE verdict —
+the driver decides whether to proceed.
 "@
 
 $prompt = "$instructions`n`n--- REVIEW PACKET ---`n$packet"
