@@ -2,6 +2,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { db, type Person } from "@famlink/db";
 import type { AuthedRequest } from "../middleware/requireAuth";
+import { publicUrlForKey, uploadKeyPrefix } from "../lib/r2";
 
 export const personsRouter = Router();
 
@@ -19,9 +20,12 @@ export const CreatePersonSchema = z.object({
   dateOfBirth: isoDateOnly,
   ageGateLevel: ageGateEnum.optional().default("ADULT"),
   /** Prisma `@default(cuid())` ids must not use Zod `cuid()` — formats can differ. */
-  guardianPersonId: z.string().min(1).optional(),
-  profilePhotoUrl: z.string().url().optional()
+  guardianPersonId: z.string().min(1).optional()
 });
+
+// Profile photo URL is never trusted from the client — it is derived server-side
+// from an uploader-scoped R2 key via POST /:personId/photo.
+const confirmPhotoSchema = z.object({ key: z.string().min(1) });
 
 export const UpdatePersonSchema = CreatePersonSchema.partial();
 
@@ -190,7 +194,6 @@ personsRouter.post("/", async (req, res) => {
       dateOfBirth,
       ageGateLevel: data.ageGateLevel ?? "ADULT",
       guardianPersonId: data.guardianPersonId,
-      profilePhotoUrl: data.profilePhotoUrl,
       userId: linkToClerk ? userId : null
     }
   });
@@ -361,7 +364,6 @@ personsRouter.put("/:personId", async (req, res) => {
   if (dateOfBirth !== undefined) updateData.dateOfBirth = dateOfBirth;
   if (data.ageGateLevel !== undefined) updateData.ageGateLevel = data.ageGateLevel;
   if (data.guardianPersonId !== undefined) updateData.guardianPersonId = data.guardianPersonId;
-  if (data.profilePhotoUrl !== undefined) updateData.profilePhotoUrl = data.profilePhotoUrl;
 
   const updated = await db.person.update({
     where: { id: personId },
@@ -374,6 +376,61 @@ personsRouter.put("/:personId", async (req, res) => {
     updated.id
   );
   const includeGuardian = isGuardian || isAdminForGuardianField;
+
+  res.json(serializePerson(updated, includeGuardian));
+});
+
+/** POST /api/v1/persons/:personId/photo — set profile photo from an uploaded R2 key. */
+personsRouter.post("/:personId/photo", async (req, res) => {
+  const paramParsed = personIdParamSchema.safeParse(req.params);
+  if (!paramParsed.success) {
+    res.status(400).json({ error: "Invalid person id", details: paramParsed.error.flatten() });
+    return;
+  }
+  const { personId } = paramParsed.data;
+
+  const parsed = confirmPhotoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
+    return;
+  }
+
+  const { userId } = authed(req);
+  const requester = await personForClerkUserId(userId);
+  if (!requester) {
+    res.status(404).json({ error: "Person record not found — complete onboarding" });
+    return;
+  }
+
+  const existing = await db.person.findUnique({ where: { id: personId } });
+  if (!existing) {
+    res.status(404).json({ error: "Person not found" });
+    return;
+  }
+
+  const isSelf = existing.userId !== null && existing.userId === userId;
+  const isAdmin =
+    !isSelf && (await isAdminOfSharedFamilyWithTarget(requester.id, existing.id));
+  if (!isSelf && !isAdmin) {
+    res.status(403).json({ error: "Not authorized to update this person" });
+    return;
+  }
+
+  // The key must be one this requester presigned (scoped to their prefix) — a
+  // client cannot point a profile photo at an arbitrary object. URL is derived.
+  if (!parsed.data.key.startsWith(uploadKeyPrefix(requester.id))) {
+    res.status(400).json({ error: "Invalid upload key" });
+    return;
+  }
+
+  const updated = await db.person.update({
+    where: { id: personId },
+    data: { profilePhotoUrl: publicUrlForKey(parsed.data.key) }
+  });
+
+  const includeGuardian =
+    updated.guardianPersonId === requester.id ||
+    (await isAdminOfSharedFamilyWithTarget(requester.id, updated.id));
 
   res.json(serializePerson(updated, includeGuardian));
 });

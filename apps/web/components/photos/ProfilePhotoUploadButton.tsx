@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useQueryClient } from "@tanstack/react-query";
 import { presignUpload, uploadToR2 } from "@/lib/api/photos";
-import { updatePersonPhotoUrl } from "@/lib/api/family";
+import { updatePersonPhoto } from "@/lib/api/family";
 
 interface Props {
   personId: string;
@@ -24,9 +24,9 @@ export function ProfilePhotoUploadButton({ personId }: Props) {
     setUploading(true);
     setError(null);
     try {
-      const { uploadUrl, publicUrl } = await presignUpload(mimeType, getToken);
+      const { uploadUrl, key } = await presignUpload(mimeType, getToken);
       await uploadToR2(uploadUrl, file, mimeType);
-      await updatePersonPhotoUrl(personId, publicUrl, getToken);
+      await updatePersonPhoto(personId, key, getToken);
       await qc.invalidateQueries({ queryKey: ["person", personId] });
     } catch {
       setError("Upload failed. Please try again.");
