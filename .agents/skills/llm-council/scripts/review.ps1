@@ -44,6 +44,7 @@ $claudeArgs = @(
     "--effort", $Effort,
     "--permission-mode", "plan",
     "--tools", "",
+    "--strict-mcp-config",
     "--no-session-persistence"
 )
 
