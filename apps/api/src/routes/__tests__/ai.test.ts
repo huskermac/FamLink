@@ -83,6 +83,16 @@ vi.mock("../../lib/aiRateLimit", () => ({
   getRateLimitStatus: (...args: unknown[]) => mockGetRateLimitStatus(...args)
 }));
 
+// ── Mock entitlements ─────────────────────────────────────────────────────────
+
+const mockGetAiDailyLimit = vi.fn();
+const mockGetAiDailyLimitForUser = vi.fn();
+
+vi.mock("../../lib/entitlements", () => ({
+  getAiDailyLimit: (...args: unknown[]) => mockGetAiDailyLimit(...args),
+  getAiDailyLimitForUser: (...args: unknown[]) => mockGetAiDailyLimitForUser(...args)
+}));
+
 // ── Mock aiContext ────────────────────────────────────────────────────────────
 
 vi.mock("../../lib/aiContext", () => ({
@@ -122,6 +132,8 @@ beforeEach(() => {
   mockAssistantMessageFindMany.mockResolvedValue([]);
   mockAssistantMessageCreateMany.mockResolvedValue({ count: 2 });
   mockFamilyGroupFindUnique.mockResolvedValue({ aiEnabled: true });
+  mockGetAiDailyLimit.mockResolvedValue(20);
+  mockGetAiDailyLimitForUser.mockResolvedValue(20);
 });
 
 // ── POST /api/v1/ai/chat ──────────────────────────────────────────────────────
@@ -223,6 +235,20 @@ describe("POST /api/v1/ai/chat", () => {
     expect(data[1]).toMatchObject({ role: "assistant", content: "Here is your answer." });
   });
 
+  it("passes the coverage-derived limit to the rate limiter", async () => {
+    mockGetAuth.mockReturnValue({ userId: "clerk_user1" });
+    mockPersonFindUnique.mockResolvedValue(PERSON);
+    mockFamilyMemberFindUnique.mockResolvedValue(MEMBERSHIP);
+    mockGetAiDailyLimit.mockResolvedValue(3); // free-tier user
+    mockCheckAndIncrement.mockResolvedValue(ALLOWED_RATE);
+
+    const app = createApp();
+    await request(app).post("/api/v1/ai/chat").send(VALID_BODY);
+
+    expect(mockGetAiDailyLimit).toHaveBeenCalledWith("p1");
+    expect(mockCheckAndIncrement).toHaveBeenCalledWith("clerk_user1", 3);
+  });
+
   it("returns 400 for invalid body", async () => {
     mockGetAuth.mockReturnValue({ userId: "clerk_user1" });
     mockPersonFindUnique.mockResolvedValue(PERSON);
@@ -261,5 +287,18 @@ describe("GET /api/v1/ai/status", () => {
     expect(res.body.queriesRemaining).toBe(15);
     expect(res.body.queriesUsedToday).toBe(5);
     expect(res.body.resetAt).toBeDefined();
+  });
+
+  it("reflects the free-tier limit in usage math", async () => {
+    mockGetAuth.mockReturnValue({ userId: "clerk_user1" });
+    mockGetAiDailyLimitForUser.mockResolvedValue(3);
+    mockGetRateLimitStatus.mockResolvedValue({ allowed: true, remaining: 1, resetAt: new Date() });
+
+    const app = createApp();
+    const res = await request(app).get("/api/v1/ai/status");
+
+    expect(mockGetRateLimitStatus).toHaveBeenCalledWith("clerk_user1", 3);
+    expect(res.body.queriesRemaining).toBe(1);
+    expect(res.body.queriesUsedToday).toBe(2); // 3 - 1
   });
 });
