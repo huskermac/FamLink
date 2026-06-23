@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | **DRAFT — pending council review + Steve approval (NOT authorized to build)** |
+| Status | **DRAFT — council round-1 done (3 open BLOCKERs need Steve decisions); NOT authorized to build** |
 | Created | 2026-06-23 |
 | Supersedes | `FamLink_Design_Cross_Family_Invitation_Visibility.md` (token-only approach — see §7) |
 | Related | ADR v0.4.7; P3-00 isolation hardening; P3-02 (AI budget); `packages/db/prisma/schema.prisma` (FamilyGroup / Household / FamilyMember / Event / EventInvitation); product-direction memory 2026-06-12 (affiliate/commerce thesis) |
@@ -53,9 +53,13 @@ across the tenant boundary **without weakening isolation**.
   existing `Household.familyGroupId` is an open question — see §9.4.)
 - `FamilyMember` (per-person, multi-family membership) stays as the membership primitive.
 - The **shared person is the bridge** for *durable* cross-family relationships: co-parents,
-  blended families, in-laws, an engaged couple. A child of divorced parents is a member of
-  both parents' families; their events are visible to both with **no family-to-family
-  link** required.
+  blended families, in-laws, an engaged couple. **Correction (council round-1 BLOCKER):** a
+  shared person record does **not** auto-surface one tenant's events into the other. It only
+  makes the relevant people easy to bring together. Cross-tenant event visibility **always**
+  flows through explicit event participation (W3), never from a shared `Person` record — and
+  it derives from the *viewing adult's* membership/participation, never from a passive shared
+  minor. So a co-parented child's soccer game appears in both homes only because the event is
+  shared into both (W3) or created in both, not merely because the child is dual-member.
 - **"MetaFamily / Associated Family"** (a standing link between Family tenants) is
   **REJECTED**: it is heavy, reintroduces transitive-visibility and billing-ownership
   ambiguity, and the durable cases it targets are already covered by shared people.
@@ -147,11 +151,68 @@ pursued — which is **not planned**.
    transfer.
 6. **Decomposition.** Confirm W1–W4 as separately-shippable plans vs. one mega-plan.
 
-## 10. Proposed sequencing
+## 10. Proposed sequencing (revised after council round-1)
+
+Council finding (MAJOR): **W3 does NOT depend on W1.** Original ordering made the
+migration-heavy reframe a needless prerequisite. Re-sequenced:
 
 1. **W2 — per-person entitlement** (smallest; unblocks P3-02; enabler for multi-family UX).
-2. **W1 — Household/Family reframe** (foundation; migration-heavy).
-3. **W3 — cross-family shared events** (rides on W1 + the participation primitive).
-4. **W4 — Pro Organizer beta** (rides on W3's non-member organizer grant + a B2B billing track).
+2. **W3 — cross-family shared events** (ships on the *current* model via an
+   event-participation primitive; no Household decoupling required).
+3. **W4 — Pro Organizer beta** (rides on W3's non-member organizer grant + a B2B billing
+   track + **family-admin consent** — see BLOCKER B3).
+4. **W1 — Household/Family reframe** (independent, migration-heavy track; gated on a
+   household ownership/ACL model — see BLOCKER B2; can run in parallel or be deprioritized).
 
 Each ships as its own plan/spec → implementation cycle.
+
+---
+
+## Appendix — council review trail
+
+### Round 1 (2026-06-23, Codex/GPT reviewer)
+
+Reviewer affirmed: tenant/event-surface separation, rejection of transitive family links,
+propose-confirm requirement, and separate-workstream delivery.
+
+**Open BLOCKERs (need Steve's product decision — design is not build-ready until resolved):**
+
+- **B1 (W1):** A passive shared `Person` (esp. a minor) must not authorize cross-tenant
+  visibility. *Disposition: ACCEPTED — fixed in §3; visibility flows via W3 participation /
+  the viewing adult's membership only.*
+- **B2 (W1):** A tenantless `Household` (names + addresses = PII) has no ownership / admin /
+  deletion boundary. Needs an explicit household ACL model **before** migration.
+  *Disposition: ACCEPTED — W1 deferred behind a household-ownership design; §10 re-sequenced.*
+- **B3 (W4):** "Pull whole families in" violates event-scoped access. A planner must **never**
+  enumerate a roster or enroll members; require **family-admin consent + admin-selected
+  invitees**, and define snapshot-vs-follows-membership. *Disposition: ACCEPTED — needs a
+  consent-flow design decision from Steve.*
+
+**MAJORs to fold into the per-workstream specs (not blockers):**
+
+- W2: "paid seat" is undefined — current `seatCount` is a total allowance, not per-person
+  assignment; OR-coverage needs explicit seat assignment + suspended/delinquent/trial/grace
+  handling.
+- W2: `grandfathered` is a Stripe *pricing* flag, not an entitlement-policy escape hatch —
+  use a **separate** mechanism (corrects §4).
+- W2: allowance/degradation algorithm underspecified (per-person-global vs per-context,
+  atomic charging of concurrent requests).
+- W2/W4: define what the planner actually *buys* (billable capabilities + cost boundary).
+- W1: membership creation/consent missing (acceptance, revocation, suspension, account
+  claiming, duplicate-person resolution, guardian rules for minors).
+- W3: participation lifecycle undefined (pending/accepted/declined/revoked/removed/expired);
+  access requires an *accepted, non-revoked* grant, not a mere invitation row.
+- W3: DTO allowlist covers **reads only** — tasks/RSVPs/registry/uploads/edits/deletes each
+  need event-role write authorization.
+- W3: participant-to-participant privacy within an event is unspecified (identity, contact,
+  RSVP, photos, gift activity, minors).
+- W3/W4: moderation, export, retention, transfer, cancellation, deletion authority.
+- W3: notifications + Socket.io currently target family membership — cross-family delivery
+  needs **participant-based** recipient calculation (must not broadcast to either tenant).
+
+**MINOR / NIT:** households aren't truly "irrelevant" (addresses, logistics, emergency
+contacts, household-scoped AI); define shared-event calendar behavior; "full participant" is
+too broad — add a small role set (participant / event-admin); specify whether a Pro is a
+plain `Person` with no `FamilyMember` row vs. a separate account type; give each term
+(family / tenant / household / person / participant / organizer / owner) one canonical
+definition.
