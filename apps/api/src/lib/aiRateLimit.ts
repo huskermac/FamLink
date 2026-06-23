@@ -24,7 +24,6 @@ export function setRedisClient(client: IORedis): void {
   _redis = client;
 }
 
-const DAILY_LIMIT = 20;
 const TTL_SECONDS = 86400;
 
 function todayUtcKey(userId: string): string {
@@ -49,30 +48,32 @@ function nextUtcMidnight(): Date {
 /**
  * Check and increment the AI rate limit counter for a user.
  * Returns whether the request is allowed and how many queries remain.
+ *
+ * Uses an atomic INCR so concurrent requests cannot race past the limit:
+ * the single INCR result is authoritative. TTL is set on the first request
+ * of the day (when INCR returns 1). A blocked request still increments — the
+ * counter overcounts harmlessly and self-clears at the UTC-midnight TTL.
  */
 export async function checkAndIncrementAiRateLimit(
-  userId: string
+  userId: string,
+  limit: number
 ): Promise<RateLimitResult> {
   const redis = getRedisClient();
   const key = todayUtcKey(userId);
   const resetAt = nextUtcMidnight();
 
-  const current = await redis.get(key);
+  const count = await redis.incr(key);
 
-  if (current === null) {
-    // First request today — create key with TTL
-    await redis.set(key, 1, "EX", TTL_SECONDS);
-    return { allowed: true, remaining: DAILY_LIMIT - 1, resetAt };
+  if (count === 1) {
+    // First request today — attach the TTL so the key resets at UTC midnight.
+    await redis.expire(key, TTL_SECONDS);
   }
 
-  const count = parseInt(current, 10);
-
-  if (count >= DAILY_LIMIT) {
+  if (count > limit) {
     return { allowed: false, remaining: 0, resetAt };
   }
 
-  await redis.incr(key);
-  return { allowed: true, remaining: DAILY_LIMIT - count - 1, resetAt };
+  return { allowed: true, remaining: limit - count, resetAt };
 }
 
 /**
@@ -80,7 +81,8 @@ export async function checkAndIncrementAiRateLimit(
  * Used by GET /api/v1/ai/status.
  */
 export async function getRateLimitStatus(
-  userId: string
+  userId: string,
+  limit: number
 ): Promise<RateLimitResult> {
   const redis = getRedisClient();
   const key = todayUtcKey(userId);
@@ -89,10 +91,10 @@ export async function getRateLimitStatus(
   const current = await redis.get(key);
 
   if (current === null) {
-    return { allowed: true, remaining: DAILY_LIMIT, resetAt };
+    return { allowed: true, remaining: limit, resetAt };
   }
 
   const count = parseInt(current, 10);
-  const remaining = Math.max(0, DAILY_LIMIT - count);
-  return { allowed: count < DAILY_LIMIT, remaining, resetAt };
+  const remaining = Math.max(0, limit - count);
+  return { allowed: count < limit, remaining, resetAt };
 }

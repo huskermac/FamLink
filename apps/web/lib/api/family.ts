@@ -109,14 +109,15 @@ export function updatePerson(
   });
 }
 
-export function updatePersonPhotoUrl(
+export function updatePersonPhoto(
   personId: string,
-  profilePhotoUrl: string,
+  key: string,
   getToken: GetToken
 ): Promise<PersonBrief> {
-  return apiFetch<PersonBrief>(`/api/v1/persons/${encodeURIComponent(personId)}`, {
+  // The server derives the URL from the uploaded key — we never send a URL.
+  return apiFetch<PersonBrief>(`/api/v1/persons/${encodeURIComponent(personId)}/photo`, {
     getToken,
-    method: "PUT",
-    body: JSON.stringify({ profilePhotoUrl })
+    method: "POST",
+    body: JSON.stringify({ key })
   });
 }

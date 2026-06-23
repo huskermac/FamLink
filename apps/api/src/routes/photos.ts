@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { db } from "@famlink/db";
 import { personed } from "../middleware/requireAuth";
-import { createPresignedUpload, deleteR2Object } from "../lib/r2";
+import { createPresignedUpload, deleteR2Object, publicUrlForKey, uploadKeyPrefix } from "../lib/r2";
 import { activeFamilyMembership, hasAdminRole } from "../lib/familyAccess";
 
 export const photosRouter = Router();
@@ -11,9 +11,9 @@ const presignSchema = z.object({
   mimeType: z.enum(["image/jpeg", "image/png", "image/webp", "image/heic"])
 });
 
+// The URL is derived server-side from the key — never trusted from the client.
 const confirmPhotoSchema = z.object({
-  key: z.string().min(1),
-  url: z.string().url()
+  key: z.string().min(1)
 });
 
 const eventIdParam = z.object({ eventId: z.string().min(1) });
@@ -46,7 +46,8 @@ photosRouter.post("/presign", async (req, res) => {
   }
 
   // Person presence is guaranteed by requirePerson; presign needs no further checks.
-  const result = await createPresignedUpload(parsed.data.mimeType);
+  const requester = personed(req).person;
+  const result = await createPresignedUpload(parsed.data.mimeType, requester.id);
   res.json(result);
 });
 
@@ -79,8 +80,16 @@ photosRouter.post("/events/:eventId", async (req, res) => {
     return;
   }
 
+  // The key must be one this requester presigned (scoped to their prefix) — a
+  // client cannot confirm an arbitrary object. The URL is derived, never trusted.
+  if (!parsed.data.key.startsWith(uploadKeyPrefix(requester.id))) {
+    res.status(400).json({ error: "Invalid upload key" });
+    return;
+  }
+  const url = publicUrlForKey(parsed.data.key);
+
   const photo = await db.eventPhoto.create({
-    data: { eventId, uploadedById: requester.id, key: parsed.data.key, url: parsed.data.url }
+    data: { eventId, uploadedById: requester.id, key: parsed.data.key, url }
   });
 
   res.status(201).json(serializePhoto(photo));

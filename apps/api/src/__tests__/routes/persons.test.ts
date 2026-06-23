@@ -17,6 +17,13 @@ vi.mock("@clerk/express", () => ({
   getAuth: vi.fn()
 }));
 
+vi.mock("../../lib/r2", () => ({
+  createPresignedUpload: vi.fn(),
+  deleteR2Object: vi.fn(),
+  publicUrlForKey: (key: string) => `https://pub.example.com/${key}`,
+  uploadKeyPrefix: (ownerPersonId: string) => `uploads/${ownerPersonId}/`
+}));
+
 describe("persons routes", () => {
   const app = createApp();
   const mockGetAuth = vi.mocked(getAuth) as any;
@@ -320,6 +327,71 @@ describe("persons routes", () => {
 
       const still = await db.person.findUnique({ where: { id: teen.id } });
       expect(still?.guardianPersonId).toBe(parent.id);
+    });
+  });
+
+  describe("POST /api/v1/persons/:personId/photo", () => {
+    it("sets self photo with a key under the requester's prefix", async () => {
+      const p = await seedTestPerson();
+      const key = `uploads/${p.id}/abc.jpg`;
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/persons/${p.id}/photo`)
+        .set("Authorization", "Bearer mock")
+        .send({ key });
+      expect(res.status).toBe(200);
+      expect(res.body.profilePhotoUrl).toBe(`https://pub.example.com/${key}`);
+
+      const stored = await db.person.findUnique({ where: { id: p.id } });
+      expect(stored?.profilePhotoUrl).toBe(`https://pub.example.com/${key}`);
+    });
+
+    it("rejects a key outside the requester's upload prefix", async () => {
+      const p = await seedTestPerson();
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/persons/${p.id}/photo`)
+        .set("Authorization", "Bearer mock")
+        .send({ key: "uploads/someone-else/evil.jpg" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Invalid upload key");
+
+      const stored = await db.person.findUnique({ where: { id: p.id } });
+      expect(stored?.profilePhotoUrl).toBeNull();
+    });
+
+    it("allows a family admin to set another member's photo", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const member = await seedGuestPerson({ firstName: "Member" });
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      const key = `uploads/${admin.id}/member-pic.jpg`;
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/persons/${member.id}/photo`)
+        .set("Authorization", "Bearer mock")
+        .send({ key });
+      expect(res.status).toBe(200);
+      expect(res.body.profilePhotoUrl).toBe(`https://pub.example.com/${key}`);
+    });
+
+    it("returns 403 when not self and not admin", async () => {
+      const me = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(me.id);
+      const attacker = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: attacker.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/persons/${me.id}/photo`)
+        .set("Authorization", "Bearer mock")
+        .send({ key: `uploads/${attacker.id}/x.jpg` });
+      expect(res.status).toBe(403);
     });
   });
 });

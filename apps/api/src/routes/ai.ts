@@ -17,6 +17,7 @@ import {
   getRateLimitStatus
 } from "../lib/aiRateLimit";
 import { buildTools } from "../lib/aiTools";
+import { getAiDailyLimit, getAiDailyLimitForUser } from "../lib/entitlements";
 import {
   assembleFamilyContext,
   formatContextForPrompt,
@@ -79,13 +80,14 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // 4. Check rate limit
-  const rateLimit = await checkAndIncrementAiRateLimit(userId);
+  // 4. Check rate limit against the person's coverage-derived daily allowance
+  const limit = await getAiDailyLimit(person.id);
+  const rateLimit = await checkAndIncrementAiRateLimit(userId, limit);
   if (!rateLimit.allowed) {
     res.status(429).json({
       error: "Daily AI limit reached",
       resetAt: rateLimit.resetAt,
-      message: "You've reached your 20 daily AI queries. Your limit resets at midnight UTC."
+      message: `You've reached your daily limit of ${limit} AI queries. It resets at midnight UTC.`
     });
     return;
   }
@@ -166,10 +168,11 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
 aiRouter.get("/status", async (req: Request, res: Response): Promise<void> => {
   const { userId } = authed(req);
 
-  const status = await getRateLimitStatus(userId);
+  const limit = await getAiDailyLimitForUser(userId);
+  const status = await getRateLimitStatus(userId, limit);
 
   res.json({
-    queriesUsedToday: 20 - status.remaining,
+    queriesUsedToday: limit - status.remaining,
     queriesRemaining: status.remaining,
     resetAt: status.resetAt
   });

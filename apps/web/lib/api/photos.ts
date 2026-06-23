@@ -46,13 +46,13 @@ export async function uploadToR2(
 export function confirmEventPhoto(
   eventId: string,
   key: string,
-  url: string,
   getToken: GetToken
 ): Promise<EventPhoto> {
+  // The server derives the URL from the key — we never send it.
   return apiFetch<EventPhoto>(`/api/v1/photos/events/${encodeURIComponent(eventId)}`, {
     getToken,
     method: "POST",
-    body: JSON.stringify({ key, url })
+    body: JSON.stringify({ key })
   });
 }
 

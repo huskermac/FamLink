@@ -26,9 +26,10 @@ Guidelines bias toward caution over speed — for trivial tasks, use judgment.
 ## Current Phase
 
 - **Phase 2:** COMPLETE (P2-00 through P2-13 + design polish, all shipped)
-- **Current phase:** Phase 3 — P3-01 (billing) complete; P3-00 (Privacy & Billing Integrity hardening, from the 2026-06-10 audit) Milestones 0–2 COMPLETE
-- **P3-00 remaining (Milestone 3 polish, not yet authorized):** atomic AI rate-limit INCR, server-side photo URL derivation + family-scoped R2 keys, guest endpoint rate limiting, family-scoped guest contact matching, ADR reconciliation to v0.4.7, remove stray verify-*.png
-- **Next major plans:** P3-02 Layer 2 AI, P3-03 Image Pipeline, P3-04 Group Chat, P3-05 Layer 3 Agentic AI
+- **Current phase:** Phase 3 — P3-01 (billing) complete; **P3-00 (Privacy & Billing Integrity hardening) COMPLETE** (Milestones 0–3 all shipped 2026-06-18). M3 closed atomic AI rate-limit, server-side photo URLs + uploader-scoped R2 keys, guest-endpoint rate limiting, ADR reconciliation to v0.4.7, stray-png removal. "Family-scoped contact matching" was investigated and closed as a non-issue (membership gate makes it inert).
+- **Ops baseline (2026-06-18):** dev/test DB on local Postgres 18 (Railway = prod-only); Railway Postgres password + GitHub PAT both rotated.
+- **Backlog from M3 review:** (1) cross-family invitation visibility — **DEFERRED 2026-06-20**: blocked on a prerequisite contact-verification subsystem (verified flag + normalization + uniqueness on `Person` contacts); without it the council-reviewed design (`docs/FamLink_Design_Cross_Family_Invitation_Visibility.md` §3/§11) only ships token-only (a no-op). Build contact-verification before this feature. (2) person-photo URL trust — **DONE 2026-06-20** (commit `2409d4f`): person create/update no longer accept a client `profilePhotoUrl`; new `POST /persons/:personId/photo` derives the URL server-side from an uploader-scoped key.
+- **Next major plans:** P3-02 Layer 2 AI (design per-family AI budget first), P3-03 Image Pipeline, P3-04 Group Chat, P3-05 Layer 3 Agentic AI
 - **Test runner:** Vitest (API + web), Jest + Expo preset (mobile)
 - **AI observability:** Helicone
 - **Real-time:** Socket.io (`event:created`, `rsvp:updated` events)

@@ -137,7 +137,20 @@
       "PowerShell(git check-ignore .env .env.local verify-events.png verify-events-loaded.png)",
       "PowerShell(node -e \"const s=require\\('C:/Users/swmcl/FamLink/node_modules/stripe'\\); const st=new s\\('sk_test_x'\\); console.log\\('retrieveUpcoming' in st.invoices, typeof st.invoices.retrieveUpcoming, typeof st.invoices.createPreview\\)\")",
       "Bash(awk -F'|' '$5+0 < 80 && $1 !~ /^-/ {print $1 \"|\" $5}')",
-      "PowerShell(Set-Location apps\\\\api; npx tsc 2>&1 | Select-Object -First 10; \"EXIT: $LASTEXITCODE\"; Set-Location ..\\\\..)"
+      "PowerShell(Set-Location apps\\\\api; npx tsc 2>&1 | Select-Object -First 10; \"EXIT: $LASTEXITCODE\"; Set-Location ..\\\\..)",
+      "PowerShell(foreach \\($t in 'gh','stripe','railway','vercel','psql'\\) { $c = Get-Command $t -ErrorAction SilentlyContinue; \"{0,-10} {1}\" -f $t, $\\(if \\($c\\) { \"INSTALLED \\($\\($c.Source\\)\\)\" } else { \"not installed\" }\\) })",
+      "PowerShell($paths = @\\(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\", \"$env:LOCALAPPDATA\\\\Microsoft\\\\WinGet\\\\Links\\\\gh.exe\"\\); foreach \\($p in $paths\\) { if \\(Test-Path $p\\) { \"FOUND: $p\"; & $p --version | Select-Object -First 1 } })",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); \"=== config \\(auth state\\) ===\"; stripe config --list 2>&1 | Select-Object -First 12)",
+      "PowerShell($gh = Get-Command gh -ErrorAction SilentlyContinue; if \\($gh\\) { \"gh: $\\($gh.Source\\)\"; gh auth status } else { \"gh: NOT INSTALLED\" }; $git = Get-Command git -ErrorAction SilentlyContinue; if \\($git\\) { \"git: $\\($git.Source\\)\" } else { \"git: NOT FOUND\" })",
+      "PowerShell(git -C $dst init -b main)",
+      "PowerShell(git -C $dst add -A)",
+      "PowerShell(git -C $dst status --short)",
+      "PowerShell(git -C $dst log --oneline -1)",
+      "PowerShell($dst = \"C:\\\\Users\\\\swmcl\\\\Scriptorium\")",
+      "PowerShell(\"=== staged files ===\")",
+      "PowerShell(\"=== first commit ===\")",
+      "mcp__github__create_repository",
+      "mcp__postgres__query"
     ],
     "additionalDirectories": [
       "\\tmp",

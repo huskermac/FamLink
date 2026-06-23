@@ -164,10 +164,11 @@ async function main(): Promise<void> {
   for (const r of relationships) {
     await prisma.relationship.upsert({
       where: {
-        fromPersonId_toPersonId_familyGroupId: {
+        fromPersonId_toPersonId_familyGroupId_type: {
           fromPersonId: r.from,
           toPersonId: r.to,
-          familyGroupId: IDS.family
+          familyGroupId: IDS.family,
+          type: r.type
         }
       },
       update: {},
