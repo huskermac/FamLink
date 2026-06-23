@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | **DRAFT — council round-1 done (3 open BLOCKERs need Steve decisions); NOT authorized to build** |
+| Status | **DRAFT — council round-1 done; B1+B2 resolved, B3 (planner consent) + Pro billing still open; NOT authorized to build** |
 | Created | 2026-06-23 |
 | Supersedes | `FamLink_Design_Cross_Family_Invitation_Visibility.md` (token-only approach — see §7) |
 | Related | ADR v0.4.7; P3-00 isolation hardening; P3-02 (AI budget); `packages/db/prisma/schema.prisma` (FamilyGroup / Household / FamilyMember / Event / EventInvitation); product-direction memory 2026-06-12 (affiliate/commerce thesis) |
@@ -48,9 +48,25 @@ across the tenant boundary **without weakening isolation**.
 
 ## 3. W1 — Household / Family reframe
 
-- Decouple `Household` from `FamilyGroup`: `Household` becomes a first-class entity
-  (location + `HouseholdMember`s) no longer owned by exactly one family. (Migration of the
-  existing `Household.familyGroupId` is an open question — see §9.4.)
+- **`Household`↔`Family` is many-to-many with a minimum of one family** (decided 2026-06-23,
+  resolves council BLOCKER B2). A household is **never tenantless**, so authorization derives
+  from the admins of any family it is linked to — no standalone household ACL needed. The
+  existing `Household.familyGroupId` FK migrates to a `Household↔Family` join table; every
+  current household gets exactly one link (= today's behavior), so the migration is
+  backward-compatible.
+  - **Shared edit/delete:** any linked family's admin may edit the household; "delete" means
+    *unlink from that family*; the household is destroyed only when its **last** link is
+    removed (the min-1 rule enforces this).
+  - **Linking is a consented pull (decided 2026-06-23):** either side may initiate — a family
+    member can pull a person/household in, **or** an active user can request to join — but the
+    **counterparty must always consent** (no unilateral adds, either direction). Consent
+    friction scales to user type: a **passive** user replies "Y" to an SMS/email (which
+    simultaneously proves control of that contact — lightweight verification baked in); an
+    **active** user confirms in-app. **Minors** cannot self-consent — a **guardian** consents
+    on behalf of a ward. All links/memberships are **revocable** (a person can always leave /
+    unlink).
+  - **OPEN (Steve):** is "pull Grandma in" one consent (join family → household link comes
+    along) or two (join family vs. share home address separately)? Lean: one.
 - `FamilyMember` (per-person, multi-family membership) stays as the membership primitive.
 - The **shared person is the bridge** for *durable* cross-family relationships: co-parents,
   blended families, in-laws, an engaged couple. **Correction (council round-1 BLOCKER):** a
@@ -181,8 +197,11 @@ propose-confirm requirement, and separate-workstream delivery.
   visibility. *Disposition: ACCEPTED — fixed in §3; visibility flows via W3 participation /
   the viewing adult's membership only.*
 - **B2 (W1):** A tenantless `Household` (names + addresses = PII) has no ownership / admin /
-  deletion boundary. Needs an explicit household ACL model **before** migration.
-  *Disposition: ACCEPTED — W1 deferred behind a household-ownership design; §10 re-sequenced.*
+  deletion boundary. *Disposition: **RESOLVED** 2026-06-23 — `Household`↔`Family` is M2M with
+  **min 1** (never tenantless; authz from any linked family's admins) + a consented-pull
+  link/join flow with passive ("reply Y") vs active consent and guardian consent for minors.
+  See §3. Also resolves the W1 "membership consent missing" MAJOR. This consent pattern is the
+  template for B3 (planner pulls a family into an event → family admin consents).*
 - **B3 (W4):** "Pull whole families in" violates event-scoped access. A planner must **never**
   enumerate a roster or enroll members; require **family-admin consent + admin-selected
   invitees**, and define snapshot-vs-follows-membership. *Disposition: ACCEPTED — needs a
