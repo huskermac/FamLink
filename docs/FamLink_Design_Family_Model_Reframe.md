@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | **DRAFT — council round-1 done; B1+B2 resolved, B3 (planner consent) + Pro billing still open; NOT authorized to build** |
+| Status | **DRAFT — council round-1 resolved (B1/B2/B3 closed, Pro billing decided); ready for Steve final spec review → writing-plans. NOT authorized to build.** |
 | Created | 2026-06-23 |
 | Supersedes | `FamLink_Design_Cross_Family_Invitation_Visibility.md` (token-only approach — see §7) |
 | Related | ADR v0.4.7; P3-00 isolation hardening; P3-02 (AI budget); `packages/db/prisma/schema.prisma` (FamilyGroup / Household / FamilyMember / Event / EventInvitation); product-direction memory 2026-06-12 (affiliate/commerce thesis) |
@@ -65,8 +65,9 @@ across the tenant boundary **without weakening isolation**.
     **active** user confirms in-app. **Minors** cannot self-consent — a **guardian** consents
     on behalf of a ward. All links/memberships are **revocable** (a person can always leave /
     unlink).
-  - **OPEN (Steve):** is "pull Grandma in" one consent (join family → household link comes
-    along) or two (join family vs. share home address separately)? Lean: one.
+  - **One consent (decided 2026-06-23):** "pulling Grandma in" is a single consent — joining
+    the family carries her household link with it (consistent with the full-inclusion
+    principle).
 - `FamilyMember` (per-person, multi-family membership) stays as the membership primitive.
 - The **shared person is the bridge** for *durable* cross-family relationships: co-parents,
   blended families, in-laws, an engaged couple. **Correction (council round-1 BLOCKER):** a
@@ -124,9 +125,27 @@ across the tenant boundary **without weakening isolation**.
 - **Pro Organizer account (BETA):** a non-family professional (e.g. wedding planner) who can
   create/manage events and pull whole families in. Acquisition channel (planner seeds
   families → families convert), aligned with the affiliate/commerce thesis.
+- **Consent (B3, confirmed 2026-06-23):** a planner **initiates a pull**; a **family admin**
+  approves and **selects which members** participate. The planner **never** enumerates a
+  roster or enrolls members directly. Same "initiate → mandatory counterparty consent"
+  pattern as the family-join flow (§3).
 - **Billing insight — central, not optional:** the acquisition loop requires the **planner**
   to be the billing entity, because the families being brought in are not yet on the app or
   paying. So "planner pays" (a B2B Pro tier) is what makes the loop close.
+- **Billing model (decided 2026-06-23) — tiered:** (1) **per-event** pay-as-you-go (low
+  barrier, occasional organizers); (2) **annual, unlimited events** (lands high-volume
+  planners — the ones who seed the most families). "Unlimited" is cost-safe **only because**
+  participants get **no per-person AI/premium entitlement** (W2 stays person-scoped), so an
+  extra event costs storage + notifications, not inference. Keep those decoupled.
+- **Beta pricing:** free / near-free for early planners. The Pro tier's job is **family
+  acquisition** (seed → convert to per-person paid + affiliate commerce), not Pro revenue;
+  billing friction during beta would suppress the loop it exists to prove. Tiered pricing is
+  the **GA** target.
+- A **billable "event"** = one organized occasion/project (sub-events such as rehearsal +
+  ceremony + reception roll up into one). [spec detail]
+- **Event ownership (resolves §9.1):** a **planner-created** event is owned/billed/administered
+  by the **Pro account**; a **family-created** event stays **family-owned** (W3 Option 1).
+  Participation is by consent either way.
 - **Included now as a BETA launch option** (Steve's call, 2026-06-23), not deferred.
 
 ## 7. Relationship to the prior design
@@ -150,9 +169,8 @@ pursued — which is **not planned**.
 
 ## 9. Open questions (for the council)
 
-1. **Event ownership when the organizer is a non-family Pro.** Planner/Pro account *owns*
-   the event vs. *owns-on-behalf-of* a (possibly not-yet-paying) client family — resolve
-   billing, admin, and deletion authority.
+1. ~~**Event ownership when the organizer is a non-family Pro.**~~ **RESOLVED 2026-06-23:**
+   planner-created → Pro account owns/bills/administers; family-created → family-owned. See §6.
 2. **Participation representation.** Extend `EventInvitation` (already carries
    guest/`linkedPersonId` fields) vs. a new `EventParticipant` model with event-scoped
    roles. Need a clean grant predicate the DTO allowlist can enforce.
@@ -204,8 +222,9 @@ propose-confirm requirement, and separate-workstream delivery.
   template for B3 (planner pulls a family into an event → family admin consents).*
 - **B3 (W4):** "Pull whole families in" violates event-scoped access. A planner must **never**
   enumerate a roster or enroll members; require **family-admin consent + admin-selected
-  invitees**, and define snapshot-vs-follows-membership. *Disposition: ACCEPTED — needs a
-  consent-flow design decision from Steve.*
+  invitees**, and define snapshot-vs-follows-membership. *Disposition: **RESOLVED** 2026-06-23
+  — planner initiates a pull; a family admin approves and selects participants; same
+  pull-with-consent pattern as §3. Participation is a snapshot (per the §3 lean). See §6.*
 
 **MAJORs to fold into the per-workstream specs (not blockers):**
 
@@ -217,6 +236,8 @@ propose-confirm requirement, and separate-workstream delivery.
 - W2: allowance/degradation algorithm underspecified (per-person-global vs per-context,
   atomic charging of concurrent requests).
 - W2/W4: define what the planner actually *buys* (billable capabilities + cost boundary).
+  *RESOLVED 2026-06-23 — tiered per-event / annual-unlimited; beta free-or-near-free; no
+  entitlement transfer to participants (see §6).*
 - W1: membership creation/consent missing (acceptance, revocation, suspension, account
   claiming, duplicate-person resolution, guardian rules for minors).
 - W3: participation lifecycle undefined (pending/accepted/declined/revoked/removed/expired);
