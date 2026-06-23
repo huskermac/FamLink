@@ -36,7 +36,9 @@ export async function isPersonCovered(personId: string): Promise<boolean> {
 
     const seated = await db.familyMember.findMany({
       where: { familyGroupId, suspendedAt: null },
-      orderBy: { joinedAt: "asc" },
+      // `id` is a stable tiebreak so the seat boundary is deterministic when
+      // two members share a joinedAt timestamp.
+      orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
       take: sub.seatCount,
       select: { personId: true }
     });
