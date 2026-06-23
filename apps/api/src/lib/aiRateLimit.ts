@@ -24,7 +24,6 @@ export function setRedisClient(client: IORedis): void {
   _redis = client;
 }
 
-const DAILY_LIMIT = 20;
 const TTL_SECONDS = 86400;
 
 function todayUtcKey(userId: string): string {
@@ -56,7 +55,8 @@ function nextUtcMidnight(): Date {
  * counter overcounts harmlessly and self-clears at the UTC-midnight TTL.
  */
 export async function checkAndIncrementAiRateLimit(
-  userId: string
+  userId: string,
+  limit: number
 ): Promise<RateLimitResult> {
   const redis = getRedisClient();
   const key = todayUtcKey(userId);
@@ -69,11 +69,11 @@ export async function checkAndIncrementAiRateLimit(
     await redis.expire(key, TTL_SECONDS);
   }
 
-  if (count > DAILY_LIMIT) {
+  if (count > limit) {
     return { allowed: false, remaining: 0, resetAt };
   }
 
-  return { allowed: true, remaining: DAILY_LIMIT - count, resetAt };
+  return { allowed: true, remaining: limit - count, resetAt };
 }
 
 /**
@@ -81,7 +81,8 @@ export async function checkAndIncrementAiRateLimit(
  * Used by GET /api/v1/ai/status.
  */
 export async function getRateLimitStatus(
-  userId: string
+  userId: string,
+  limit: number
 ): Promise<RateLimitResult> {
   const redis = getRedisClient();
   const key = todayUtcKey(userId);
@@ -90,10 +91,10 @@ export async function getRateLimitStatus(
   const current = await redis.get(key);
 
   if (current === null) {
-    return { allowed: true, remaining: DAILY_LIMIT, resetAt };
+    return { allowed: true, remaining: limit, resetAt };
   }
 
   const count = parseInt(current, 10);
-  const remaining = Math.max(0, DAILY_LIMIT - count);
-  return { allowed: count < DAILY_LIMIT, remaining, resetAt };
+  const remaining = Math.max(0, limit - count);
+  return { allowed: count < limit, remaining, resetAt };
 }
