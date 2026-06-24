@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | **DRAFT — council round-1 resolved (B1/B2/B3 closed, Pro billing decided); ready for Steve final spec review → writing-plans. NOT authorized to build.** |
+| Status | **DRAFT — council round-2 converged (no BLOCKERs; B1/B2/B3 confirmed closed). Ready for Steve final spec review → writing-plans (W2 first). NOT authorized to build.** |
 | Created | 2026-06-23 |
 | Supersedes | `FamLink_Design_Cross_Family_Invitation_Visibility.md` (token-only approach — see §7) |
 | Related | ADR v0.4.7; P3-00 isolation hardening; P3-02 (AI budget); `packages/db/prisma/schema.prisma` (FamilyGroup / Household / FamilyMember / Event / EventInvitation); product-direction memory 2026-06-12 (affiliate/commerce thesis) |
@@ -93,8 +93,11 @@ across the tenant boundary **without weakening isolation**.
   (#covered persons × allowance) with no family-size multiplier; matches the existing
   per-user (20/user/day) limiter.
 - **Reversibility guardrails:** entitlement is **derived at read-time** (never materialized
-  into stored state), behind a single resolution function/flag; `FamilySubscription.
-  grandfathered` is the pre-committed escape hatch if the rule ever tightens; cap per-spend.
+  into stored state), behind a single resolution function/flag; a **dedicated
+  entitlement-policy escape mechanism** is the pre-committed hatch if the rule ever tightens.
+  **Correction (council R1/R2):** do NOT use the Stripe `FamilySubscription.grandfathered`
+  flag for this — it is a *pricing* flag, billing-only; entitlement-policy rollback needs a
+  separate, explicit mechanism. Cap per-spend.
 - **Near-limit mechanics:** usage is attributable per (person × family context) via
   `AssistantMessage.personId` + `familyGroupId`, enabling:
   (a) a targeted "upgrade your family" upsell at the high-intent moment usage **in a family
@@ -111,6 +114,13 @@ across the tenant boundary **without weakening isolation**.
 - **Participation (not family membership) grants access** to the event's shared surface and
   **nothing else** about another family. The `ForeignInvitedEventDTO` allowlist discipline
   from the superseded design still governs what a cross-family participant may see.
+- **Participation grants are snapshot rows, not membership-following** (promoted from the
+  review trail per council R2). Adding a participant grants exactly that person; later-added
+  family members are **not** auto-included. Expanding participation always requires a new
+  explicit grant (+ consent). This prevents membership growth from silently leaking people
+  into a cross-family or Pro-organized event. Access requires an **accepted, non-revoked**
+  participant grant with a role — never a mere invitation row, family membership, contact
+  match, or shared-`Person` record.
 - **Membership-bridge alone does NOT solve weddings:** the collaborators (both sets of
   parents, siblings, wedding party) extend beyond the bridge people, so W3 is required
   independently of the shared-person bridge.
@@ -166,6 +176,9 @@ pursued — which is **not planned**.
   non-shared events, notes/photos/attachments of other events, internal IDs, or unrelated
   invitations.
 - Pro Organizers get **event-scoped access only** — never family-scoped visibility.
+- **Notifications and Socket.io delivery** for shared events must be computed from the
+  **participant list**, never from either tenant's family membership. Broadcasting a shared
+  event update to a whole tenant reopens P3-00-style cross-tenant leakage. (Council R2.)
 
 ## 9. Open questions (for the council)
 
@@ -256,3 +269,36 @@ too broad — add a small role set (participant / event-admin); specify whether 
 plain `Person` with no `FamilyMember` row vs. a separate account type; give each term
 (family / tenant / household / person / participant / organizer / owner) one canonical
 definition.
+
+### Round 2 (2026-06-24, Codex/GPT reviewer)
+
+Reviewed the revised doc against R1's resolutions. **Verdict: no BLOCKERs — converged.**
+
+- **B1 confirmed CLOSED:** §3 invariant (passive shared person/minor never authorizes
+  cross-tenant visibility; flows only via W3 participation or the viewing adult's membership)
+  is the right rule.
+- **B2 confirmed CLOSED (with a W1 spec carry-in):** no longer tenantless. **Carry-in for W1
+  spec:** define the household **write/delete authority** rule for a household linked to
+  multiple families (shared-PII mutation risk — last-writer-wins vs audited vs owner-approved
+  vs field-scoped vs consent). Address/resident data one family relies on can be altered by
+  another family's admin until this is specified.
+- **B3 confirmed CLOSED:** planner initiates → family admin approves → admin selects
+  participants; no roster enumeration/enrollment.
+
+**MAJORs to fold into per-workstream specs (not blockers):**
+- **W2 is the next plan and is NOT build-ready until "paid seat" is modeled** — OR-coverage
+  needs an explicit per-`Person` paid-seat assignment + subscription status (delinquent /
+  trial / grace / suspended / reassignment). Existing `seatCount` (a total allowance) is
+  insufficient. *This is the gating spec item for the W2 writing-plan.*
+- §4 `grandfathered` correction applied (use a dedicated entitlement-policy mechanism, not
+  the Stripe pricing flag).
+- W4 snapshot semantics promoted into §5 main (done).
+
+**MINOR/NIT applied:** participant-based notification isolation invariant added to §8;
+snapshot + access-predicate stated in §5. Still open for specs: minimal role set
+(participant / event-admin / pro-organizer); household-consent copy must disclose that family
+admins gain household visibility/edit authority; canonical glossary of terms.
+
+**Disposition:** Stop rule satisfied (R1 BLOCKERs → R2 zero BLOCKERs = converged). Design is
+review-gated. Remaining MAJOR/MINOR items are per-workstream spec inputs, carried into each
+plan. Awaiting Steve's final spec confirmation before writing-plans (W2 first).
