@@ -5,6 +5,7 @@ import {
   isPersonCoveredByFamily,
   getAiDailyLimit,
   getAiDailyLimitForUser,
+  getAiEntitlementForUser,
   AI_DAILY_LIMIT_COVERED,
   AI_DAILY_LIMIT_FREE
 } from "../entitlements";
@@ -193,5 +194,36 @@ describe("getAiDailyLimit / getAiDailyLimitForUser", () => {
     await subscribe(familyGroup.id, "PRO", 5);
     expect(await getAiDailyLimitForUser("clerk_cov")).toBe(AI_DAILY_LIMIT_COVERED);
     expect(await getAiDailyLimitForUser("clerk_nobody")).toBe(AI_DAILY_LIMIT_FREE);
+  });
+});
+
+describe("getAiEntitlementForUser", () => {
+  it("covered, no family context: covered + 20 + not foreign", async () => {
+    const person = await seedTestPerson({ userId: "clerk_ent_cov" });
+    const { familyGroup } = await seedTestFamily(person.id);
+    await paidTier("PRO");
+    await subscribe(familyGroup.id, "PRO", 5);
+    expect(await getAiEntitlementForUser("clerk_ent_cov")).toEqual({ covered: true, dailyLimit: AI_DAILY_LIMIT_COVERED, foreignContext: false });
+  });
+
+  it("covered, acting in a FREE family: covered + 20 + foreign true", async () => {
+    const person = await seedTestPerson({ userId: "clerk_ent_mix" });
+    const paid = await seedTestFamily(person.id);
+    const free = await seedTestFamily(person.id);
+    await paidTier("PRO");
+    await subscribe(paid.familyGroup.id, "PRO", 5);
+    await db.pricingTier.create({ data: { tierKey: "FREE", displayName: "Free", displayOrder: 0, stripePriceId: null } });
+    await subscribe(free.familyGroup.id, "FREE", 1);
+    expect(await getAiEntitlementForUser("clerk_ent_mix", free.familyGroup.id)).toEqual({ covered: true, dailyLimit: AI_DAILY_LIMIT_COVERED, foreignContext: true });
+  });
+
+  it("uncovered, with a family: not covered + free + foreign", async () => {
+    const person = await seedTestPerson({ userId: "clerk_ent_free" });
+    const { familyGroup } = await seedTestFamily(person.id);
+    expect(await getAiEntitlementForUser("clerk_ent_free", familyGroup.id)).toEqual({ covered: false, dailyLimit: AI_DAILY_LIMIT_FREE, foreignContext: true });
+  });
+
+  it("unknown user: not covered + free + not foreign (no family)", async () => {
+    expect(await getAiEntitlementForUser("clerk_nobody")).toEqual({ covered: false, dailyLimit: AI_DAILY_LIMIT_FREE, foreignContext: false });
   });
 });

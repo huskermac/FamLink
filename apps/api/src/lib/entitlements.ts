@@ -55,8 +55,26 @@ export async function getAiDailyLimit(personId: string): Promise<number> {
   return (await isPersonCovered(personId)) ? AI_DAILY_LIMIT_COVERED : AI_DAILY_LIMIT_FREE;
 }
 
-export async function getAiDailyLimitForUser(userId: string): Promise<number> {
+export interface AiEntitlement {
+  covered: boolean;
+  dailyLimit: number;
+  foreignContext: boolean;
+}
+
+export async function getAiEntitlementForUser(
+  userId: string,
+  familyGroupId?: string
+): Promise<AiEntitlement> {
   const person = await db.person.findUnique({ where: { userId }, select: { id: true } });
-  if (!person) return AI_DAILY_LIMIT_FREE;
-  return getAiDailyLimit(person.id);
+  if (!person) {
+    return { covered: false, dailyLimit: AI_DAILY_LIMIT_FREE, foreignContext: !!familyGroupId };
+  }
+  const covered = await isPersonCovered(person.id);
+  const dailyLimit = covered ? AI_DAILY_LIMIT_COVERED : AI_DAILY_LIMIT_FREE;
+  const foreignContext = familyGroupId ? !(await isPersonCoveredByFamily(person.id, familyGroupId)) : false;
+  return { covered, dailyLimit, foreignContext };
+}
+
+export async function getAiDailyLimitForUser(userId: string): Promise<number> {
+  return (await getAiEntitlementForUser(userId)).dailyLimit;
 }
