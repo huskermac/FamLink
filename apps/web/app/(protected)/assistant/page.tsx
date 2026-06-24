@@ -35,15 +35,16 @@ export default function AssistantPage() {
   }, [familiesQuery.data]);
 
   const statusQuery = useQuery({
-    queryKey: ["aiStatus"],
-    queryFn: () => getAiStatus(getToken),
+    queryKey: ["aiStatus", familyId],
+    queryFn: () => getAiStatus(getToken, familyId ?? undefined),
     enabled: !!familyId,
     refetchInterval: false
   });
 
   const { messages, status, sendMessage } = useChat({ transport });
 
-  const queriesRemaining = statusQuery.data?.queriesRemaining ?? 20;
+  const effectiveLimit = statusQuery.data?.effectiveLimit ?? 20;
+  const queriesRemaining = statusQuery.data?.queriesRemaining ?? effectiveLimit;
   const isStreaming = status === "streaming" || status === "submitted";
   const isDisabled = isStreaming || queriesRemaining === 0 || !familyId;
 
@@ -91,7 +92,7 @@ export default function AssistantPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Family Assistant</h1>
         {statusQuery.data && (
-          <RateLimitBadge queriesRemaining={queriesRemaining} />
+          <RateLimitBadge queriesRemaining={queriesRemaining} total={effectiveLimit} />
         )}
       </div>
 
