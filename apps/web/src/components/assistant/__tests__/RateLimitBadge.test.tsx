@@ -27,4 +27,10 @@ describe("RateLimitBadge", () => {
     render(<RateLimitBadge queriesRemaining={0} />);
     expect(screen.getByLabelText("20 of 20 AI queries used today")).toBeInTheDocument();
   });
+
+  it("respects an explicit total (free/foreign tier)", () => {
+    render(<RateLimitBadge queriesRemaining={1} total={3} />);
+    expect(screen.getByText(/1 \/ 3 queries left/)).toBeInTheDocument();
+    expect(screen.getByLabelText("2 of 3 AI queries used today")).toBeInTheDocument();
+  });
 });

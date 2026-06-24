@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
@@ -35,15 +36,17 @@ export default function AssistantPage() {
   }, [familiesQuery.data]);
 
   const statusQuery = useQuery({
-    queryKey: ["aiStatus"],
-    queryFn: () => getAiStatus(getToken),
+    queryKey: ["aiStatus", familyId],
+    queryFn: () => getAiStatus(getToken, familyId ?? undefined),
     enabled: !!familyId,
     refetchInterval: false
   });
 
   const { messages, status, sendMessage } = useChat({ transport });
 
-  const queriesRemaining = statusQuery.data?.queriesRemaining ?? 20;
+  const effectiveLimit = statusQuery.data?.effectiveLimit ?? 20;
+  const queriesRemaining = statusQuery.data?.queriesRemaining ?? effectiveLimit;
+  const showUpgrade = !!statusQuery.data && (!statusQuery.data.covered || statusQuery.data.foreignContext);
   const isStreaming = status === "streaming" || status === "submitted";
   const isDisabled = isStreaming || queriesRemaining === 0 || !familyId;
 
@@ -91,7 +94,7 @@ export default function AssistantPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>Family Assistant</h1>
         {statusQuery.data && (
-          <RateLimitBadge queriesRemaining={queriesRemaining} />
+          <RateLimitBadge queriesRemaining={queriesRemaining} total={effectiveLimit} />
         )}
       </div>
 
@@ -125,6 +128,17 @@ export default function AssistantPage() {
         <div ref={bottomRef} />
       </div>
 
+      {showUpgrade && (
+        <Link
+          href="/settings/billing"
+          className="text-sm rounded-lg px-3 py-2 text-center"
+          style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+        >
+          {queriesRemaining === 0
+            ? `You've used your ${effectiveLimit} AI queries here today. Upgrade this family for 20/day.`
+            : `${effectiveLimit} AI queries/day here. Upgrade this family for 20/day.`}
+        </Link>
+      )}
       <ChatInput
         onSend={handleSend}
         disabled={isDisabled}

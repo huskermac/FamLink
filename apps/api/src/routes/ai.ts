@@ -17,7 +17,7 @@ import {
   getRateLimitStatus
 } from "../lib/aiRateLimit";
 import { buildTools } from "../lib/aiTools";
-import { getAiDailyLimit, getAiDailyLimitForUser } from "../lib/entitlements";
+import { getAiDailyLimit, getAiEntitlementForUser, isPersonCoveredByFamily, AI_DAILY_LIMIT_FOREIGN } from "../lib/entitlements";
 import {
   assembleFamilyContext,
   formatContextForPrompt,
@@ -80,15 +80,17 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // 4. Check rate limit against the person's coverage-derived daily allowance
-  const limit = await getAiDailyLimit(person.id);
-  const rateLimit = await checkAndIncrementAiRateLimit(userId, limit);
+  // 4. Rate limit; throttle foreign (unpaid) family contexts first so they can't
+  //    cannibalize the budget the paying family funds.
+  const dailyLimit = await getAiDailyLimit(person.id);
+  const paidContext = await isPersonCoveredByFamily(person.id, familyGroupId);
+  const rateLimit = await checkAndIncrementAiRateLimit(userId, { dailyLimit, foreign: !paidContext, foreignLimit: AI_DAILY_LIMIT_FOREIGN });
   if (!rateLimit.allowed) {
-    res.status(429).json({
-      error: "Daily AI limit reached",
-      resetAt: rateLimit.resetAt,
-      message: `You've reached your daily limit of ${limit} AI queries. It resets at midnight UTC.`
-    });
+    const message =
+      rateLimit.reason === "foreign"
+        ? "You've used your shared AI allowance for families that don't cover you. Ask an admin to upgrade this family for full access."
+        : `You've reached your daily limit of ${dailyLimit} AI queries. It resets at midnight UTC.`;
+    res.status(429).json({ error: "Daily AI limit reached", reason: rateLimit.reason, resetAt: rateLimit.resetAt, message });
     return;
   }
 
@@ -167,13 +169,28 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
 
 aiRouter.get("/status", async (req: Request, res: Response): Promise<void> => {
   const { userId } = authed(req);
+  const rawFamilyGroupId = typeof req.query.familyGroupId === "string" ? req.query.familyGroupId : undefined;
 
-  const limit = await getAiDailyLimitForUser(userId);
-  const status = await getRateLimitStatus(userId, limit);
+  // Only honor a family context the requester actually belongs to (parity with /chat).
+  let familyGroupId: string | undefined = undefined;
+  if (rawFamilyGroupId) {
+    const person = await db.person.findUnique({ where: { userId }, select: { id: true } });
+    if (person && (await activeFamilyMembership(rawFamilyGroupId, person.id))) {
+      familyGroupId = rawFamilyGroupId;
+    }
+  }
+
+  const { covered, dailyLimit, foreignContext } = await getAiEntitlementForUser(userId, familyGroupId);
+  const status = await getRateLimitStatus(userId, { dailyLimit, foreign: foreignContext, foreignLimit: AI_DAILY_LIMIT_FOREIGN });
+  const effectiveLimit = foreignContext ? Math.min(dailyLimit, AI_DAILY_LIMIT_FOREIGN) : dailyLimit;
 
   res.json({
-    queriesUsedToday: limit - status.remaining,
+    queriesUsedToday: effectiveLimit - status.remaining,
     queriesRemaining: status.remaining,
+    dailyLimit,
+    effectiveLimit,
+    covered,
+    foreignContext,
     resetAt: status.resetAt
   });
 });

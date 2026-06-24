@@ -26,75 +26,88 @@ export function setRedisClient(client: IORedis): void {
 
 const TTL_SECONDS = 86400;
 
-function todayUtcKey(userId: string): string {
-  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD UTC
-  return `ai:rate:${userId}:${today}`;
+function todayUtcDate(): string {
+  return new Date().toISOString().split("T")[0]; // YYYY-MM-DD UTC
+}
+function globalKey(userId: string): string {
+  return `ai:rate:${userId}:${todayUtcDate()}`;
+}
+function foreignKey(userId: string): string {
+  return `ai:rate:foreign:${userId}:${todayUtcDate()}`;
+}
+
+export interface RateLimitContext {
+  /** Global per-person daily allowance (20 covered / 3 free) — the hard cap. */
+  dailyLimit: number;
+  /** True when the request is made in a family that does not cover this person. */
+  foreign: boolean;
+  /** Aggregate cap on foreign-context usage (bounds the bleed from the paying budget). */
+  foreignLimit: number;
 }
 
 export interface RateLimitResult {
   allowed: boolean;
   remaining: number;
   resetAt: Date;
+  reason?: "global" | "foreign";
 }
 
 function nextUtcMidnight(): Date {
   const now = new Date();
-  const midnight = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
-  );
-  return midnight;
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
 }
 
 /**
- * Check and increment the AI rate limit counter for a user.
- * Returns whether the request is allowed and how many queries remain.
- *
- * Uses an atomic INCR so concurrent requests cannot race past the limit:
- * the single INCR result is authoritative. TTL is set on the first request
- * of the day (when INCR returns 1). A blocked request still increments — the
- * counter overcounts harmlessly and self-clears at the UTC-midnight TTL.
+ * Check + increment. Foreign-context requests check the foreign aggregate counter
+ * FIRST, then the global counter. Daily reset is by the date in the key; the TTL
+ * is set on EVERY increment (idempotent — closes the crash-between-INCR-and-EXPIRE
+ * gap). The only foreign overcount is when the global cap also rejects (user already
+ * blocked that day) — benign and self-clearing.
  */
 export async function checkAndIncrementAiRateLimit(
   userId: string,
-  limit: number
+  ctx: RateLimitContext
 ): Promise<RateLimitResult> {
   const redis = getRedisClient();
-  const key = todayUtcKey(userId);
   const resetAt = nextUtcMidnight();
 
-  const count = await redis.incr(key);
-
-  if (count === 1) {
-    // First request today — attach the TTL so the key resets at UTC midnight.
-    await redis.expire(key, TTL_SECONDS);
+  let foreignCount = 0;
+  if (ctx.foreign) {
+    const fKey = foreignKey(userId);
+    foreignCount = await redis.incr(fKey);
+    await redis.expire(fKey, TTL_SECONDS);
+    if (foreignCount > ctx.foreignLimit) {
+      return { allowed: false, remaining: 0, resetAt, reason: "foreign" };
+    }
   }
 
-  if (count > limit) {
-    return { allowed: false, remaining: 0, resetAt };
+  const gKey = globalKey(userId);
+  const globalCount = await redis.incr(gKey);
+  await redis.expire(gKey, TTL_SECONDS);
+  if (globalCount > ctx.dailyLimit) {
+    return { allowed: false, remaining: 0, resetAt, reason: "global" };
   }
 
-  return { allowed: true, remaining: limit - count, resetAt };
+  const globalRemaining = ctx.dailyLimit - globalCount;
+  const remaining = ctx.foreign ? Math.min(globalRemaining, ctx.foreignLimit - foreignCount) : globalRemaining;
+  return { allowed: true, remaining: Math.max(0, remaining), resetAt };
 }
 
-/**
- * Read-only status check — does NOT increment the counter.
- * Used by GET /api/v1/ai/status.
- */
+/** Read-only — does NOT increment. */
 export async function getRateLimitStatus(
   userId: string,
-  limit: number
+  ctx: RateLimitContext
 ): Promise<RateLimitResult> {
   const redis = getRedisClient();
-  const key = todayUtcKey(userId);
   const resetAt = nextUtcMidnight();
 
-  const current = await redis.get(key);
+  const globalCount = parseInt((await redis.get(globalKey(userId))) ?? "0", 10);
+  const globalRemaining = Math.max(0, ctx.dailyLimit - globalCount);
 
-  if (current === null) {
-    return { allowed: true, remaining: limit, resetAt };
+  let remaining = globalRemaining;
+  if (ctx.foreign) {
+    const foreignCount = parseInt((await redis.get(foreignKey(userId))) ?? "0", 10);
+    remaining = Math.min(globalRemaining, Math.max(0, ctx.foreignLimit - foreignCount));
   }
-
-  const count = parseInt(current, 10);
-  const remaining = Math.max(0, limit - count);
-  return { allowed: count < limit, remaining, resetAt };
+  return { allowed: remaining > 0, remaining, resetAt };
 }

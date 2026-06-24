@@ -199,4 +199,44 @@ describe("AssistantPage", () => {
     });
     expect(capturedSendMessage).not.toBeNull();
   });
+
+  it("shows the upgrade CTA for an uncovered (free) user", async () => {
+    mockUseMutation.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    mockUseQuery.mockImplementation((opts: { queryKey: unknown[] }) => {
+      const key = opts.queryKey[0];
+      if (key === "families") return { data: [{ familyGroup: { id: FAMILY_ID } }], isLoading: false };
+      if (key === "aiStatus") return { data: { queriesUsedToday: 1, queriesRemaining: 2, dailyLimit: 3, effectiveLimit: 3, covered: false, foreignContext: true, resetAt: "" }, isLoading: false };
+      return { data: undefined, isLoading: false };
+    });
+    const { default: AssistantPage } = await import("@/app/(protected)/assistant/page");
+    render(<AssistantPage />);
+    expect(await screen.findByRole("link", { name: /upgrade/i })).toBeInTheDocument();
+  });
+
+  it("shows the CTA for a covered user acting in a foreign family", async () => {
+    mockUseMutation.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    mockUseQuery.mockImplementation((opts: { queryKey: unknown[] }) => {
+      const key = opts.queryKey[0];
+      if (key === "families") return { data: [{ familyGroup: { id: FAMILY_ID } }], isLoading: false };
+      if (key === "aiStatus") return { data: { queriesUsedToday: 1, queriesRemaining: 2, dailyLimit: 20, effectiveLimit: 3, covered: true, foreignContext: true, resetAt: "" }, isLoading: false };
+      return { data: undefined, isLoading: false };
+    });
+    const { default: AssistantPage } = await import("@/app/(protected)/assistant/page");
+    render(<AssistantPage />);
+    expect(await screen.findByRole("link", { name: /upgrade/i })).toBeInTheDocument();
+  });
+
+  it("hides the CTA for a covered user in a paid family", async () => {
+    mockUseMutation.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    mockUseQuery.mockImplementation((opts: { queryKey: unknown[] }) => {
+      const key = opts.queryKey[0];
+      if (key === "families") return { data: [{ familyGroup: { id: FAMILY_ID } }], isLoading: false };
+      if (key === "aiStatus") return { data: { queriesUsedToday: 0, queriesRemaining: 20, dailyLimit: 20, effectiveLimit: 20, covered: true, foreignContext: false, resetAt: "" }, isLoading: false };
+      return { data: undefined, isLoading: false };
+    });
+    const { default: AssistantPage } = await import("@/app/(protected)/assistant/page");
+    render(<AssistantPage />);
+    await screen.findByText(/Family Assistant/i);
+    expect(screen.queryByRole("link", { name: /upgrade/i })).not.toBeInTheDocument();
+  });
 });
