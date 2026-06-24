@@ -1,0 +1,57 @@
+import { db } from "@famlink/db";
+import type { Event } from "@famlink/db";
+import { activeFamilyMembership, hasAdminRole } from "./familyAccess";
+import { canViewEvent } from "./eventVisibility";
+
+export async function activeEventParticipant(
+  personId: string,
+  eventId: string
+): Promise<{ role: "PARTICIPANT" | "EVENT_ADMIN" } | null> {
+  const grant = await db.eventParticipant.findUnique({
+    where: { eventId_personId: { eventId, personId } },
+    select: { role: true, status: true }
+  });
+  if (!grant || grant.status !== "ACTIVE") return null;
+  return { role: grant.role };
+}
+
+export type EventAccess = {
+  event: Event;
+  isOwningMember: boolean;
+  isOwningAdmin: boolean;
+  eventRole: "PARTICIPANT" | "EVENT_ADMIN" | null;
+  canView: boolean;
+  canContribute: boolean;
+  canAdmin: boolean;
+};
+
+export async function resolveEventAccess(
+  eventId: string,
+  personId: string
+): Promise<EventAccess | { error: "not_found" }> {
+  const event = await db.event.findUnique({ where: { id: eventId } });
+  if (!event) return { error: "not_found" };
+
+  const membership = await activeFamilyMembership(event.familyGroupId, personId);
+  const isOwningMember = membership !== null;
+  const isOwningAdmin = membership ? hasAdminRole(membership) : false;
+  const grant = await activeEventParticipant(personId, eventId);
+  const eventRole = grant?.role ?? null;
+
+  const memberCanView = isOwningMember
+    ? await canViewEvent(event, personId, isOwningAdmin)
+    : false;
+  const canView = memberCanView || eventRole !== null;
+  if (!canView) return { error: "not_found" };
+
+  const isCreator = event.createdByPersonId === personId;
+  return {
+    event,
+    isOwningMember,
+    isOwningAdmin,
+    eventRole,
+    canView: true,
+    canContribute: isOwningMember || eventRole !== null,
+    canAdmin: isOwningAdmin || isCreator || eventRole === "EVENT_ADMIN"
+  };
+}
