@@ -82,7 +82,7 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
 
   // 4. Check rate limit against the person's coverage-derived daily allowance
   const limit = await getAiDailyLimit(person.id);
-  const rateLimit = await checkAndIncrementAiRateLimit(userId, limit);
+  const rateLimit = await checkAndIncrementAiRateLimit(userId, { dailyLimit: limit, foreign: false, foreignLimit: 3 });
   if (!rateLimit.allowed) {
     res.status(429).json({
       error: "Daily AI limit reached",
@@ -169,7 +169,7 @@ aiRouter.get("/status", async (req: Request, res: Response): Promise<void> => {
   const { userId } = authed(req);
 
   const limit = await getAiDailyLimitForUser(userId);
-  const status = await getRateLimitStatus(userId, limit);
+  const status = await getRateLimitStatus(userId, { dailyLimit: limit, foreign: false, foreignLimit: 3 });
 
   res.json({
     queriesUsedToday: limit - status.remaining,
