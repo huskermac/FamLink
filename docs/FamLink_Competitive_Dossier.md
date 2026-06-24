@@ -180,7 +180,7 @@ Cozi shifted from "free with optional upgrade" to an **aggressive freemium**, an
 
 | App | Founded | Backing / team | Model | Notable |
 |---|---|---|---|---|
-| **Ohai.ai** | ~2023 | **$44.45M raised**; founder **Sheila Lirio Marcelo (Care.com founder)**; NEA, Eniac, Muse Capital; angels Olivia Munn, Mindy Kaling, Abby Wambach | AI household assistant | The heavyweight. "Reduce the mental load." Serious money + celebrity-grade credibility. |
+| **Ohai.ai** | late 2023 | **~$6M+ disclosed** (see deep-dive — earlier "$44M" figure unconfirmed); founder **Sheila Lirio Marcelo (Care.com founder)**; NEA, Eniac, Muse Capital; angels Olivia Munn, Mindy Kaling, Abby Wambach | AI household assistant (text-first) | Most *credible* (founder pedigree + press), but early/small. "Reduce the mental load." Full deep-dive below. |
 | **Nori** | 2025 | **ByteDance + Samsung veterans** (Domus Next); launched Jan 2026 | "Free to organize, pay for power" (AI usage-priced) | **150K+ active families by Mar 2026** — explosive growth. Multimodal input, **conflict detection**, emergency assistant. |
 | **Calendara** | 2024 | — | Free / ~$3–5/mo | AI photo→event **90%+ accuracy**, **two-way Google sync standard**, modern UX. Built to eat Cozi. |
 | **Maple** | — | — | Free + generous tier, no device | Cozi-switcher positioning. |
@@ -192,6 +192,36 @@ Cozi shifted from "free with optional upgrade" to an **aggressive freemium**, an
 - **The table-stakes have moved up sharply.** Multimodal capture (voice/photo/email→event), two-way sync, conflict detection, AI meal planning — all already shipped by free or near-free competitors. FamLink does not currently have these and would be *behind* on them, not ahead.
 - **What survives as genuine FamLink differentiation** (because none of these have it): the **cross-family graph** (extended/blended/cross-household — they're all single-family), the **sports vertical depth**, and **commerce-based monetization** (lets FamLink be cheaper than usage-priced-AI rivals). These are no longer "nice extras" — **they are the entire defensible thesis.** Everything generic about FamLink is now contested by funded teams.
 - **Honest implication:** FamLink cannot win as "a better general AI family organizer." It can only win as "the family app for the relationships and activities the others structurally ignore." Narrow and deepen, or get out-executed by better-funded generalists.
+
+### Ohai.ai — deep-dive (the most *credible* app-first competitor)
+*Profiled in depth because its founder pedigree + press make it the most dangerous brand in the AI-wave — though the teardown shows it's earlier and smaller than its reputation.*
+
+**Company / people**
+- **Founded late 2023, launched Jan 2024.** Founders: **Sheila Lirio Marcelo** (founder/former CEO of **Care.com** — IPO'd, sold to IAC; serious operator + care-economy credibility), with **Kevin Yang** and **Lauren Tornow**.
+- **~37 employees** (early 2026). Beta has served "thousands of families."
+
+**Funding — correcting last session's error**
+- **Disclosed: ~$6M seed (Jan 2024)** — NEA, Eniac, Bright Ventures, LifeX, Amy Griffin (G9) — **plus an undisclosed-amount strategic round (Aug 2025)** led by Muse Capital, with celebrity-mother angels (Olivia Munn, Mindy Kaling, Abby Wambach, Mielle Organics founders).
+- **[Correction]** A prior dossier draft cited "$44.45M raised" (from a third-party aggregator). The better-sourced figure (Tracxn/PRNewswire/finsmes) is **>$6M disclosed**, with the 2025 round amount unpublished. **Treat Ohai as a well-connected seed-stage company, NOT a $44M juggernaut.** This materially changes the threat assessment: it's beatable.
+
+**Product — the key difference is the interaction model**
+- **Text/SMS-first.** The assistant is named **"O"**; you *text it* (also iOS app, voice, email-forward, photo/PDF scan). It's "message your assistant," not "open a dashboard app." That's a genuinely different bet from FamLink's app-first model.
+- Calendar sync (Google/Outlook/Apple) into a shared household view; event extraction from unstructured text/email; tasks; meal planning (pantry + allergies + store-aisle grocery lists); school-document processing (DB of **67K school calendars, 27M local events**).
+- **Human-in-the-loop backup** — when something's too complex for the AI, **human assistants** step in. Pure Care.com DNA (marketplace-of-helpers instinct).
+
+**Pricing**
+- Free tier; **Premium $9.99/mo (individual), $19.99 Duo, $29.99 Group**; 14-day trial, whole household, no usage caps.
+
+**Weaknesses (from reviews)**
+- **No monthly calendar view** — can't see your schedule at a glance beyond ~a week. For a *calendar* product this is a glaring hole and the top complaint.
+- Takes days to learn your routines; some niche-app incompatibilities; premium feels pricey to some.
+- **Human-in-the-loop doesn't scale cheaply** — it's an ops/margin drag that pure-software rivals (FamLink) don't carry.
+
+**[Assessment] Ohai is the most *credible* competitor, not the most *advanced*.** Its danger is brand, press, fundraising-ability, and a trusted founder — not current product dominance (it's early, small, and has a real product gap). For FamLink:
+- **The text-first model is a fork in the road, not a strictly-better approach.** It's low-friction but sacrifices glanceability (no month view) — the same ambient-frequency weakness, arguably worse. FamLink's app-first + (proposed) kiosk/BYO-screen mode is a *defensible* alternative bet, not an inferior one.
+- **Still single-household. No cross-family graph, no sports vertical, no commerce.** FamLink's three moats survive Ohai intact.
+- **The human-ops cost is a structural weakness** FamLink can undercut on price/scale.
+- **What to genuinely respect/steal:** the *conversational capture* UX (text/forward/snap → organized), the school-calendar database as a data moat, and the "mental load" emotional positioning, which is the sharpest in the category.
 
 ---
 
@@ -303,6 +333,6 @@ Steve's read — "none of them have catchy/descriptive names except OFW" — is 
 - TimeTree: [timetreeapp.com](https://timetreeapp.com/intl/en), [Premium launch](https://timetreeapp.com/intl/en/newsroom/2022-04-19/premium)
 - OurFamilyWizard: [plans & pricing](https://www.ourfamilywizard.com/plans-and-pricing), [homepage](https://www.ourfamilywizard.com/), [Spectrum Equity investment (PRNewswire)](https://www.prnewswire.com/news-releases/ourfamilywizard-receives-significant-growth-investment-from-spectrum-equity-301050429.html), [Trustpilot reviews](https://www.trustpilot.com/review/www.ourfamilywizard.com)
 - Cozi-refugee landscape: [Best Cozi alternatives 2026 (getsense.ai)](https://getsense.ai/blog/posts/best-cozi-alternatives-2025), [Cozi alternative (Nori)](https://heynori.com/blog/cozi-alternative-family-organizer-apps), [Best Cozi alternative (Calendara)](https://www.usecalendara.com/blog/best-cozi-alternative-2026)
-- AI-family-organizer wave: [Nori (heynori.com)](https://heynori.com/), [Nori launch press](https://www.avpress.com/online_features/press_releases/official-launch-the-worlds-first-ai-platform-built-specifically-for-family-life/article_6545f1f9-d36f-5d64-934b-af413c20d814.html), [Calendara features](https://www.usecalendara.com/features), [Maple](https://www.growmaple.com/blog-posts/best-family-calendar-app), [Ohai.ai](https://www.ohai.ai/), [Ohai funding (Pulse2)](https://pulse2.com/ohai-ai-investment-raised-to-help-parents-reduce-mental-load/)
+- AI-family-organizer wave: [Nori (heynori.com)](https://heynori.com/), [Nori launch press](https://www.avpress.com/online_features/press_releases/official-launch-the-worlds-first-ai-platform-built-specifically-for-family-life/article_6545f1f9-d36f-5d64-934b-af413c20d814.html), [Calendara features](https://www.usecalendara.com/features), [Maple](https://www.growmaple.com/blog-posts/best-family-calendar-app), [Ohai.ai](https://www.ohai.ai/), [Ohai how-it-works](https://www.ohai.ai/how-it-works/), [Ohai funding (PRNewswire, Aug 2025)](https://www.prnewswire.com/news-releases/ohaiai-raises-strategic-investment-led-by-muse-capital-celebrity-and-executive-mothers-to-save-parents-hours-of-mental-load-302533511.html), [Ohai seed (finsmes)](https://www.finsmes.com/2025/08/ohai-ai-raises-new-funding.html), [Marcelo profile (Newsweek)](https://www.newsweek.com/ohaiai-sheila-lirio-marcello-building-solutions-care-economy-2132631)
 - Co-parenting landscape: [AppClose](https://appclose.com/), [Kidtime free co-parenting calendars](https://kidtime.app/blog/co-parenting-calendar-app-free)
 - Comparison landscape: [Cozyla comparison](https://www.cozyla.com/blogs/comparisons/skylight-vs-hearth-vs-cozyla-finding-the-right-digital-calendar-for-your-home), [Mango "Hearth alternatives"](https://mangodisplay.com/best-hearth-display-alternatives/)
