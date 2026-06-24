@@ -87,10 +87,15 @@ vi.mock("../../lib/aiRateLimit", () => ({
 
 const mockGetAiDailyLimit = vi.fn();
 const mockGetAiDailyLimitForUser = vi.fn();
+const mockIsPersonCoveredByFamily = vi.fn();
+const mockGetAiEntitlementForUser = vi.fn();
 
 vi.mock("../../lib/entitlements", () => ({
-  getAiDailyLimit: (...args: unknown[]) => mockGetAiDailyLimit(...args),
-  getAiDailyLimitForUser: (...args: unknown[]) => mockGetAiDailyLimitForUser(...args)
+  getAiDailyLimit: (...a: unknown[]) => mockGetAiDailyLimit(...a),
+  getAiDailyLimitForUser: (...a: unknown[]) => mockGetAiDailyLimitForUser(...a),
+  isPersonCoveredByFamily: (...a: unknown[]) => mockIsPersonCoveredByFamily(...a),
+  getAiEntitlementForUser: (...a: unknown[]) => mockGetAiEntitlementForUser(...a),
+  AI_DAILY_LIMIT_FOREIGN: 3
 }));
 
 // ── Mock aiContext ────────────────────────────────────────────────────────────
@@ -134,6 +139,8 @@ beforeEach(() => {
   mockFamilyGroupFindUnique.mockResolvedValue({ aiEnabled: true });
   mockGetAiDailyLimit.mockResolvedValue(20);
   mockGetAiDailyLimitForUser.mockResolvedValue(20);
+  mockIsPersonCoveredByFamily.mockResolvedValue(true);
+  mockGetAiEntitlementForUser.mockResolvedValue({ covered: true, dailyLimit: 20, foreignContext: false });
 });
 
 // ── POST /api/v1/ai/chat ──────────────────────────────────────────────────────
@@ -235,18 +242,18 @@ describe("POST /api/v1/ai/chat", () => {
     expect(data[1]).toMatchObject({ role: "assistant", content: "Here is your answer." });
   });
 
-  it("passes the coverage-derived limit to the rate limiter", async () => {
+  it("passes a foreign context to the limiter when the family doesn't cover the person", async () => {
     mockGetAuth.mockReturnValue({ userId: "clerk_user1" });
     mockPersonFindUnique.mockResolvedValue(PERSON);
     mockFamilyMemberFindUnique.mockResolvedValue(MEMBERSHIP);
-    mockGetAiDailyLimit.mockResolvedValue(3); // free-tier user
+    mockGetAiDailyLimit.mockResolvedValue(20);
+    mockIsPersonCoveredByFamily.mockResolvedValue(false);
     mockCheckAndIncrement.mockResolvedValue(ALLOWED_RATE);
 
     const app = createApp();
     await request(app).post("/api/v1/ai/chat").send(VALID_BODY);
 
-    expect(mockGetAiDailyLimit).toHaveBeenCalledWith("p1");
-    expect(mockCheckAndIncrement).toHaveBeenCalledWith("clerk_user1", 3);
+    expect(mockCheckAndIncrement).toHaveBeenCalledWith("clerk_user1", { dailyLimit: 20, foreign: true, foreignLimit: 3 });
   });
 
   it("returns 400 for invalid body", async () => {
@@ -297,7 +304,7 @@ describe("GET /api/v1/ai/status", () => {
     const app = createApp();
     const res = await request(app).get("/api/v1/ai/status");
 
-    expect(mockGetRateLimitStatus).toHaveBeenCalledWith("clerk_user1", 3);
+    expect(mockGetRateLimitStatus).toHaveBeenCalledWith("clerk_user1", { dailyLimit: 3, foreign: false, foreignLimit: 3 });
     expect(res.body.queriesRemaining).toBe(1);
     expect(res.body.queriesUsedToday).toBe(2); // 3 - 1
   });

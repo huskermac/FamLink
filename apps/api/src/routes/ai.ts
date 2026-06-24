@@ -17,7 +17,7 @@ import {
   getRateLimitStatus
 } from "../lib/aiRateLimit";
 import { buildTools } from "../lib/aiTools";
-import { getAiDailyLimit, getAiDailyLimitForUser } from "../lib/entitlements";
+import { getAiDailyLimit, getAiDailyLimitForUser, isPersonCoveredByFamily, AI_DAILY_LIMIT_FOREIGN } from "../lib/entitlements";
 import {
   assembleFamilyContext,
   formatContextForPrompt,
@@ -80,15 +80,17 @@ aiRouter.post("/chat", async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // 4. Check rate limit against the person's coverage-derived daily allowance
-  const limit = await getAiDailyLimit(person.id);
-  const rateLimit = await checkAndIncrementAiRateLimit(userId, { dailyLimit: limit, foreign: false, foreignLimit: 3 });
+  // 4. Rate limit; throttle foreign (unpaid) family contexts first so they can't
+  //    cannibalize the budget the paying family funds.
+  const dailyLimit = await getAiDailyLimit(person.id);
+  const paidContext = await isPersonCoveredByFamily(person.id, familyGroupId);
+  const rateLimit = await checkAndIncrementAiRateLimit(userId, { dailyLimit, foreign: !paidContext, foreignLimit: AI_DAILY_LIMIT_FOREIGN });
   if (!rateLimit.allowed) {
-    res.status(429).json({
-      error: "Daily AI limit reached",
-      resetAt: rateLimit.resetAt,
-      message: `You've reached your daily limit of ${limit} AI queries. It resets at midnight UTC.`
-    });
+    const message =
+      rateLimit.reason === "foreign"
+        ? "You've used your shared AI allowance for families that don't cover you. Ask an admin to upgrade this family for full access."
+        : `You've reached your daily limit of ${dailyLimit} AI queries. It resets at midnight UTC.`;
+    res.status(429).json({ error: "Daily AI limit reached", reason: rateLimit.reason, resetAt: rateLimit.resetAt, message });
     return;
   }
 

@@ -12,6 +12,7 @@ import { db } from "@famlink/db";
 
 export const AI_DAILY_LIMIT_COVERED = 20;
 export const AI_DAILY_LIMIT_FREE = 3;
+export const AI_DAILY_LIMIT_FOREIGN = 3; // cap for foreign (unpaid) family contexts
 
 const ENTITLING_STATUSES = new Set(["ACTIVE", "TRIALING"]);
 
