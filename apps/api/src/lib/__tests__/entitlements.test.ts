@@ -2,6 +2,7 @@ import { db } from "@famlink/db";
 import { describe, it, expect } from "vitest";
 import {
   isPersonCovered,
+  isPersonCoveredByFamily,
   getAiDailyLimit,
   getAiDailyLimitForUser,
   AI_DAILY_LIMIT_COVERED,
@@ -110,6 +111,64 @@ describe("isPersonCovered", () => {
     await paidTier("PRO");
     await subscribe(paid.familyGroup.id, "PRO", 5);
     expect(await isPersonCovered(person.id)).toBe(true);
+  });
+});
+
+describe("isPersonCoveredByFamily", () => {
+  it("is true for a paid family where the person is within seats", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await paidTier("PRO", 5);
+    await subscribe(familyGroup.id, "PRO", 5);
+    expect(await isPersonCoveredByFamily(person.id, familyGroup.id)).toBe(true);
+  });
+
+  it("is false for a free-tier family", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "FREE", displayName: "Free", displayOrder: 0, stripePriceId: null } });
+    await subscribe(familyGroup.id, "FREE", 1);
+    expect(await isPersonCoveredByFamily(person.id, familyGroup.id)).toBe(false);
+  });
+
+  it("is false for a PAST_DUE paid family", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await paidTier("PRO", 5);
+    await subscribe(familyGroup.id, "PRO", 5, "PAST_DUE");
+    expect(await isPersonCoveredByFamily(person.id, familyGroup.id)).toBe(false);
+  });
+
+  it("is false for a member beyond seatCount (earliest-joined seated)", async () => {
+    const admin = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(admin.id);
+    await paidTier("SOLO", 1);
+    await subscribe(familyGroup.id, "SOLO", 1);
+    const late = await db.person.create({ data: { firstName: "Late", lastName: "J", ageGateLevel: "ADULT", userId: null } });
+    await db.familyMember.create({ data: { familyGroupId: familyGroup.id, personId: late.id, roles: [], permissions: [] } });
+    expect(await isPersonCoveredByFamily(late.id, familyGroup.id)).toBe(false);
+    expect(await isPersonCoveredByFamily(admin.id, familyGroup.id)).toBe(true);
+  });
+
+  it("is false for a suspended member of a paid family", async () => {
+    const person = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(person.id);
+    await paidTier("PRO", 5);
+    await subscribe(familyGroup.id, "PRO", 5);
+    await db.familyMember.updateMany({
+      where: { familyGroupId: familyGroup.id, personId: person.id },
+      data: { suspendedAt: new Date() }
+    });
+    expect(await isPersonCoveredByFamily(person.id, familyGroup.id)).toBe(false);
+  });
+
+  it("is false for a family the person does not belong to", async () => {
+    const person = await seedTestPerson();
+    const other = await seedTestPerson({ userId: null });
+    const { familyGroup } = await seedTestFamily(other.id);
+    await paidTier("PRO", 5);
+    await subscribe(familyGroup.id, "PRO", 5);
+    expect(await isPersonCoveredByFamily(person.id, familyGroup.id)).toBe(false);
   });
 });
 
