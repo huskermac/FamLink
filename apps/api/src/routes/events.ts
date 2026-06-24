@@ -9,6 +9,9 @@ import { canViewEvent } from "../lib/eventVisibility";
 import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 import { generateBirthdayEvents } from "../lib/birthdayGenerator";
 import { getInviteeSuggestions } from "../lib/inviteeSuggestions";
+import { resolveEventAccess } from "../lib/eventAccess";
+import { NotificationService } from "../lib/notificationService";
+import { env } from "../lib/env";
 
 function generateInviteToken(): string {
   return crypto.randomBytes(32).toString("hex");
@@ -469,6 +472,11 @@ const InviteeSchema = z.discriminatedUnion("kind", [
     guestEmail: z.string().email().optional(),
     guestPhone: z.string().optional(),
     guestName: z.string().optional()
+  }),
+  z.object({
+    kind: z.literal("famlinkUser"),
+    personId: z.string().min(1),
+    role: z.enum(["PARTICIPANT", "EVENT_ADMIN"]).optional()
   })
 ]);
 
@@ -515,6 +523,20 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
     return;
   }
 
+  // Cross-family invites require event-admin access
+  const hasFamlinkUserInvite = parsed.data.invitees.some((i) => i.kind === "famlinkUser");
+  if (hasFamlinkUserInvite) {
+    const access = await resolveEventAccess(eventId, requester.id);
+    if ("error" in access) {
+      res.status(404).json({ error: "Event not found" });
+      return;
+    }
+    if (!access.canAdmin) {
+      res.status(403).json({ error: "Only an event admin can invite cross-family participants" });
+      return;
+    }
+  }
+
   const now = new Date();
   const createdInvitations: object[] = [];
 
@@ -537,7 +559,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
           });
           createdInvitations.push(created);
         }
-      } else {
+      } else if (invitee.kind === "guest") {
         // External guest
         const match = await matchPersonByContact(invitee.guestEmail, invitee.guestPhone);
         const existing = await tx.eventInvitation.findFirst({
@@ -566,9 +588,45 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
           });
           createdInvitations.push(created);
         }
+      } else if (invitee.kind === "famlinkUser") {
+        const existing = await tx.eventInvitation.findFirst({ where: { eventId, linkedPersonId: invitee.personId } });
+        if (!existing) {
+          const created = await tx.eventInvitation.create({
+            data: {
+              eventId,
+              linkedPersonId: invitee.personId,
+              role: invitee.role ?? "PARTICIPANT",
+              guestToken: generateInviteToken(),
+              invitedById: requester.id,
+              scope: "INDIVIDUAL",
+              status: "PENDING",
+              sentAt: now
+            }
+          });
+          createdInvitations.push(created);
+        }
       }
     }
   });
+
+  // Send notifications to cross-family invitees (fire-and-forget, non-fatal)
+  const famlinkInvites = createdInvitations as Array<{ linkedPersonId?: string | null; guestToken?: string | null }>;
+  const crossFamilyCreated = famlinkInvites.filter(
+    (inv) => inv.linkedPersonId != null && inv.guestToken != null
+  );
+  if (crossFamilyCreated.length > 0) {
+    const notifier = new NotificationService();
+    for (const inv of crossFamilyCreated) {
+      const acceptLink = `${env.WEB_APP_URL}/events/accept?token=${inv.guestToken}`;
+      notifier.send({
+        type: "EVENT_INVITE",
+        recipientPersonId: inv.linkedPersonId!,
+        title: "You've been invited to an event",
+        body: `You have a new event invitation. Accept it here: ${acceptLink}`,
+        data: { acceptLink }
+      }).catch(() => { /* non-fatal */ });
+    }
+  }
 
   res.status(201).json({ invitations: createdInvitations });
 });

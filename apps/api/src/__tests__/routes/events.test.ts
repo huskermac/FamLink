@@ -391,6 +391,48 @@ describe("events routes (P1-08)", () => {
       expect(res.status).toBe(403);
     });
 
+    it("event-admin can invite a cross-family FamLink user (creates PENDING invite w/ linkedPersonId + role)", async () => {
+      // arrange: requester is creator/owning-admin of a PRIVATE event; target is a person in another family
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Cross-Family Event" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+      // target person is in a different family (no membership in this family group)
+      const targetPerson = await seedGuestPerson({ firstName: "CrossFamily" });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ kind: "famlinkUser", personId: targetPerson.id, role: "PARTICIPANT" }] });
+
+      expect(res.status).toBe(201);
+      const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id, linkedPersonId: targetPerson.id } });
+      expect(inv?.role).toBe("PARTICIPANT");
+      expect(inv?.guestToken).toBeTruthy();
+    });
+
+    it("a non-admin participant cannot invite cross-family users", async () => {
+      // arrange: requester has no family membership (canAdmin false)
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Cross-Family Authz Test" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+      const nonMember = await seedSecondPerson();
+      // nonMember is NOT in this family — they have no membership
+      const someoneId = (await seedGuestPerson({ firstName: "Target" })).id;
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ kind: "famlinkUser", personId: someoneId }] });
+
+      expect(res.status).toBe(403);
+    });
+
     it("skips duplicate invitation (idempotent) and returns 201 with count 0", async () => {
       const admin = await seedTestPerson();
       const member = await seedGuestPerson({ firstName: "Dup" });
