@@ -27,6 +27,7 @@ function invitedOrParticipantFilter(
   return [
     { createdByPersonId: personId },
     { rsvps: { some: { personId } } },
+    { participants: { some: { personId, status: "ACTIVE" } } },
     {
       invitations: {
         some: {
