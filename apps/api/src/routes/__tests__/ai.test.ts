@@ -283,29 +283,32 @@ describe("GET /api/v1/ai/status", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns correct remaining count", async () => {
+  it("returns context-aware entitlement for a foreign covered context (member)", async () => {
     mockGetAuth.mockReturnValue({ userId: "clerk_user1" });
-    mockGetRateLimitStatus.mockResolvedValue({ allowed: true, remaining: 15, resetAt: new Date() });
+    mockPersonFindUnique.mockResolvedValue(PERSON);
+    mockFamilyMemberFindUnique.mockResolvedValue(MEMBERSHIP); // active member of fg1
+    mockGetAiEntitlementForUser.mockResolvedValue({ covered: true, dailyLimit: 20, foreignContext: true });
+    mockGetRateLimitStatus.mockResolvedValue({ allowed: true, remaining: 2, resetAt: new Date() });
 
     const app = createApp();
-    const res = await request(app).get("/api/v1/ai/status");
+    const res = await request(app).get("/api/v1/ai/status?familyGroupId=fg1");
 
-    expect(res.status).toBe(200);
-    expect(res.body.queriesRemaining).toBe(15);
-    expect(res.body.queriesUsedToday).toBe(5);
-    expect(res.body.resetAt).toBeDefined();
+    expect(mockGetAiEntitlementForUser).toHaveBeenCalledWith("clerk_user1", "fg1");
+    expect(mockGetRateLimitStatus).toHaveBeenCalledWith("clerk_user1", { dailyLimit: 20, foreign: true, foreignLimit: 3 });
+    expect(res.body).toMatchObject({ covered: true, foreignContext: true, dailyLimit: 20, effectiveLimit: 3, queriesRemaining: 2, queriesUsedToday: 1 });
   });
 
-  it("reflects the free-tier limit in usage math", async () => {
+  it("ignores familyGroupId when the requester is not a member (isolation)", async () => {
     mockGetAuth.mockReturnValue({ userId: "clerk_user1" });
-    mockGetAiDailyLimitForUser.mockResolvedValue(3);
-    mockGetRateLimitStatus.mockResolvedValue({ allowed: true, remaining: 1, resetAt: new Date() });
+    mockPersonFindUnique.mockResolvedValue(PERSON);
+    mockFamilyMemberFindUnique.mockResolvedValue(null); // NOT a member of the supplied family
+    mockGetAiEntitlementForUser.mockResolvedValue({ covered: true, dailyLimit: 20, foreignContext: false });
+    mockGetRateLimitStatus.mockResolvedValue({ allowed: true, remaining: 20, resetAt: new Date() });
 
     const app = createApp();
-    const res = await request(app).get("/api/v1/ai/status");
+    await request(app).get("/api/v1/ai/status?familyGroupId=someone_elses_family");
 
-    expect(mockGetRateLimitStatus).toHaveBeenCalledWith("clerk_user1", { dailyLimit: 3, foreign: false, foreignLimit: 3 });
-    expect(res.body.queriesRemaining).toBe(1);
-    expect(res.body.queriesUsedToday).toBe(2); // 3 - 1
+    // family context dropped -> resolver called WITHOUT the family id
+    expect(mockGetAiEntitlementForUser).toHaveBeenCalledWith("clerk_user1", undefined);
   });
 });
