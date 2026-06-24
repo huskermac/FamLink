@@ -1,20 +1,23 @@
 import { useRef, useEffect, useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
-  KeyboardAvoidingView, Platform, ActivityIndicator
+  KeyboardAvoidingView, Platform, ActivityIndicator, Linking
 } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
 import { useMyFamilies } from "../../../hooks/useFamily";
-import { API_BASE } from "../../../lib/config";
+import { useAiStatus } from "../../../hooks/useAiStatus";
+import { API_BASE, WEB_BASE, ENABLE_WEB_UPSELL } from "../../../lib/config";
 import type { ReactElement } from "react";
 
 export default function AssistantScreen(): ReactElement {
   const { getToken } = useAuth();
   const familiesQuery = useMyFamilies();
   const familyId = familiesQuery.data?.memberships[0]?.familyGroup.id ?? null;
+  const aiStatus = useAiStatus(familyId);
+  const showUpgrade = ENABLE_WEB_UPSELL && !!aiStatus.data && (!aiStatus.data.covered || aiStatus.data.foreignContext);
   const [inputText, setInputText] = useState("");
   const listRef = useRef<FlatList<UIMessage>>(null);
 
@@ -97,6 +100,19 @@ export default function AssistantScreen(): ReactElement {
         <View className="px-4 pb-2 flex-row items-center gap-2">
           <ActivityIndicator size="small" color="#6366f1" />
           <Text className="text-slate-400 text-sm">Thinking…</Text>
+        </View>
+      )}
+
+      {aiStatus.data && (
+        <View className="px-4 pt-2">
+          <Text className="text-slate-400 text-xs">
+            {aiStatus.data.queriesRemaining} / {aiStatus.data.effectiveLimit} AI queries left today
+          </Text>
+          {showUpgrade && (
+            <Text className="text-indigo-400 text-xs mt-1" onPress={() => void Linking.openURL(`${WEB_BASE}/settings/billing`)}>
+              Upgrade this family for 20/day
+            </Text>
+          )}
         </View>
       )}
 
