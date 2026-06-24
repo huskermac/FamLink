@@ -38,6 +38,7 @@ model Person {
   createdEventItems    EventItem[]      @relation("EventItemCreator")
   assignedEventItems   EventItem[]      @relation("EventItemAssignee")
   uploadedPhotos       EventPhoto[]
+  eventParticipations  EventParticipant[]
 
   @@index([userId])
 }
@@ -165,10 +166,11 @@ model Event {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime    @updatedAt
 
-  invitations EventInvitation[]
-  rsvps       RSVP[]
-  eventItems  EventItem[]
-  eventPhotos EventPhoto[]
+  invitations  EventInvitation[]
+  rsvps        RSVP[]
+  eventItems   EventItem[]
+  eventPhotos  EventPhoto[]
+  participants EventParticipant[]
 
   @@index([familyGroupId])
   @@index([startAt])
@@ -187,6 +189,7 @@ model EventInvitation {
   guestName      String?
   guestToken     String?   @unique
   linkedPersonId String?
+  role           EventRole?
   status         String    @default("PENDING")
   sentAt         DateTime?
   createdAt      DateTime  @default(now())
@@ -212,6 +215,33 @@ model RSVP {
   @@unique([eventId, personId])
   @@index([eventId])
   @@index([guestToken])
+}
+
+enum EventRole {
+  PARTICIPANT
+  EVENT_ADMIN
+}
+
+enum ParticipantStatus {
+  ACTIVE
+  REVOKED
+}
+
+model EventParticipant {
+  id          String            @id @default(cuid())
+  eventId     String
+  event       Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  personId    String
+  person      Person            @relation(fields: [personId], references: [id], onDelete: Cascade)
+  role        EventRole         @default(PARTICIPANT)
+  status      ParticipantStatus @default(ACTIVE)
+  invitedById String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([eventId, personId])
+  @@index([eventId])
+  @@index([personId])
 }
 
 enum EventType {
