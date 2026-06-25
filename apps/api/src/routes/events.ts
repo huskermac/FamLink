@@ -874,6 +874,52 @@ eventsRouter.put("/:eventId/rsvp", async (req, res) => {
   });
 });
 
+const ParticipationTokenSchema = z.object({ token: z.string().min(1) });
+
+eventsRouter.post("/:eventId/participation/accept", async (req, res) => {
+  const p = eventIdParam.safeParse(req.params);
+  if (!p.success) { res.status(400).json({ error: "Invalid event id" }); return; }
+  const body = ParticipationTokenSchema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid request body" }); return; }
+  const requester = personed(req).person;
+
+  const inv = await db.eventInvitation.findFirst({
+    where: { eventId: p.data.eventId, guestToken: body.data.token, status: "PENDING" }
+  });
+  // Bind to authenticated identity: the token's invitation must target THIS person.
+  if (!inv || inv.linkedPersonId !== requester.id) {
+    res.status(403).json({ error: "This invitation is not for your account" });
+    return;
+  }
+  await db.$transaction(async (tx) => {
+    await tx.eventParticipant.upsert({
+      where: { eventId_personId: { eventId: p.data.eventId, personId: requester.id } },
+      create: { eventId: p.data.eventId, personId: requester.id, role: inv.role ?? "PARTICIPANT", status: "ACTIVE", invitedById: inv.invitedById ?? null },
+      update: { status: "ACTIVE", role: inv.role ?? "PARTICIPANT" }
+    });
+    await tx.eventInvitation.update({ where: { id: inv.id }, data: { status: "ACCEPTED" } });
+  });
+  res.json({ accepted: true });
+});
+
+eventsRouter.post("/:eventId/participation/decline", async (req, res) => {
+  const p = eventIdParam.safeParse(req.params);
+  if (!p.success) { res.status(400).json({ error: "Invalid event id" }); return; }
+  const body = ParticipationTokenSchema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid request body" }); return; }
+  const requester = personed(req).person;
+
+  const inv = await db.eventInvitation.findFirst({
+    where: { eventId: p.data.eventId, guestToken: body.data.token, status: "PENDING" }
+  });
+  if (!inv || inv.linkedPersonId !== requester.id) {
+    res.status(403).json({ error: "This invitation is not for your account" });
+    return;
+  }
+  await db.eventInvitation.update({ where: { id: inv.id }, data: { status: "DECLINED" } });
+  res.json({ declined: true });
+});
+
 eventsRouter.post("/:eventId/potluck", async (req, res) => {
   const p = eventIdParam.safeParse(req.params);
   if (!p.success) {

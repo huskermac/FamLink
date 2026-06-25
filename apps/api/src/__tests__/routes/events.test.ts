@@ -695,6 +695,112 @@ describe("events routes (P1-08)", () => {
     });
   });
 
+  // ── POST participation/accept + decline (P3-03 Task 5) ─────────────────────
+
+  describe("POST /api/v1/events/:eventId/participation/accept", () => {
+    it("accept: authenticated invitee with matching token gets an ACTIVE grant", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Cross-Family Accept" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+      // PENDING invitation with linkedPersonId = admin (the requester)
+      const token = "accept-test-token-abc123";
+      await db.eventInvitation.create({
+        data: {
+          eventId: event.id,
+          linkedPersonId: admin.id,
+          role: "EVENT_ADMIN",
+          guestToken: token,
+          invitedById: admin.id,
+          scope: "INDIVIDUAL",
+          status: "PENDING"
+        }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/participation/accept`)
+        .set("Authorization", "Bearer mock")
+        .send({ token });
+
+      expect(res.status).toBe(200);
+      expect(res.body.accepted).toBe(true);
+
+      const grant = await db.eventParticipant.findUnique({
+        where: { eventId_personId: { eventId: event.id, personId: admin.id } }
+      });
+      expect(grant).toMatchObject({ status: "ACTIVE", role: "EVENT_ADMIN" });
+
+      const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id, guestToken: token } });
+      expect(inv?.status).toBe("ACCEPTED");
+    });
+
+    it("accept: token whose invitation.linkedPersonId != requester is rejected (no grant)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Cross-Family Reject" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+      const outsider = await seedSecondPerson();
+      const token = "accept-reject-test-token-xyz789";
+      // invitation targets outsider, NOT the requester (admin)
+      await db.eventInvitation.create({
+        data: {
+          eventId: event.id,
+          linkedPersonId: outsider.id,
+          role: "PARTICIPANT",
+          guestToken: token,
+          invitedById: admin.id,
+          scope: "INDIVIDUAL",
+          status: "PENDING"
+        }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID }); // admin is the requester
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/participation/accept`)
+        .set("Authorization", "Bearer mock")
+        .send({ token });
+
+      expect(res.status).toBe(403);
+      expect(await db.eventParticipant.findFirst({ where: { eventId: event.id, personId: admin.id } })).toBeNull();
+    });
+
+    it("decline: marks the invitation DECLINED and creates no grant", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Cross-Family Decline" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+      const token = "decline-test-token-def456";
+      await db.eventInvitation.create({
+        data: {
+          eventId: event.id,
+          linkedPersonId: admin.id,
+          role: "PARTICIPANT",
+          guestToken: token,
+          invitedById: admin.id,
+          scope: "INDIVIDUAL",
+          status: "PENDING"
+        }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/participation/decline`)
+        .set("Authorization", "Bearer mock")
+        .send({ token });
+
+      expect(res.status).toBe(200);
+      expect(res.body.declined).toBe(true);
+      expect(await db.eventParticipant.findFirst({ where: { eventId: event.id, personId: admin.id } })).toBeNull();
+
+      const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id, guestToken: token } });
+      expect(inv?.status).toBe("DECLINED");
+    });
+  });
+
   // ── Socket.io emit integration (P2-04) ──────────────────────────────────
 
   describe("Socket.io emit calls (P2-04)", () => {
