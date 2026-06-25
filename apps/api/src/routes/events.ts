@@ -9,7 +9,7 @@ import { canViewEvent } from "../lib/eventVisibility";
 import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 import { generateBirthdayEvents } from "../lib/birthdayGenerator";
 import { getInviteeSuggestions } from "../lib/inviteeSuggestions";
-import { resolveEventAccess } from "../lib/eventAccess";
+import { resolveEventAccess, toForeignInvitedEventDTO } from "../lib/eventAccess";
 import { NotificationService } from "../lib/notificationService";
 import { env } from "../lib/env";
 
@@ -319,17 +319,43 @@ eventsRouter.get("/:eventId", async (req, res) => {
     return;
   }
 
-  const loaded = await loadEventForMember(eventId, requester.id);
-  if (loaded.error === "not_found") {
+  const access = await resolveEventAccess(eventId, requester.id);
+  if ("error" in access) {
     res.status(404).json({ error: "Event not found" });
     return;
   }
-  if (loaded.error === "forbidden") {
-    res.status(403).json({ error: "Not authorized to view this event" });
+  const { event } = access;
+
+  // Cross-family participant: return isolation-safe DTO (no family identifiers)
+  if (!access.isOwningMember && access.eventRole !== null) {
+    const [grants, owningMembers, rsvps] = await Promise.all([
+      db.eventParticipant.findMany({
+        where: { eventId, status: "ACTIVE" },
+        select: { person: { select: { firstName: true, preferredName: true } } }
+      }),
+      db.familyMember.findMany({
+        where: { familyGroupId: event.familyGroupId },
+        select: { person: { select: { id: true, firstName: true, preferredName: true } } }
+      }),
+      db.rSVP.findMany({ where: { eventId }, select: { personId: true, status: true } })
+    ]);
+    const rsvpByPerson = new Map(rsvps.map((r) => [r.personId, r.status]));
+    const participantList = [
+      ...owningMembers.map((m) => ({
+        displayName: m.person.preferredName ?? m.person.firstName,
+        rsvpStatus: rsvpByPerson.get(m.person.id) ?? null
+      })),
+      ...grants.map((g) => ({
+        displayName: g.person.preferredName ?? g.person.firstName,
+        rsvpStatus: null
+      }))
+    ];
+    const items = await db.eventItem.findMany({ where: { eventId }, orderBy: { createdAt: "asc" } });
+    res.json(toForeignInvitedEventDTO(event, participantList, items.map(serializeEventItem)));
     return;
   }
-  const { event } = loaded;
 
+  // Owning member: full event shape
   const [invitationCount, rsvpGroups, eventItems] = await Promise.all([
     db.eventInvitation.count({ where: { eventId } }),
     db.rSVP.groupBy({
@@ -343,23 +369,23 @@ eventsRouter.get("/:eventId", async (req, res) => {
     })
   ]);
 
-  const rsvps: Record<string, number> = {
+  const rsvpCounts: Record<string, number> = {
     YES: 0,
     NO: 0,
     MAYBE: 0,
     PENDING: 0
   };
   for (const row of rsvpGroups) {
-    const key = row.status as keyof typeof rsvps;
-    if (key in rsvps) {
-      rsvps[key] = row._count._all;
+    const key = row.status as keyof typeof rsvpCounts;
+    if (key in rsvpCounts) {
+      rsvpCounts[key] = row._count._all;
     }
   }
 
   res.json({
     event: serializeEvent(event),
     invitations: invitationCount,
-    rsvps,
+    rsvps: rsvpCounts,
     eventItems: eventItems.map(serializeEventItem)
   });
 });

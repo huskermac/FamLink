@@ -1117,6 +1117,70 @@ describe("events routes (P1-08)", () => {
     });
   });
 
+  // ── Task 9: ForeignInvitedEventDTO — isolation-safe detail read ─────────
+
+  describe("GET /api/v1/events/:eventId — cross-family DTO (Task 9)", () => {
+    it("cross-family participant detail read omits family identifiers", async () => {
+      // arrange: admin owns the event; participant is a second person with ACTIVE grant but NOT an owning member
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const participant = await seedSecondPerson();
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Cross-Family Detail Read" });
+      await db.eventParticipant.create({
+        data: {
+          eventId: event.id,
+          personId: participant.id,
+          role: "PARTICIPANT",
+          status: "ACTIVE",
+          invitedById: admin.id
+        }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      // DTO must NOT include internal family identifiers
+      expect(res.body.familyGroupId).toBeUndefined();
+      expect(res.body.createdByPersonId).toBeUndefined();
+      // DTO must include the allowed fields
+      expect(res.body.title).toBeDefined();
+      expect(res.body.id).toBe(event.id);
+      // participants array must be present with correct shape
+      expect(Array.isArray(res.body.participants)).toBe(true);
+      expect(res.body.participants.length).toBeGreaterThan(0);
+      expect(res.body.participants[0]).toHaveProperty("displayName");
+      expect(res.body.participants[0]).toHaveProperty("rsvpStatus");
+      // no internal person ids leaked on the participant list
+      expect(res.body.participants[0].personId).toBeUndefined();
+      // tasks array must be present
+      expect(Array.isArray(res.body.tasks)).toBe(true);
+      // family name and nested roster must NOT be present
+      expect(res.body.familyName).toBeUndefined();
+      expect(res.body.members).toBeUndefined();
+    });
+
+    it("owning member detail read still returns the full event shape", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Owning Member Read" });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      // Full shape: event is nested under .event key with familyGroupId present
+      expect(res.body.event).toBeDefined();
+      expect(res.body.event.familyGroupId).toBe(familyGroup.id);
+      expect(res.body.invitations).toBeDefined();
+      expect(res.body.rsvps).toBeDefined();
+    });
+  });
+
   // ── Socket.io emit integration (P2-04) ──────────────────────────────────
 
   describe("Socket.io emit calls (P2-04)", () => {

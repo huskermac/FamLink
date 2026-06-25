@@ -3,6 +3,26 @@ import type { Event } from "@famlink/db";
 import { activeFamilyMembership, hasAdminRole } from "./familyAccess";
 import { canViewEvent } from "./eventVisibility";
 
+export function toForeignInvitedEventDTO(
+  event: Event,
+  participants: Array<{ displayName: string; rsvpStatus: string | null }>,
+  tasks: Array<Record<string, unknown>>
+) {
+  return {
+    id: event.id,
+    title: event.title,
+    description: event.description,
+    startAt: event.startAt.toISOString(),
+    endAt: event.endAt?.toISOString() ?? null,
+    locationName: event.locationName,
+    locationAddress: event.locationAddress,
+    locationMapUrl: event.locationMapUrl,
+    eventType: event.eventType,
+    participants,
+    tasks
+  };
+}
+
 export async function activeEventParticipant(
   personId: string,
   eventId: string
