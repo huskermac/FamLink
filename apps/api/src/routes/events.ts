@@ -539,6 +539,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
 
   const now = new Date();
   const createdInvitations: object[] = [];
+  const famlinkUserInvites: Array<{ linkedPersonId: string; guestToken: string }> = [];
 
   await db.$transaction(async (tx) => {
     for (const invitee of parsed.data.invitees) {
@@ -591,12 +592,13 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
       } else if (invitee.kind === "famlinkUser") {
         const existing = await tx.eventInvitation.findFirst({ where: { eventId, linkedPersonId: invitee.personId } });
         if (!existing) {
+          const token = generateInviteToken();
           const created = await tx.eventInvitation.create({
             data: {
               eventId,
               linkedPersonId: invitee.personId,
               role: invitee.role ?? "PARTICIPANT",
-              guestToken: generateInviteToken(),
+              guestToken: token,
               invitedById: requester.id,
               scope: "INDIVIDUAL",
               status: "PENDING",
@@ -604,23 +606,22 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
             }
           });
           createdInvitations.push(created);
+          famlinkUserInvites.push({ linkedPersonId: invitee.personId, guestToken: token });
         }
       }
     }
   });
 
-  // Send notifications to cross-family invitees (fire-and-forget, non-fatal)
-  const famlinkInvites = createdInvitations as Array<{ linkedPersonId?: string | null; guestToken?: string | null }>;
-  const crossFamilyCreated = famlinkInvites.filter(
-    (inv) => inv.linkedPersonId != null && inv.guestToken != null
-  );
-  if (crossFamilyCreated.length > 0) {
+  // Send accept-link notifications to cross-family (famlinkUser) invitees ONLY —
+  // fire-and-forget, non-fatal. Guest invites (even when their contact matches an
+  // existing person) must NOT trigger this notification.
+  if (famlinkUserInvites.length > 0) {
     const notifier = new NotificationService();
-    for (const inv of crossFamilyCreated) {
+    for (const inv of famlinkUserInvites) {
       const acceptLink = `${env.WEB_APP_URL}/events/accept?token=${inv.guestToken}`;
       notifier.send({
         type: "EVENT_INVITE",
-        recipientPersonId: inv.linkedPersonId!,
+        recipientPersonId: inv.linkedPersonId,
         title: "You've been invited to an event",
         body: `You have a new event invitation. Accept it here: ${acceptLink}`,
         data: { acceptLink }
