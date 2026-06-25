@@ -156,6 +156,12 @@ function serializeEventItem(p: EventItem) {
   };
 }
 
+// Isolation-safe task shape for a cross-family participant: NO internal person
+// ids (createdByPersonId / assignedToPersonId), no eventId / visibility.
+function foreignItemShape(p: EventItem) {
+  return { id: p.id, name: p.name, quantity: p.quantity, notes: p.notes, status: p.status };
+}
+
 async function loadEventForMember(eventId: string, requesterPersonId: string) {
   const event = await db.event.findUnique({ where: { id: eventId } });
   if (!event) {
@@ -329,40 +335,30 @@ eventsRouter.get("/:eventId", async (req, res) => {
     if (grant) {
       const event = await db.event.findUnique({ where: { id: eventId } });
       if (event) {
-        const [grants, owningMembers, rsvps] = await Promise.all([
+        const [grants, rsvps] = await Promise.all([
           db.eventParticipant.findMany({
             where: { eventId, status: "ACTIVE" },
-            select: { person: { select: { firstName: true, preferredName: true } } }
-          }),
-          db.familyMember.findMany({
-            where: { familyGroupId: event.familyGroupId },
-            select: { person: { select: { id: true, firstName: true, preferredName: true } } }
+            select: { personId: true }
           }),
           db.rSVP.findMany({ where: { eventId }, select: { personId: true, status: true } })
         ]);
         const rsvpByPerson = new Map(rsvps.map((r) => [r.personId, r.status]));
-        const participantList = [
-          ...owningMembers.map((m) => ({
-            displayName: m.person.preferredName ?? m.person.firstName,
-            rsvpStatus: rsvpByPerson.get(m.person.id) ?? null
-          })),
-          ...grants.map((g) => ({
-            displayName: g.person.preferredName ?? g.person.firstName,
-            rsvpStatus: null
-          }))
-        ];
-        const items = await db.eventItem.findMany({ where: { eventId }, orderBy: { createdAt: "asc" } });
-        // Foreign-safe task shape: NO internal person ids (createdByPersonId /
-        // assignedToPersonId), no eventId/visibility — only what a cross-family
-        // participant needs. (Per-item visibility filtering not implemented; all
-        // event tasks are shared-surface in W3a.)
-        const foreignTasks = items.map((p) => ({
-          id: p.id,
-          name: p.name,
-          quantity: p.quantity,
-          notes: p.notes,
-          status: p.status
+        // Attendees ONLY — people with an RSVP or an active grant on THIS event.
+        // NEVER the full owning-family roster (spec §6/§8: no roster beyond
+        // participants). rsvpStatus reflects each attendee's actual RSVP.
+        const attendeeIds = [...new Set([...rsvps.map((r) => r.personId), ...grants.map((g) => g.personId)])];
+        const attendees = await db.person.findMany({
+          where: { id: { in: attendeeIds } },
+          select: { id: true, firstName: true, preferredName: true }
+        });
+        const participantList = attendees.map((p) => ({
+          displayName: p.preferredName ?? p.firstName,
+          rsvpStatus: rsvpByPerson.get(p.id) ?? null
         }));
+        const items = await db.eventItem.findMany({ where: { eventId }, orderBy: { createdAt: "asc" } });
+        // Per-item visibility filtering for foreign participants is not implemented;
+        // all event tasks are shared-surface in W3a.
+        const foreignTasks = items.map(foreignItemShape);
         res.json(toForeignInvitedEventDTO(event, participantList, foreignTasks));
         return;
       }
@@ -1002,7 +998,8 @@ eventsRouter.post("/:eventId/items", async (req, res) => {
   const created = await db.eventItem.create({
     data: { eventId: req.params.eventId, createdByPersonId: requester.id, name: body.data.name, quantity: body.data.quantity ?? null, notes: body.data.notes ?? null }
   });
-  res.status(201).json(serializeEventItem(created));
+  const isForeign = !access.isOwningMember && access.eventRole !== null;
+  res.status(201).json(isForeign ? foreignItemShape(created) : serializeEventItem(created));
 });
 
 async function authorizeItemMutation(eventId: string, itemId: string, personId: string) {
@@ -1011,7 +1008,7 @@ async function authorizeItemMutation(eventId: string, itemId: string, personId: 
   const item = await db.eventItem.findFirst({ where: { id: itemId, eventId } });
   if (!item) return { error: "not_found" as const };
   if (!access.canAdmin && item.createdByPersonId !== personId) return { error: "forbidden" as const };
-  return { item };
+  return { item, access };
 }
 
 eventsRouter.patch("/:eventId/items/:itemId", async (req, res) => {
@@ -1022,7 +1019,8 @@ eventsRouter.patch("/:eventId/items/:itemId", async (req, res) => {
   if (r.error === "not_found") { res.status(404).json({ error: "Item not found" }); return; }
   if (r.error === "forbidden") { res.status(403).json({ error: "You can only edit your own contribution" }); return; }
   const updated = await db.eventItem.update({ where: { id: req.params.itemId }, data: body.data });
-  res.json(serializeEventItem(updated));
+  const isForeign = !r.access.isOwningMember && r.access.eventRole !== null;
+  res.json(isForeign ? foreignItemShape(updated) : serializeEventItem(updated));
 });
 
 eventsRouter.delete("/:eventId/items/:itemId", async (req, res) => {

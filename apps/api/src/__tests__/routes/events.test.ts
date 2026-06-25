@@ -958,7 +958,12 @@ describe("events routes (P1-08)", () => {
         .send({ name: "Cups" });
 
       expect(res.status).toBe(201);
-      expect(res.body.createdByPersonId).toBe(participant.id);
+      // Response to a cross-family participant is the isolation-safe shape (no
+      // internal person ids); attribution is verified via the DB row instead.
+      expect(res.body.createdByPersonId).toBeUndefined();
+      expect(res.body.name).toBe("Cups");
+      const row = await db.eventItem.findUnique({ where: { id: res.body.id } });
+      expect(row?.createdByPersonId).toBe(participant.id);
     });
 
     it("a non-participant non-member cannot add an item (404)", async () => {
@@ -1135,6 +1140,14 @@ describe("events routes (P1-08)", () => {
           invitedById: admin.id
         }
       });
+      // a NON-attending owning-family member (no RSVP, no grant) — must NOT
+      // appear in the foreign participant list (C1: no roster leak)
+      const bystander = await db.person.create({
+        data: { firstName: "Bystander", lastName: "NoShow", ageGateLevel: "ADULT", userId: null }
+      });
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: bystander.id, roles: [], permissions: [] }
+      });
       // a task created by an owning-family member, assigned to one — its person
       // ids must NOT leak into the foreign DTO
       await db.eventItem.create({
@@ -1160,6 +1173,9 @@ describe("events routes (P1-08)", () => {
       expect(res.body.participants[0]).toHaveProperty("rsvpStatus");
       // no internal person ids leaked on the participant list
       expect(res.body.participants[0].personId).toBeUndefined();
+      // C1: a non-attending owning member (no RSVP, no grant) must NOT appear — no roster leak
+      const participantNames = res.body.participants.map((pp: { displayName: string }) => pp.displayName);
+      expect(participantNames).not.toContain("Bystander");
       // tasks array must be present and must NOT leak owning-family person ids
       expect(Array.isArray(res.body.tasks)).toBe(true);
       expect(res.body.tasks.length).toBeGreaterThan(0);
@@ -1172,6 +1188,32 @@ describe("events routes (P1-08)", () => {
       // family name and nested roster must NOT be present
       expect(res.body.familyName).toBeUndefined();
       expect(res.body.members).toBeUndefined();
+    });
+
+    it("cross-family participant item-write response omits internal ids (I1)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const participant = await seedSecondPerson();
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Foreign Item Write" });
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: participant.id, role: "PARTICIPANT", status: "ACTIVE", invitedById: admin.id }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/items`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "Napkins" });
+
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe("Napkins");
+      expect(res.body.id).toBeDefined();
+      expect(res.body.status).toBeDefined();
+      // foreign-safe shape: no internal ids
+      expect(res.body.createdByPersonId).toBeUndefined();
+      expect(res.body.assignedToPersonId).toBeUndefined();
+      expect(res.body.eventId).toBeUndefined();
+      expect(res.body.visibility).toBeUndefined();
     });
 
     it("owning member detail read still returns the full event shape", async () => {
