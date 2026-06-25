@@ -47,3 +47,6 @@ packages/db/apps/
 
 # Claude Code worktree artifacts
 .claude/worktrees/
+
+# Per-machine local Claude settings — local-only, never share
+.claude/settings.local.json
