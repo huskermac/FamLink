@@ -223,6 +223,69 @@ describe("events routes (P1-08)", () => {
       expect(r2.status).toBe(200);
       expect(r2.body.status).toBe(RSVPStatus.MAYBE);
     });
+
+    it("an active cross-family participant can RSVP", async () => {
+      // arrange: admin owns the event; participant is a second person with an ACTIVE grant but NOT an owning member
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const participant = await seedSecondPerson();
+      const startAt = new Date(Date.now() + 86400000);
+      const event = await db.event.create({
+        data: {
+          familyGroupId: familyGroup.id,
+          createdByPersonId: admin.id,
+          title: "Cross-Family RSVP Event",
+          startAt,
+          visibility: "FAMILY"
+        }
+      });
+      await db.eventParticipant.create({
+        data: {
+          eventId: event.id,
+          personId: participant.id,
+          role: "PARTICIPANT",
+          status: "ACTIVE",
+          invitedById: admin.id
+        }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .put(`/api/v1/events/${event.id}/rsvp`)
+        .set("Authorization", "Bearer mock")
+        .send({ status: RSVPStatus.YES });
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe(RSVPStatus.YES);
+      expect(
+        await db.rSVP.findUnique({
+          where: { eventId_personId: { eventId: event.id, personId: participant.id } }
+        })
+      ).toMatchObject({ status: RSVPStatus.YES });
+    });
+
+    it("a non-participant non-member cannot RSVP (404 full-hide)", async () => {
+      // arrange: admin owns the event; outsider has a Person record but no membership and no participant grant
+      const admin = await seedTestPerson();
+      await seedSecondPerson(); // creates Person for TEST_USER_2_CLERK_ID; no family membership
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const startAt = new Date(Date.now() + 86400000);
+      const event = await db.event.create({
+        data: {
+          familyGroupId: familyGroup.id,
+          createdByPersonId: admin.id,
+          title: "Hidden Event",
+          startAt,
+          visibility: "FAMILY"
+        }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .put(`/api/v1/events/${event.id}/rsvp`)
+        .set("Authorization", "Bearer mock")
+        .send({ status: RSVPStatus.YES });
+      expect(res.status).toBe(404);
+    });
   });
 
   describe("POST /api/v1/events/:eventId/potluck", () => {

@@ -815,17 +815,10 @@ eventsRouter.put("/:eventId/rsvp", async (req, res) => {
 
   const requester = personed(req).person;
 
-  const loaded = await loadEventForMember(eventId, requester.id);
-  if (loaded.error === "not_found") {
-    res.status(404).json({ error: "Event not found" });
-    return;
-  }
-  if (loaded.error === "forbidden") {
-    res.status(403).json({ error: "Not authorized to RSVP to this event" });
-    return;
-  }
-
-  const { event } = loaded;
+  const access = await resolveEventAccess(eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  if (!access.canContribute) { res.status(403).json({ error: "Not authorized to RSVP to this event" }); return; }
+  const { event } = access;
 
   const now = new Date();
   const updated = await db.rSVP.upsert({
