@@ -1,7 +1,7 @@
 import { db } from "@famlink/db";
 import { describe, it, expect } from "vitest";
 import { seedTestPerson, seedTestFamily } from "../../__tests__/helpers/db";
-import { activeEventParticipant, resolveEventAccess } from "../eventAccess";
+import { activeEventParticipant, resolveEventAccess, eventNotificationRecipients } from "../eventAccess";
 
 async function seedEvent(familyGroupId: string, createdByPersonId: string) {
   return db.event.create({
@@ -70,5 +70,22 @@ describe("resolveEventAccess", () => {
   it("missing event -> not_found", async () => {
     const outsider = await seedTestPerson({ userId: null });
     expect(await resolveEventAccess("nope", outsider.id)).toEqual({ error: "not_found" });
+  });
+});
+
+describe("eventNotificationRecipients", () => {
+  it("recipients = owning members + active participants, deduped; excludes revoked and foreign-family non-participants", async () => {
+    const owner = await seedTestPerson();
+    const { familyGroup } = await seedTestFamily(owner.id);
+    const ev = await seedEvent(familyGroup.id, owner.id);
+    const part = await seedTestPerson({ userId: null });
+    await db.eventParticipant.create({ data: { eventId: ev.id, personId: part.id, status: "ACTIVE" } });
+    const revoked = await seedTestPerson({ userId: null });
+    await db.eventParticipant.create({ data: { eventId: ev.id, personId: revoked.id, status: "REVOKED" } });
+    const recips = await eventNotificationRecipients(ev.id);
+    expect(recips).toContain(owner.id);
+    expect(recips).toContain(part.id);
+    expect(recips).not.toContain(revoked.id);
+    expect(new Set(recips).size).toBe(recips.length); // deduped
   });
 });

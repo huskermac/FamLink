@@ -45,6 +45,14 @@ export type EventAccess = {
   canAdmin: boolean;
 };
 
+export async function eventNotificationRecipients(eventId: string): Promise<string[]> {
+  const event = await db.event.findUnique({ where: { id: eventId }, select: { familyGroupId: true } });
+  if (!event) return [];
+  const members = await db.familyMember.findMany({ where: { familyGroupId: event.familyGroupId }, select: { personId: true } });
+  const grants = await db.eventParticipant.findMany({ where: { eventId, status: "ACTIVE" }, select: { personId: true } });
+  return [...new Set([...members.map((m) => m.personId), ...grants.map((g) => g.personId)])];
+}
+
 export async function resolveEventAccess(
   eventId: string,
   personId: string
