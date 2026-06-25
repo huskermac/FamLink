@@ -484,8 +484,8 @@ describe("events routes (P1-08)", () => {
       const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Cross-Family Authz Test" });
       await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
 
-      const nonMember = await seedSecondPerson();
-      // nonMember is NOT in this family — they have no membership
+      await seedSecondPerson();
+      // the second person is NOT in this family — they have no membership
       const someoneId = (await seedGuestPerson({ firstName: "Target" })).id;
 
       mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
