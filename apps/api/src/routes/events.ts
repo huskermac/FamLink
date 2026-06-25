@@ -9,7 +9,7 @@ import { canViewEvent } from "../lib/eventVisibility";
 import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 import { generateBirthdayEvents } from "../lib/birthdayGenerator";
 import { getInviteeSuggestions } from "../lib/inviteeSuggestions";
-import { resolveEventAccess, toForeignInvitedEventDTO } from "../lib/eventAccess";
+import { resolveEventAccess, toForeignInvitedEventDTO, activeEventParticipant } from "../lib/eventAccess";
 import { NotificationService } from "../lib/notificationService";
 import { env } from "../lib/env";
 
@@ -319,53 +319,63 @@ eventsRouter.get("/:eventId", async (req, res) => {
     return;
   }
 
-  const access = await resolveEventAccess(eventId, requester.id);
-  if ("error" in access) {
-    res.status(404).json({ error: "Event not found" });
-    return;
-  }
-  const { event } = access;
+  const loaded = await loadEventForMember(eventId, requester.id);
 
-  // Cross-family participant: return isolation-safe DTO (no family identifiers)
-  if (!access.isOwningMember && access.eventRole !== null) {
-    const [grants, owningMembers, rsvps] = await Promise.all([
-      db.eventParticipant.findMany({
-        where: { eventId, status: "ACTIVE" },
-        select: { person: { select: { firstName: true, preferredName: true } } }
-      }),
-      db.familyMember.findMany({
-        where: { familyGroupId: event.familyGroupId },
-        select: { person: { select: { id: true, firstName: true, preferredName: true } } }
-      }),
-      db.rSVP.findMany({ where: { eventId }, select: { personId: true, status: true } })
-    ]);
-    const rsvpByPerson = new Map(rsvps.map((r) => [r.personId, r.status]));
-    const participantList = [
-      ...owningMembers.map((m) => ({
-        displayName: m.person.preferredName ?? m.person.firstName,
-        rsvpStatus: rsvpByPerson.get(m.person.id) ?? null
-      })),
-      ...grants.map((g) => ({
-        displayName: g.person.preferredName ?? g.person.firstName,
-        rsvpStatus: null
-      }))
-    ];
-    const items = await db.eventItem.findMany({ where: { eventId }, orderBy: { createdAt: "asc" } });
-    // Foreign-safe task shape: NO internal person ids (createdByPersonId /
-    // assignedToPersonId), no eventId/visibility — only what a cross-family
-    // participant needs to see and interact with a task. (Per-item visibility
-    // filtering for foreign participants is not implemented; all event tasks are
-    // shared-surface in W3a.)
-    const foreignTasks = items.map((p) => ({
-      id: p.id,
-      name: p.name,
-      quantity: p.quantity,
-      notes: p.notes,
-      status: p.status
-    }));
-    res.json(toForeignInvitedEventDTO(event, participantList, foreignTasks));
+  // Not a viewable owning member: a cross-family ACTIVE participant still gets the
+  // isolation-safe DTO. Otherwise preserve the prior contract — 404 for missing or
+  // PRIVATE-hidden events, 403 for non-members/suspended (W3a must not change this).
+  if ("error" in loaded) {
+    const grant = await activeEventParticipant(requester.id, eventId);
+    if (grant) {
+      const event = await db.event.findUnique({ where: { id: eventId } });
+      if (event) {
+        const [grants, owningMembers, rsvps] = await Promise.all([
+          db.eventParticipant.findMany({
+            where: { eventId, status: "ACTIVE" },
+            select: { person: { select: { firstName: true, preferredName: true } } }
+          }),
+          db.familyMember.findMany({
+            where: { familyGroupId: event.familyGroupId },
+            select: { person: { select: { id: true, firstName: true, preferredName: true } } }
+          }),
+          db.rSVP.findMany({ where: { eventId }, select: { personId: true, status: true } })
+        ]);
+        const rsvpByPerson = new Map(rsvps.map((r) => [r.personId, r.status]));
+        const participantList = [
+          ...owningMembers.map((m) => ({
+            displayName: m.person.preferredName ?? m.person.firstName,
+            rsvpStatus: rsvpByPerson.get(m.person.id) ?? null
+          })),
+          ...grants.map((g) => ({
+            displayName: g.person.preferredName ?? g.person.firstName,
+            rsvpStatus: null
+          }))
+        ];
+        const items = await db.eventItem.findMany({ where: { eventId }, orderBy: { createdAt: "asc" } });
+        // Foreign-safe task shape: NO internal person ids (createdByPersonId /
+        // assignedToPersonId), no eventId/visibility — only what a cross-family
+        // participant needs. (Per-item visibility filtering not implemented; all
+        // event tasks are shared-surface in W3a.)
+        const foreignTasks = items.map((p) => ({
+          id: p.id,
+          name: p.name,
+          quantity: p.quantity,
+          notes: p.notes,
+          status: p.status
+        }));
+        res.json(toForeignInvitedEventDTO(event, participantList, foreignTasks));
+        return;
+      }
+    }
+    if (loaded.error === "not_found") {
+      res.status(404).json({ error: "Event not found" });
+    } else {
+      res.status(403).json({ error: "Not authorized to view this event" });
+    }
     return;
   }
+
+  const { event } = loaded;
 
   // Owning member: full event shape
   const [invitationCount, rsvpGroups, eventItems] = await Promise.all([
