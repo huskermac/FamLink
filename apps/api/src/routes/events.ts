@@ -941,6 +941,51 @@ eventsRouter.put("/:eventId/participants/:personId/role", async (req, res) => {
   res.json({ updated: true });
 });
 
+const CreateItemSchema = z.object({ name: z.string().min(1), quantity: z.string().optional(), notes: z.string().optional() });
+const PatchItemSchema = z.object({ name: z.string().min(1).optional(), quantity: z.string().nullable().optional(), notes: z.string().nullable().optional(), status: z.enum(["UNCLAIMED", "CLAIMED", "PROVIDED", "CANCELLED"]).optional() });
+
+eventsRouter.post("/:eventId/items", async (req, res) => {
+  const body = CreateItemSchema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid item", details: body.error.flatten() }); return; }
+  const requester = personed(req).person;
+  const access = await resolveEventAccess(req.params.eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  if (!access.canContribute) { res.status(403).json({ error: "Not authorized to contribute to this event" }); return; }
+  const created = await db.eventItem.create({
+    data: { eventId: req.params.eventId, createdByPersonId: requester.id, name: body.data.name, quantity: body.data.quantity ?? null, notes: body.data.notes ?? null }
+  });
+  res.status(201).json(serializeEventItem(created));
+});
+
+async function authorizeItemMutation(eventId: string, itemId: string, personId: string) {
+  const access = await resolveEventAccess(eventId, personId);
+  if ("error" in access) return { error: "not_found" as const };
+  const item = await db.eventItem.findFirst({ where: { id: itemId, eventId } });
+  if (!item) return { error: "not_found" as const };
+  if (!access.canAdmin && item.createdByPersonId !== personId) return { error: "forbidden" as const };
+  return { item };
+}
+
+eventsRouter.patch("/:eventId/items/:itemId", async (req, res) => {
+  const body = PatchItemSchema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid item", details: body.error.flatten() }); return; }
+  const requester = personed(req).person;
+  const r = await authorizeItemMutation(req.params.eventId, req.params.itemId, requester.id);
+  if (r.error === "not_found") { res.status(404).json({ error: "Item not found" }); return; }
+  if (r.error === "forbidden") { res.status(403).json({ error: "You can only edit your own contribution" }); return; }
+  const updated = await db.eventItem.update({ where: { id: req.params.itemId }, data: body.data });
+  res.json(serializeEventItem(updated));
+});
+
+eventsRouter.delete("/:eventId/items/:itemId", async (req, res) => {
+  const requester = personed(req).person;
+  const r = await authorizeItemMutation(req.params.eventId, req.params.itemId, requester.id);
+  if (r.error === "not_found") { res.status(404).json({ error: "Item not found" }); return; }
+  if (r.error === "forbidden") { res.status(403).json({ error: "You can only delete your own contribution" }); return; }
+  await db.eventItem.delete({ where: { id: req.params.itemId } });
+  res.status(204).end();
+});
+
 eventsRouter.post("/:eventId/potluck", async (req, res) => {
   const p = eventIdParam.safeParse(req.params);
   if (!p.success) {

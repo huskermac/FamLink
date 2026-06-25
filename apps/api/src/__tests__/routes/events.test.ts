@@ -937,6 +937,186 @@ describe("events routes (P1-08)", () => {
     });
   });
 
+  // ── Per-item task contributions (P3-03 Task 8) ─────────────────────────
+
+  describe("POST /api/v1/events/:eventId/items (per-item contribution)", () => {
+    it("a participant can add a task item (own contribution)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Task Item Test" });
+
+      // participant: a second person with an ACTIVE cross-family grant (no owning membership)
+      const participant = await seedSecondPerson();
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: participant.id, role: "PARTICIPANT", status: "ACTIVE", invitedById: admin.id }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/items`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "Cups" });
+
+      expect(res.status).toBe(201);
+      expect(res.body.createdByPersonId).toBe(participant.id);
+    });
+
+    it("a non-participant non-member cannot add an item (404)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Unauthorized Item" });
+      await seedSecondPerson(); // creates Person for TEST_USER_2 but no membership, no grant
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/items`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "Cups" });
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe("PATCH /api/v1/events/:eventId/items/:itemId (own-only edit)", () => {
+    it("a participant cannot edit another person's item", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Edit Authz Test" });
+
+      // item created by admin (the other person)
+      const othersItem = await db.eventItem.create({
+        data: { eventId: event.id, createdByPersonId: admin.id, name: "Admin's Item" }
+      });
+
+      // requester is a participant (cross-family), NOT the item's creator
+      const participant = await seedSecondPerson();
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: participant.id, role: "PARTICIPANT", status: "ACTIVE", invitedById: admin.id }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .patch(`/api/v1/events/${event.id}/items/${othersItem.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "x" });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("an event-admin can edit anyone's item", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Admin Edit Test" });
+
+      // item created by a different person
+      const other = await seedSecondPerson();
+      const othersItem = await db.eventItem.create({
+        data: { eventId: event.id, createdByPersonId: other.id, name: "Other's Item" }
+      });
+
+      // requester is admin (TEST_CLERK_ID) — event creator → canAdmin true
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .patch(`/api/v1/events/${event.id}/items/${othersItem.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "x" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe("x");
+    });
+
+    it("a participant can edit their own item", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Own Item Edit" });
+
+      const participant = await seedSecondPerson();
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: participant.id, role: "PARTICIPANT", status: "ACTIVE", invitedById: admin.id }
+      });
+
+      // item created by the participant themselves
+      const ownItem = await db.eventItem.create({
+        data: { eventId: event.id, createdByPersonId: participant.id, name: "My Item" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .patch(`/api/v1/events/${event.id}/items/${ownItem.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "My Updated Item" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe("My Updated Item");
+    });
+  });
+
+  describe("DELETE /api/v1/events/:eventId/items/:itemId (own-only delete)", () => {
+    it("a participant cannot delete another person's item", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Delete Authz Test" });
+
+      const othersItem = await db.eventItem.create({
+        data: { eventId: event.id, createdByPersonId: admin.id, name: "Admin's Item" }
+      });
+
+      const participant = await seedSecondPerson();
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: participant.id, role: "PARTICIPANT", status: "ACTIVE", invitedById: admin.id }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .delete(`/api/v1/events/${event.id}/items/${othersItem.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(403);
+    });
+
+    it("a participant can delete their own item", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Own Delete Test" });
+
+      const participant = await seedSecondPerson();
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: participant.id, role: "PARTICIPANT", status: "ACTIVE", invitedById: admin.id }
+      });
+
+      const ownItem = await db.eventItem.create({
+        data: { eventId: event.id, createdByPersonId: participant.id, name: "To Delete" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .delete(`/api/v1/events/${event.id}/items/${ownItem.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(204);
+      const deleted = await db.eventItem.findUnique({ where: { id: ownItem.id } });
+      expect(deleted).toBeNull();
+    });
+
+    it("an event-admin can delete anyone's item", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Admin Delete Test" });
+
+      const other = await seedSecondPerson();
+      const othersItem = await db.eventItem.create({
+        data: { eventId: event.id, createdByPersonId: other.id, name: "Other's Item" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .delete(`/api/v1/events/${event.id}/items/${othersItem.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(204);
+    });
+  });
+
   // ── Socket.io emit integration (P2-04) ──────────────────────────────────
 
   describe("Socket.io emit calls (P2-04)", () => {
