@@ -1135,6 +1135,11 @@ describe("events routes (P1-08)", () => {
           invitedById: admin.id
         }
       });
+      // a task created by an owning-family member, assigned to one — its person
+      // ids must NOT leak into the foreign DTO
+      await db.eventItem.create({
+        data: { eventId: event.id, createdByPersonId: admin.id, assignedToPersonId: admin.id, name: "Cups" }
+      });
 
       mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
       const res = await request(app)
@@ -1155,8 +1160,15 @@ describe("events routes (P1-08)", () => {
       expect(res.body.participants[0]).toHaveProperty("rsvpStatus");
       // no internal person ids leaked on the participant list
       expect(res.body.participants[0].personId).toBeUndefined();
-      // tasks array must be present
+      // tasks array must be present and must NOT leak owning-family person ids
       expect(Array.isArray(res.body.tasks)).toBe(true);
+      expect(res.body.tasks.length).toBeGreaterThan(0);
+      expect(res.body.tasks[0].name).toBe("Cups");
+      expect(res.body.tasks[0].status).toBeDefined();
+      expect(res.body.tasks[0].createdByPersonId).toBeUndefined();
+      expect(res.body.tasks[0].assignedToPersonId).toBeUndefined();
+      expect(res.body.tasks[0].eventId).toBeUndefined();
+      expect(res.body.tasks[0].visibility).toBeUndefined();
       // family name and nested roster must NOT be present
       expect(res.body.familyName).toBeUndefined();
       expect(res.body.members).toBeUndefined();

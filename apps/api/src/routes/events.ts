@@ -351,7 +351,19 @@ eventsRouter.get("/:eventId", async (req, res) => {
       }))
     ];
     const items = await db.eventItem.findMany({ where: { eventId }, orderBy: { createdAt: "asc" } });
-    res.json(toForeignInvitedEventDTO(event, participantList, items.map(serializeEventItem)));
+    // Foreign-safe task shape: NO internal person ids (createdByPersonId /
+    // assignedToPersonId), no eventId/visibility — only what a cross-family
+    // participant needs to see and interact with a task. (Per-item visibility
+    // filtering for foreign participants is not implemented; all event tasks are
+    // shared-surface in W3a.)
+    const foreignTasks = items.map((p) => ({
+      id: p.id,
+      name: p.name,
+      quantity: p.quantity,
+      notes: p.notes,
+      status: p.status
+    }));
+    res.json(toForeignInvitedEventDTO(event, participantList, foreignTasks));
     return;
   }
 
