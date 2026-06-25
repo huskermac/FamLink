@@ -9,6 +9,9 @@ import { canViewEvent } from "../lib/eventVisibility";
 import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 import { generateBirthdayEvents } from "../lib/birthdayGenerator";
 import { getInviteeSuggestions } from "../lib/inviteeSuggestions";
+import { resolveEventAccess, toForeignInvitedEventDTO, activeEventParticipant } from "../lib/eventAccess";
+import { NotificationService } from "../lib/notificationService";
+import { env } from "../lib/env";
 
 function generateInviteToken(): string {
   return crypto.randomBytes(32).toString("hex");
@@ -151,6 +154,12 @@ function serializeEventItem(p: EventItem) {
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString()
   };
+}
+
+// Isolation-safe task shape for a cross-family participant: NO internal person
+// ids (createdByPersonId / assignedToPersonId), no eventId / visibility.
+function foreignItemShape(p: EventItem) {
+  return { id: p.id, name: p.name, quantity: p.quantity, notes: p.notes, status: p.status };
 }
 
 async function loadEventForMember(eventId: string, requesterPersonId: string) {
@@ -317,16 +326,54 @@ eventsRouter.get("/:eventId", async (req, res) => {
   }
 
   const loaded = await loadEventForMember(eventId, requester.id);
-  if (loaded.error === "not_found") {
-    res.status(404).json({ error: "Event not found" });
+
+  // Not a viewable owning member: a cross-family ACTIVE participant still gets the
+  // isolation-safe DTO. Otherwise preserve the prior contract — 404 for missing or
+  // PRIVATE-hidden events, 403 for non-members/suspended (W3a must not change this).
+  if ("error" in loaded) {
+    const grant = await activeEventParticipant(requester.id, eventId);
+    if (grant) {
+      const event = await db.event.findUnique({ where: { id: eventId } });
+      if (event) {
+        const [grants, rsvps] = await Promise.all([
+          db.eventParticipant.findMany({
+            where: { eventId, status: "ACTIVE" },
+            select: { personId: true }
+          }),
+          db.rSVP.findMany({ where: { eventId }, select: { personId: true, status: true } })
+        ]);
+        const rsvpByPerson = new Map(rsvps.map((r) => [r.personId, r.status]));
+        // Attendees ONLY — people with an RSVP or an active grant on THIS event.
+        // NEVER the full owning-family roster (spec §6/§8: no roster beyond
+        // participants). rsvpStatus reflects each attendee's actual RSVP.
+        const attendeeIds = [...new Set([...rsvps.map((r) => r.personId), ...grants.map((g) => g.personId)])];
+        const attendees = await db.person.findMany({
+          where: { id: { in: attendeeIds } },
+          select: { id: true, firstName: true, preferredName: true }
+        });
+        const participantList = attendees.map((p) => ({
+          displayName: p.preferredName ?? p.firstName,
+          rsvpStatus: rsvpByPerson.get(p.id) ?? null
+        }));
+        const items = await db.eventItem.findMany({ where: { eventId }, orderBy: { createdAt: "asc" } });
+        // Per-item visibility filtering for foreign participants is not implemented;
+        // all event tasks are shared-surface in W3a.
+        const foreignTasks = items.map(foreignItemShape);
+        res.json(toForeignInvitedEventDTO(event, participantList, foreignTasks));
+        return;
+      }
+    }
+    if (loaded.error === "not_found") {
+      res.status(404).json({ error: "Event not found" });
+    } else {
+      res.status(403).json({ error: "Not authorized to view this event" });
+    }
     return;
   }
-  if (loaded.error === "forbidden") {
-    res.status(403).json({ error: "Not authorized to view this event" });
-    return;
-  }
+
   const { event } = loaded;
 
+  // Owning member: full event shape
   const [invitationCount, rsvpGroups, eventItems] = await Promise.all([
     db.eventInvitation.count({ where: { eventId } }),
     db.rSVP.groupBy({
@@ -340,23 +387,23 @@ eventsRouter.get("/:eventId", async (req, res) => {
     })
   ]);
 
-  const rsvps: Record<string, number> = {
+  const rsvpCounts: Record<string, number> = {
     YES: 0,
     NO: 0,
     MAYBE: 0,
     PENDING: 0
   };
   for (const row of rsvpGroups) {
-    const key = row.status as keyof typeof rsvps;
-    if (key in rsvps) {
-      rsvps[key] = row._count._all;
+    const key = row.status as keyof typeof rsvpCounts;
+    if (key in rsvpCounts) {
+      rsvpCounts[key] = row._count._all;
     }
   }
 
   res.json({
     event: serializeEvent(event),
     invitations: invitationCount,
-    rsvps,
+    rsvps: rsvpCounts,
     eventItems: eventItems.map(serializeEventItem)
   });
 });
@@ -469,6 +516,11 @@ const InviteeSchema = z.discriminatedUnion("kind", [
     guestEmail: z.string().email().optional(),
     guestPhone: z.string().optional(),
     guestName: z.string().optional()
+  }),
+  z.object({
+    kind: z.literal("famlinkUser"),
+    personId: z.string().min(1),
+    role: z.enum(["PARTICIPANT", "EVENT_ADMIN"]).optional()
   })
 ]);
 
@@ -515,8 +567,23 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
     return;
   }
 
+  // Cross-family invites require event-admin access
+  const hasFamlinkUserInvite = parsed.data.invitees.some((i) => i.kind === "famlinkUser");
+  if (hasFamlinkUserInvite) {
+    const access = await resolveEventAccess(eventId, requester.id);
+    if ("error" in access) {
+      res.status(404).json({ error: "Event not found" });
+      return;
+    }
+    if (!access.canAdmin) {
+      res.status(403).json({ error: "Only an event admin can invite cross-family participants" });
+      return;
+    }
+  }
+
   const now = new Date();
   const createdInvitations: object[] = [];
+  const famlinkUserInvites: Array<{ linkedPersonId: string; guestToken: string }> = [];
 
   await db.$transaction(async (tx) => {
     for (const invitee of parsed.data.invitees) {
@@ -537,7 +604,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
           });
           createdInvitations.push(created);
         }
-      } else {
+      } else if (invitee.kind === "guest") {
         // External guest
         const match = await matchPersonByContact(invitee.guestEmail, invitee.guestPhone);
         const existing = await tx.eventInvitation.findFirst({
@@ -566,9 +633,45 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
           });
           createdInvitations.push(created);
         }
+      } else if (invitee.kind === "famlinkUser") {
+        const existing = await tx.eventInvitation.findFirst({ where: { eventId, linkedPersonId: invitee.personId } });
+        if (!existing) {
+          const token = generateInviteToken();
+          const created = await tx.eventInvitation.create({
+            data: {
+              eventId,
+              linkedPersonId: invitee.personId,
+              role: invitee.role ?? "PARTICIPANT",
+              guestToken: token,
+              invitedById: requester.id,
+              scope: "INDIVIDUAL",
+              status: "PENDING",
+              sentAt: now
+            }
+          });
+          createdInvitations.push(created);
+          famlinkUserInvites.push({ linkedPersonId: invitee.personId, guestToken: token });
+        }
       }
     }
   });
+
+  // Send accept-link notifications to cross-family (famlinkUser) invitees ONLY —
+  // fire-and-forget, non-fatal. Guest invites (even when their contact matches an
+  // existing person) must NOT trigger this notification.
+  if (famlinkUserInvites.length > 0) {
+    const notifier = new NotificationService();
+    for (const inv of famlinkUserInvites) {
+      const acceptLink = `${env.WEB_APP_URL}/events/accept?token=${inv.guestToken}`;
+      notifier.send({
+        type: "EVENT_INVITE",
+        recipientPersonId: inv.linkedPersonId,
+        title: "You've been invited to an event",
+        body: `You have a new event invitation. Accept it here: ${acceptLink}`,
+        data: { acceptLink }
+      }).catch(() => { /* non-fatal */ });
+    }
+  }
 
   res.status(201).json({ invitations: createdInvitations });
 });
@@ -756,17 +859,10 @@ eventsRouter.put("/:eventId/rsvp", async (req, res) => {
 
   const requester = personed(req).person;
 
-  const loaded = await loadEventForMember(eventId, requester.id);
-  if (loaded.error === "not_found") {
-    res.status(404).json({ error: "Event not found" });
-    return;
-  }
-  if (loaded.error === "forbidden") {
-    res.status(403).json({ error: "Not authorized to RSVP to this event" });
-    return;
-  }
-
-  const { event } = loaded;
+  const access = await resolveEventAccess(eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  if (!access.canContribute) { res.status(403).json({ error: "Not authorized to RSVP to this event" }); return; }
+  const { event } = access;
 
   const now = new Date();
   const updated = await db.rSVP.upsert({
@@ -813,6 +909,127 @@ eventsRouter.put("/:eventId/rsvp", async (req, res) => {
     createdAt: updated.createdAt.toISOString(),
     updatedAt: updated.updatedAt.toISOString()
   });
+});
+
+const ParticipationTokenSchema = z.object({ token: z.string().min(1) });
+
+eventsRouter.post("/:eventId/participation/accept", async (req, res) => {
+  const p = eventIdParam.safeParse(req.params);
+  if (!p.success) { res.status(400).json({ error: "Invalid event id" }); return; }
+  const body = ParticipationTokenSchema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid request body" }); return; }
+  const requester = personed(req).person;
+
+  const inv = await db.eventInvitation.findFirst({
+    where: { eventId: p.data.eventId, guestToken: body.data.token, status: "PENDING" }
+  });
+  // Bind to authenticated identity: the token's invitation must target THIS person.
+  if (!inv || inv.linkedPersonId !== requester.id) {
+    res.status(403).json({ error: "This invitation is not for your account" });
+    return;
+  }
+  await db.$transaction(async (tx) => {
+    await tx.eventParticipant.upsert({
+      where: { eventId_personId: { eventId: p.data.eventId, personId: requester.id } },
+      create: { eventId: p.data.eventId, personId: requester.id, role: inv.role ?? "PARTICIPANT", status: "ACTIVE", invitedById: inv.invitedById ?? null },
+      update: { status: "ACTIVE", role: inv.role ?? "PARTICIPANT" }
+    });
+    await tx.eventInvitation.update({ where: { id: inv.id }, data: { status: "ACCEPTED" } });
+  });
+  res.json({ accepted: true });
+});
+
+eventsRouter.post("/:eventId/participation/decline", async (req, res) => {
+  const p = eventIdParam.safeParse(req.params);
+  if (!p.success) { res.status(400).json({ error: "Invalid event id" }); return; }
+  const body = ParticipationTokenSchema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid request body" }); return; }
+  const requester = personed(req).person;
+
+  const inv = await db.eventInvitation.findFirst({
+    where: { eventId: p.data.eventId, guestToken: body.data.token, status: "PENDING" }
+  });
+  if (!inv || inv.linkedPersonId !== requester.id) {
+    res.status(403).json({ error: "This invitation is not for your account" });
+    return;
+  }
+  await db.eventInvitation.update({ where: { id: inv.id }, data: { status: "DECLINED" } });
+  res.json({ declined: true });
+});
+
+const SetRoleSchema = z.object({ role: z.enum(["PARTICIPANT", "EVENT_ADMIN"]) });
+
+eventsRouter.post("/:eventId/participants/:personId/revoke", async (req, res) => {
+  const requester = personed(req).person;
+  const access = await resolveEventAccess(req.params.eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  if (!access.canAdmin) { res.status(403).json({ error: "Only an event admin can revoke participants" }); return; }
+  await db.eventParticipant.updateMany({
+    where: { eventId: req.params.eventId, personId: req.params.personId },
+    data: { status: "REVOKED" }
+  });
+  res.json({ revoked: true });
+});
+
+eventsRouter.put("/:eventId/participants/:personId/role", async (req, res) => {
+  const body = SetRoleSchema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid role" }); return; }
+  const requester = personed(req).person;
+  const access = await resolveEventAccess(req.params.eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  if (!access.canAdmin) { res.status(403).json({ error: "Only an event admin can set roles" }); return; }
+  await db.eventParticipant.updateMany({
+    where: { eventId: req.params.eventId, personId: req.params.personId, status: "ACTIVE" },
+    data: { role: body.data.role }
+  });
+  res.json({ updated: true });
+});
+
+const CreateItemSchema = z.object({ name: z.string().min(1), quantity: z.string().optional(), notes: z.string().optional() });
+const PatchItemSchema = z.object({ name: z.string().min(1).optional(), quantity: z.string().nullable().optional(), notes: z.string().nullable().optional(), status: z.enum(["UNCLAIMED", "CLAIMED", "PROVIDED", "CANCELLED"]).optional() });
+
+eventsRouter.post("/:eventId/items", async (req, res) => {
+  const body = CreateItemSchema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid item", details: body.error.flatten() }); return; }
+  const requester = personed(req).person;
+  const access = await resolveEventAccess(req.params.eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  if (!access.canContribute) { res.status(403).json({ error: "Not authorized to contribute to this event" }); return; }
+  const created = await db.eventItem.create({
+    data: { eventId: req.params.eventId, createdByPersonId: requester.id, name: body.data.name, quantity: body.data.quantity ?? null, notes: body.data.notes ?? null }
+  });
+  const isForeign = !access.isOwningMember && access.eventRole !== null;
+  res.status(201).json(isForeign ? foreignItemShape(created) : serializeEventItem(created));
+});
+
+async function authorizeItemMutation(eventId: string, itemId: string, personId: string) {
+  const access = await resolveEventAccess(eventId, personId);
+  if ("error" in access) return { error: "not_found" as const };
+  const item = await db.eventItem.findFirst({ where: { id: itemId, eventId } });
+  if (!item) return { error: "not_found" as const };
+  if (!access.canAdmin && item.createdByPersonId !== personId) return { error: "forbidden" as const };
+  return { item, access };
+}
+
+eventsRouter.patch("/:eventId/items/:itemId", async (req, res) => {
+  const body = PatchItemSchema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid item", details: body.error.flatten() }); return; }
+  const requester = personed(req).person;
+  const r = await authorizeItemMutation(req.params.eventId, req.params.itemId, requester.id);
+  if (r.error === "not_found") { res.status(404).json({ error: "Item not found" }); return; }
+  if (r.error === "forbidden") { res.status(403).json({ error: "You can only edit your own contribution" }); return; }
+  const updated = await db.eventItem.update({ where: { id: req.params.itemId }, data: body.data });
+  const isForeign = !r.access.isOwningMember && r.access.eventRole !== null;
+  res.json(isForeign ? foreignItemShape(updated) : serializeEventItem(updated));
+});
+
+eventsRouter.delete("/:eventId/items/:itemId", async (req, res) => {
+  const requester = personed(req).person;
+  const r = await authorizeItemMutation(req.params.eventId, req.params.itemId, requester.id);
+  if (r.error === "not_found") { res.status(404).json({ error: "Item not found" }); return; }
+  if (r.error === "forbidden") { res.status(403).json({ error: "You can only delete your own contribution" }); return; }
+  await db.eventItem.delete({ where: { id: req.params.itemId } });
+  res.status(204).end();
 });
 
 eventsRouter.post("/:eventId/potluck", async (req, res) => {
