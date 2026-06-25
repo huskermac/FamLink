@@ -920,6 +920,34 @@ eventsRouter.post("/:eventId/participation/decline", async (req, res) => {
   res.json({ declined: true });
 });
 
+const SetRoleSchema = z.object({ role: z.enum(["PARTICIPANT", "EVENT_ADMIN"]) });
+
+eventsRouter.post("/:eventId/participants/:personId/revoke", async (req, res) => {
+  const requester = personed(req).person;
+  const access = await resolveEventAccess(req.params.eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  if (!access.canAdmin) { res.status(403).json({ error: "Only an event admin can revoke participants" }); return; }
+  await db.eventParticipant.updateMany({
+    where: { eventId: req.params.eventId, personId: req.params.personId },
+    data: { status: "REVOKED" }
+  });
+  res.json({ revoked: true });
+});
+
+eventsRouter.put("/:eventId/participants/:personId/role", async (req, res) => {
+  const body = SetRoleSchema.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: "Invalid role" }); return; }
+  const requester = personed(req).person;
+  const access = await resolveEventAccess(req.params.eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  if (!access.canAdmin) { res.status(403).json({ error: "Only an event admin can set roles" }); return; }
+  await db.eventParticipant.updateMany({
+    where: { eventId: req.params.eventId, personId: req.params.personId, status: "ACTIVE" },
+    data: { role: body.data.role }
+  });
+  res.json({ updated: true });
+});
+
 eventsRouter.post("/:eventId/potluck", async (req, res) => {
   const p = eventIdParam.safeParse(req.params);
   if (!p.success) {

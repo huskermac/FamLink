@@ -11,6 +11,7 @@ import {
   seedTestFamily,
   seedTestPerson
 } from "../helpers/db";
+import { activeEventParticipant } from "../../lib/eventAccess";
 
 vi.mock("@clerk/express", () => ({
   clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => {
@@ -798,6 +799,78 @@ describe("events routes (P1-08)", () => {
 
       const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id, guestToken: token } });
       expect(inv?.status).toBe("DECLINED");
+    });
+  });
+
+  // ── POST participants/:personId/revoke + PUT participants/:personId/role (P3-03 Task 6) ──
+
+  describe("POST /api/v1/events/:eventId/participants/:personId/revoke", () => {
+    it("event-admin revoke sets status REVOKED and cuts access", async () => {
+      // admin is event creator → canAdmin true
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Revoke Test" });
+      // targetPerson has an ACTIVE grant (cross-family participant)
+      const targetPerson = await seedGuestPerson({ firstName: "Target" });
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: targetPerson.id, role: "PARTICIPANT", status: "ACTIVE" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/participants/${targetPerson.id}/revoke`)
+        .set("Authorization", "Bearer mock")
+        .send();
+
+      expect(res.status).toBe(200);
+      expect(await activeEventParticipant(targetPerson.id, event.id)).toBeNull();
+    });
+
+    it("a participant (non-admin) cannot revoke others", async () => {
+      // nonAdmin person has an ACTIVE PARTICIPANT grant but is not event creator/family admin
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Revoke Authz Test" });
+
+      const nonAdmin = await seedSecondPerson();
+      // nonAdmin is a cross-family participant (PARTICIPANT role) — not a family member, not creator
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: nonAdmin.id, role: "PARTICIPANT", status: "ACTIVE" }
+      });
+      const targetPerson = await seedGuestPerson({ firstName: "Target2" });
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: targetPerson.id, role: "PARTICIPANT", status: "ACTIVE" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/participants/${targetPerson.id}/revoke`)
+        .set("Authorization", "Bearer mock")
+        .send();
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("PUT /api/v1/events/:eventId/participants/:personId/role", () => {
+    it("event-admin can promote a participant to EVENT_ADMIN", async () => {
+      // admin is event creator → canAdmin true
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Role Test" });
+      const targetPerson = await seedGuestPerson({ firstName: "Promote" });
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: targetPerson.id, role: "PARTICIPANT", status: "ACTIVE" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .put(`/api/v1/events/${event.id}/participants/${targetPerson.id}/role`)
+        .set("Authorization", "Bearer mock")
+        .send({ role: "EVENT_ADMIN" });
+
+      expect(res.status).toBe(200);
+      expect(await activeEventParticipant(targetPerson.id, event.id)).toEqual({ role: "EVENT_ADMIN" });
     });
   });
 
