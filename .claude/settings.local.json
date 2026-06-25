@@ -150,7 +150,20 @@
       "PowerShell(\"=== staged files ===\")",
       "PowerShell(\"=== first commit ===\")",
       "mcp__github__create_repository",
-      "mcp__postgres__query"
+      "mcp__postgres__query",
+      "PowerShell(gh auth status)",
+      "WebFetch(domain:hearthdisplay.com)",
+      "WebSearch",
+      "WebFetch(domain:www.skylightframe.com)",
+      "WebFetch(domain:myskylight.com)",
+      "WebFetch(domain:kinscape.com)",
+      "WebFetch(domain:join.kinscape.com)",
+      "WebFetch(domain:www.ohai.ai)",
+      "WebFetch(domain:famlink.com)",
+      "WebFetch(domain:kinfold.com)",
+      "WebFetch(domain:famora.com)",
+      "WebFetch(domain:roostly.com)",
+      "WebFetch(domain:hiven.com)"
     ],
     "additionalDirectories": [
       "\\tmp",
