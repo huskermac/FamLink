@@ -1,6 +1,6 @@
 import { db } from "@famlink/db";
 import { describe, it, expect } from "vitest";
-import { mergePersons } from "../personIdentity";
+import { mergePersons, nameCorroborates, selectMergeableContactPerson } from "../personIdentity";
 
 async function adult(first: string, last: string, extra: Record<string, unknown> = {}) {
   return db.person.create({
@@ -130,5 +130,66 @@ describe("mergePersons", () => {
     expect(await db.eventInvitation.count({ where: { invitedById: dup.id } })).toBe(0);
     expect(await db.eventParticipant.count({ where: { invitedById: dup.id } })).toBe(0);
     expect(await db.person.findUnique({ where: { id: dup.id } })).toBeNull();
+  });
+});
+
+describe("nameCorroborates", () => {
+  it("matches on full name (case-insensitive)", () => {
+    expect(nameCorroborates({ firstName: "Ann", lastName: "Lee" }, { firstName: "ann", lastName: "lee" })).toBe(true);
+  });
+  it("does NOT match on last name alone when first names differ (spouse guard)", () => {
+    expect(nameCorroborates({ firstName: "Bob", lastName: "Smith" }, { firstName: "Robert", lastName: "smith" })).toBe(false);
+  });
+  it("does not match on a different surname", () => {
+    expect(nameCorroborates({ firstName: "Bob", lastName: "Jones" }, { firstName: "Bob", lastName: "Smith" })).toBe(false);
+  });
+  it("does not treat the placeholder name as a match", () => {
+    expect(nameCorroborates({ firstName: "User", lastName: "-" }, { firstName: "User", lastName: "-" })).toBe(false);
+  });
+});
+
+describe("selectMergeableContactPerson", () => {
+  const email = () => `sel_${Date.now()}_${Math.random().toString(36).slice(2)}@x.com`;
+
+  it("returns no-candidate when nobody shares the email", async () => {
+    const acct = await db.person.create({ data: { firstName: "A", lastName: "B", ageGateLevel: "ADULT", userId: `u_${Date.now()}` } });
+    const d = await selectMergeableContactPerson({ emailNormalized: email(), accountPersonId: acct.id, firstName: "A", lastName: "B" });
+    expect(d.action).toBe("skip");
+    expect(d).toMatchObject({ reason: "no-candidate" });
+  });
+
+  it("merges a single adult contact-only match with a corroborating name", async () => {
+    const e = email();
+    const guest = await db.person.create({ data: { firstName: "Guest", lastName: "Adams", ageGateLevel: "ADULT", emailNormalized: e } });
+    const acct = await db.person.create({ data: { firstName: "Guest", lastName: "Adams", ageGateLevel: "ADULT", emailNormalized: e, emailVerifiedAt: new Date(), userId: `u_${Date.now()}` } });
+    const d = await selectMergeableContactPerson({ emailNormalized: e, accountPersonId: acct.id, firstName: "Guest", lastName: "Adams" });
+    expect(d).toMatchObject({ action: "merge" });
+    if (d.action === "merge") expect(d.person.id).toBe(guest.id);
+  });
+
+  it("skips a dependent (non-ADULT or guarded) carrying the email", async () => {
+    const e = email();
+    const guardian = await db.person.create({ data: { firstName: "Par", lastName: "Ent", ageGateLevel: "ADULT" } });
+    await db.person.create({ data: { firstName: "Kid", lastName: "Ent", ageGateLevel: "CHILD", emailNormalized: e, guardianPersonId: guardian.id } });
+    const acct = await db.person.create({ data: { firstName: "Par", lastName: "Ent", ageGateLevel: "ADULT", emailNormalized: e, emailVerifiedAt: new Date(), userId: `u_${Date.now()}` } });
+    const d = await selectMergeableContactPerson({ emailNormalized: e, accountPersonId: acct.id, firstName: "Par", lastName: "Ent" });
+    expect(d).toMatchObject({ action: "skip", reason: "dependent-only" });
+  });
+
+  it("skips when multiple adult matches are ambiguous", async () => {
+    const e = email();
+    await db.person.create({ data: { firstName: "One", lastName: "Z", ageGateLevel: "ADULT", emailNormalized: e } });
+    await db.person.create({ data: { firstName: "Two", lastName: "Z", ageGateLevel: "ADULT", emailNormalized: e } });
+    const acct = await db.person.create({ data: { firstName: "One", lastName: "Z", ageGateLevel: "ADULT", emailNormalized: e, emailVerifiedAt: new Date(), userId: `u_${Date.now()}` } });
+    const d = await selectMergeableContactPerson({ emailNormalized: e, accountPersonId: acct.id, firstName: "One", lastName: "Z" });
+    expect(d).toMatchObject({ action: "skip", reason: "ambiguous" });
+  });
+
+  it("skips a single match whose name does not corroborate", async () => {
+    const e = email();
+    await db.person.create({ data: { firstName: "Some", lastName: "Stranger", ageGateLevel: "ADULT", emailNormalized: e } });
+    const acct = await db.person.create({ data: { firstName: "Real", lastName: "Owner", ageGateLevel: "ADULT", emailNormalized: e, emailVerifiedAt: new Date(), userId: `u_${Date.now()}` } });
+    const d = await selectMergeableContactPerson({ emailNormalized: e, accountPersonId: acct.id, firstName: "Real", lastName: "Owner" });
+    expect(d).toMatchObject({ action: "skip", reason: "name-mismatch" });
   });
 });

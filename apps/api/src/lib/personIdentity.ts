@@ -218,3 +218,43 @@ export async function mergePersons(
     );
   });
 }
+
+export function nameCorroborates(
+  candidate: { firstName: string; lastName: string },
+  account: { firstName: string; lastName: string }
+): boolean {
+  const norm = (s: string): string => s.trim().toLowerCase();
+  // Require a full first+last match; reject the webhook placeholders ("User"/"-")
+  // so a missing Clerk name can never corroborate. Last-name-only is intentionally
+  // NOT accepted — two adults sharing an email + surname (spouses) must not fuse.
+  const realName = norm(account.firstName) !== "user" && norm(account.lastName) !== "-";
+  const sameFirst = norm(candidate.firstName) === norm(account.firstName);
+  const sameLast = norm(candidate.lastName) === norm(account.lastName);
+  return realName && sameFirst && sameLast;
+}
+
+export type MergeDecision =
+  | { action: "merge"; person: Person }
+  | { action: "skip"; reason: "no-candidate" | "dependent-only" | "ambiguous" | "name-mismatch" };
+
+export async function selectMergeableContactPerson(opts: {
+  emailNormalized: string;
+  accountPersonId: string;
+  firstName: string;
+  lastName: string;
+}): Promise<MergeDecision> {
+  const candidates = await db.person.findMany({
+    where: { emailNormalized: opts.emailNormalized, userId: null, NOT: { id: opts.accountPersonId } }
+  });
+  if (candidates.length === 0) return { action: "skip", reason: "no-candidate" };
+
+  const adults = candidates.filter((p) => p.ageGateLevel === "ADULT" && p.guardianPersonId === null);
+  if (adults.length === 0) return { action: "skip", reason: "dependent-only" };
+  if (adults.length > 1) return { action: "skip", reason: "ambiguous" };
+
+  const sole = adults[0];
+  if (!nameCorroborates(sole, { firstName: opts.firstName, lastName: opts.lastName })) {
+    return { action: "skip", reason: "name-mismatch" };
+  }
+  return { action: "merge", person: sole };
+}
