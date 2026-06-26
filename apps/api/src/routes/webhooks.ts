@@ -3,6 +3,7 @@ import { Router } from "express";
 import { Webhook } from "svix";
 import { db } from "@famlink/db";
 import { env } from "../lib/env";
+import { normalizeEmail } from "../lib/contact";
 
 export const webhooksRouter = Router();
 
@@ -67,6 +68,7 @@ webhooksRouter.post("/", async (req: Request, res: Response) => {
       const profilePhotoUrl = data.image_url ?? null;
       const primaryEmail =
         data.email_addresses?.find((e) => e.email_address)?.email_address?.trim() ?? null;
+      const emailNormalized = normalizeEmail(primaryEmail);
 
       await db.person.upsert({
         where: { userId: clerkUserId },
@@ -76,13 +78,17 @@ webhooksRouter.post("/", async (req: Request, res: Response) => {
           lastName,
           ageGateLevel: "ADULT",
           profilePhotoUrl,
-          email: primaryEmail
+          email: primaryEmail,
+          emailNormalized,
+          emailVerifiedAt: emailNormalized ? new Date() : null
         },
         update: {
           firstName,
           lastName,
           profilePhotoUrl,
-          email: primaryEmail
+          email: primaryEmail,
+          emailNormalized,
+          emailVerifiedAt: emailNormalized ? new Date() : null
         }
       });
     }

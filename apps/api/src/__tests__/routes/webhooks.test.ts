@@ -84,6 +84,32 @@ describe("POST /api/v1/webhooks/clerk", () => {
     expect(person?.firstName).toBe("Jane");
   });
 
+  it("user.created: sets emailNormalized and emailVerifiedAt from Clerk email", async () => {
+    const clerkId = `user_email_${Date.now()}`;
+    const payload = {
+      type: "user.created",
+      data: {
+        id: clerkId,
+        first_name: "Email",
+        last_name: "Verified",
+        email_addresses: [{ email_address: "User@Example.com" }]
+      }
+    };
+    const { body, headers } = signPayload(payload);
+
+    const res = await request(app)
+      .post("/api/v1/webhooks/clerk")
+      .set(headers)
+      .send(body);
+
+    expect(res.status).toBe(200);
+
+    const person = await db.person.findUnique({ where: { userId: clerkId } });
+    expect(person?.email).toBe("User@Example.com");
+    expect(person?.emailNormalized).toBe("user@example.com");
+    expect(person?.emailVerifiedAt).not.toBeNull();
+  });
+
   it("user.created: is idempotent (two calls produce one record)", async () => {
     const clerkId = `user_idem_${Date.now()}`;
     const payload = {
