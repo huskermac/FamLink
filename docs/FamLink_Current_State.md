@@ -6,7 +6,7 @@
 |---|---|
 | Last updated | 2026-06-26 |
 | Branch | `codex/p3-03-cif-plan-a` |
-| HEAD | `a6ed399` before this checkpoint doc commit |
+| HEAD | `511571b` |
 | Local verification | PASS: API tests, root type-check, root lint, `git diff --check` |
 
 ---
