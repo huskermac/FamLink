@@ -176,6 +176,15 @@ describe("selectMergeableContactPerson", () => {
     expect(d).toMatchObject({ action: "skip", reason: "dependent-only" });
   });
 
+  it("skips a guarded adult (ADULT with non-null guardianPersonId) carrying the email", async () => {
+    const e = email();
+    const guardian = await db.person.create({ data: { firstName: "Care", lastName: "Taker", ageGateLevel: "ADULT" } });
+    await db.person.create({ data: { firstName: "Ward", lastName: "Ed", ageGateLevel: "ADULT", emailNormalized: e, guardianPersonId: guardian.id } });
+    const acct = await db.person.create({ data: { firstName: "Ward", lastName: "Ed", ageGateLevel: "ADULT", emailNormalized: e, emailVerifiedAt: new Date(), userId: `u_${Date.now()}` } });
+    const d = await selectMergeableContactPerson({ emailNormalized: e, accountPersonId: acct.id, firstName: "Ward", lastName: "Ed" });
+    expect(d).toMatchObject({ action: "skip", reason: "dependent-only" });
+  });
+
   it("skips when multiple adult matches are ambiguous", async () => {
     const e = email();
     await db.person.create({ data: { firstName: "One", lastName: "Z", ageGateLevel: "ADULT", emailNormalized: e } });
