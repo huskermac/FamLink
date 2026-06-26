@@ -260,6 +260,7 @@ describe("POST /api/v1/webhooks/clerk", () => {
     expect(res.status).toBe(200);
 
     const acct = await db.person.findUnique({ where: { userId: clerkId } });
+    expect(acct).not.toBeNull();
     expect((await db.eventInvitation.findUnique({ where: { id: inv.id } }))?.linkedPersonId).toBe(acct!.id);
     expect((await db.rSVP.findUnique({ where: { id: rsvp.id } }))?.personId).toBe(acct!.id);
     expect(await db.person.findUnique({ where: { id: guest.id } })).toBeNull();

@@ -130,6 +130,16 @@ async function repointRelationship(
   };
 }
 
+/**
+ * Fuses `duplicateId` into `canonicalId`: re-points every Person-referencing
+ * column, dedupes compound-unique collisions (canonical wins), deletes the
+ * duplicate. Refuses to delete an account (duplicate with a userId).
+ *
+ * NOTE: performs NO tenant/FamilyGroup check — it trusts the caller to pass a
+ * verified canonical↔duplicate pairing (today: a new account claiming its own
+ * guest history). Cross-family consolidation of one person's records is the
+ * intended behavior; do not call this with two unrelated persons.
+ */
 export async function mergePersons(
   canonicalId: string,
   duplicateId: string,
