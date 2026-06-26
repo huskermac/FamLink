@@ -1,125 +1,62 @@
 # AGENTS.md
-## FamLink Project Instructions + General Coding Behavior
+## FamLink — Codex adapter
 
-These instructions govern all Codex-assisted development on this project.
-Guidelines bias toward caution over speed — for trivial tasks, use judgment.
+This file is a **thin adapter** for Codex. The shared, cross-tool truth lives in:
 
----
+- **`docs/FamLink_Agent_Rules.md`** — process rules (working style, repo organization, dev rules, phase gate, session scope, checkpointing, coding behavior, security). **Read this; it governs all work.**
+- **`docs/FamLink_Current_State.md`** — current phase/status, work completed, verification baseline, next step, blockers, deferred items, GitNexus freshness. **Read this first to resume.**
 
-## Repository Organization
-
-**Keep everything committed and organized at all times.**
-- Doc files, session bookmarks, ADR updates, and prompt libraries go in `/docs` — commit them in the same session they are created.
-- Never leave untracked files sitting in the working tree between sessions. If a file exists, it should either be committed or gitignored.
-- `packages/db/apps/` is a generated artifact directory — gitignored, do not commit.
-- All new documents are `.md` format — no Word docs.
-- Documents are created by Codex, downloaded by Steve, placed in `/docs` manually.
+Do not duplicate phase/status or process rules here — those two docs are canonical. If this file ever conflicts with them (or with the live code), the shared docs and the code win. (This adapter previously carried stale "Phase 2 / P2-08" status; that has been removed in favor of `FamLink_Current_State.md`.)
 
 ---
 
-## Phase 2 Build Context
+## Codex-specific behavior
 
-- **Current phase:** Phase 2 (P2-08 is next)
-- **Test runner:** Vitest (API + web), Jest + Expo preset (mobile)
-- **AI observability:** Helicone
-- **Real-time:** Socket.io (`event:created`, `rsvp:updated` events)
-- **Propose-confirm pattern:** All AI writes require human-in-the-loop confirmation
+- **LLM Council:** for every non-trivial `/goal` run, explicitly invoke `$llm-council`. The council must review (1) the implementation plan before repository writes, and (2) the verified delivery before the goal is marked complete. Codex remains responsible for implementation and must independently validate reviewer findings.
+- **Per-task verification must include the lint step** (the API CI `eslint src` fails on any error), not just typecheck + tests — see the process note in `FamLink_Current_State.md`.
 
 ---
 
-## Development Rules
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
 
-- **Commit format:** `feat: P2-XX <short description>` (or `chore:`, `fix:` as appropriate)
-- **Governing document:** ADR v0.4 (`docs/FamLink_ADR_v0_4.md`) — consult before any architectural decision
-- **No decisions are locked until explicitly confirmed by Steve**
+This project is indexed by GitNexus as **FamLink** (2973 symbols, 4096 relationships, 84 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
----
+> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
-## 1. Think Before Coding
+## Always Do
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them — don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+## Never Do
 
----
+- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
+- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
 
-## 2. Simplicity First
+## Resources
 
-**Minimum code that solves the problem. Nothing speculative.**
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/FamLink/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/FamLink/clusters` | All functional areas |
+| `gitnexus://repo/FamLink/processes` | All execution flows |
+| `gitnexus://repo/FamLink/process/{name}` | Step-by-step execution trace |
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- Validate at system boundaries only — trust internal code and framework guarantees.
-- If you write 200 lines and it could be 50, rewrite it.
-- Three similar lines of code is better than a premature abstraction.
+## CLI
 
-Ask yourself: *"Would a senior engineer say this is overcomplicated?"* If yes, simplify.
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
----
-
-## 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it — don't delete it.
-- Read files before editing them.
-- Do not create files unless absolutely necessary — prefer editing existing files.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: *Every changed line should trace directly to the user's request.*
-
----
-
-## 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria enable independent looping. Weak criteria ("make it work") require constant clarification.
-
----
-
-## LLM Council
-
-For every non-trivial `/goal` run, explicitly invoke `$llm-council`.
-
-The council must review:
-1. The implementation plan before repository writes.
-2. The verified delivery before the goal is marked complete.
-
-Codex remains responsible for implementation and must independently validate reviewer findings.
-
----
-
-## 5. Security
-
-- Do not introduce security vulnerabilities (injection, XSS, etc.)
-- Do not add features, refactoring, or comments beyond what was asked.
-
----
-
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+<!-- gitnexus:end -->
