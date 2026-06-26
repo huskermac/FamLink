@@ -21,6 +21,10 @@ model Person {
   profilePhotoUrl String?
   email           String?
   phone           String?
+  emailNormalized String?
+  phoneNormalized String?
+  emailVerifiedAt DateTime?
+  phoneVerifiedAt DateTime?
   fcmToken        String?
   isDeceased                      Boolean   @default(false)
   dateOfDeath                     DateTime?
@@ -41,6 +45,8 @@ model Person {
   eventParticipations  EventParticipant[]
 
   @@index([userId])
+  @@index([emailNormalized])
+  @@index([phoneNormalized])
 }
 
 model FamilyGroup {
