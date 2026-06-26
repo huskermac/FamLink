@@ -1,4 +1,12 @@
 # CLAUDE.md
+
+At the start of every session, read:
+1. `docs/FamLink_Agent_Rules.md`
+2. `docs/FamLink_Current_State.md`
+3. This tool-specific adapter file (`CLAUDE.md`)
+
+Then follow the Resume Protocol before doing implementation work.
+
 ## FamLink — Claude Code adapter
 
 This file is a **thin adapter** for Claude Code. The shared, cross-tool truth lives in:

@@ -1,4 +1,12 @@
 # AGENTS.md
+
+At the start of every session, read:
+1. `docs/FamLink_Agent_Rules.md`
+2. `docs/FamLink_Current_State.md`
+3. This tool-specific adapter file (`AGENTS.md`)
+
+Then follow the Resume Protocol before doing implementation work.
+
 ## FamLink — Codex adapter
 
 This file is a **thin adapter** for Codex. The shared, cross-tool truth lives in:
