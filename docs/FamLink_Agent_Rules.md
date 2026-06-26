@@ -80,6 +80,7 @@ If scope is ambiguous ("let's do P3"), clarify the boundary before starting. Do 
 1. **`docs/FamLink_Current_State.md` is the canonical, cross-tool resume point.** When meaningful work is done, update it (status, work completed + commit SHAs, verification baseline, next step, blockers, deferred items, GitNexus freshness) and **commit it**.
 2. **Tool-private memory is supplementary, not canonical.** A given agent may keep its own notes (e.g., Claude Code's auto-memory `MEMORY.md` + memory dir). These supplement but never override `FamLink_Current_State.md`; if they conflict, the shared doc + the code win.
 3. **No untracked files** — every file touched must be committed or gitignored before closing.
+4. **Re-analyze GitNexus before ending the session.** After the final commit, run `npx gitnexus analyze` from the repo root so the index reflects HEAD and the next session resumes against a fresh graph. Record the resulting freshness state (in sync / commits behind) in `FamLink_Current_State.md`'s GitNexus-freshness note.
 
 At session start, read `docs/FamLink_Current_State.md` (and your tool-private bookmark if you keep one) to resume without re-asking Steve for context.
 
@@ -92,6 +93,7 @@ At session start, read `docs/FamLink_Current_State.md` (and your tool-private bo
 - If multiple interpretations exist, present them — don't pick silently.
 - If a simpler approach exists, say so. Push back when warranted.
 - If something is unclear, stop. Name what's confusing. Ask.
+- **Assess blast radius during design/planning, not just at edit time.** While weighing any change you're considering — in a brainstorm, a written plan, or a council review — run GitNexus impact analysis (`gitnexus_impact` upstream) on the symbols it would touch and let the blast radius (direct callers, affected processes, risk level) inform the design. Surface HIGH/CRITICAL risk to Steve before committing to that approach. Ensure the index is fresh first (Resume Protocol step 5).
 
 ## 2. Simplicity First
 
