@@ -6,7 +6,7 @@
 |---|---|
 | Last updated | 2026-06-26 |
 | Branch | `codex/p3-03-cif-plan-a` |
-| HEAD | `511571b` |
+| Checkpoint | CIF Plan A implementation through `a6ed399`; shared-state checkpoint committed after implementation |
 | Local verification | PASS: API tests, root type-check, root lint, `git diff --check` |
 
 ---
