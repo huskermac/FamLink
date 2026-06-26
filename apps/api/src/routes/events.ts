@@ -12,22 +12,10 @@ import { getInviteeSuggestions } from "../lib/inviteeSuggestions";
 import { resolveEventAccess, toForeignInvitedEventDTO, activeEventParticipant } from "../lib/eventAccess";
 import { NotificationService } from "../lib/notificationService";
 import { env } from "../lib/env";
+import { findOrCreatePersonByContact } from "../lib/personIdentity";
 
 function generateInviteToken(): string {
   return crypto.randomBytes(32).toString("hex");
-}
-
-async function matchPersonByContact(email?: string, phone?: string) {
-  if (!email && !phone) return null;
-  return db.person.findFirst({
-    where: {
-      OR: [
-        ...(email ? [{ email }] : []),
-        ...(phone ? [{ phone }] : [])
-      ]
-    },
-    select: { id: true }
-  });
 }
 
 const visibilityEnum = z.enum(["PRIVATE", "HOUSEHOLD", "FAMILY", "INVITED", "GUEST"]);
@@ -606,7 +594,11 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
         }
       } else if (invitee.kind === "guest") {
         // External guest
-        const match = await matchPersonByContact(invitee.guestEmail, invitee.guestPhone);
+        const match = await findOrCreatePersonByContact({
+          email: invitee.guestEmail,
+          phone: invitee.guestPhone,
+          name: invitee.guestName
+        });
         const existing = await tx.eventInvitation.findFirst({
           where: {
             eventId,
@@ -624,7 +616,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
               guestPhone: invitee.guestPhone ?? null,
               guestName: invitee.guestName ?? null,
               guestToken: generateInviteToken(),
-              linkedPersonId: match?.id ?? null,
+              linkedPersonId: match.id,
               invitedById: requester.id,
               scope: "INDIVIDUAL",
               status: "PENDING",
