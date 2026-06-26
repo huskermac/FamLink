@@ -95,4 +95,4 @@ Create a PR or make a merge decision for **Contact Identity Foundation Plan A** 
 
 ## GitNexus Freshness
 
-Up-to-date. `npx.cmd gitnexus analyze` ran 2026-06-26 on `codex/p3-03-cif-plan-a`: 3,028 nodes / 4,189 edges / 96 clusters / 88 flows. `AGENTS.md` and `CLAUDE.md` GitNexus blocks were refreshed to match.
+Up-to-date. `npx.cmd gitnexus analyze` ran 2026-06-26 on `codex/p3-03-cif-plan-a`: 3,029 nodes / 4,189 edges / 97 clusters / 88 flows. `AGENTS.md` and `CLAUDE.md` GitNexus blocks were refreshed to match.
