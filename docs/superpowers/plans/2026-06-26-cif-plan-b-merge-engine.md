@@ -31,11 +31,14 @@
 - **Modify** `apps/api/src/routes/webhooks.ts` — post-upsert consolidation on `user.created`.
 - **Modify** `apps/api/src/__tests__/routes/webhooks.test.ts` — merge / dependent-skip / reconcile cases.
 
-**Authoritative Person-FK set (from `schema.prisma`), handled by `mergePersons`:**
+**Authoritative Person-reference set (from `schema.prisma`), handled by `mergePersons`.** Includes both declared Prisma relations *and* logical Person-id columns with no relation (the latter have no FK constraint, so a stale id silently survives the duplicate's deletion unless re-pointed):
 - Self-ref: `Person.guardianPersonId` (wards)
-- Non-unique: `FamilyGroup.createdById`; `Event.createdByPersonId`, `Event.birthdayPersonId`; `EventInvitation.personId`, `EventInvitation.linkedPersonId`; `EventItem.createdByPersonId`, `EventItem.assignedToPersonId`; `EventPhoto.personId`
+- Non-unique declared relations: `FamilyGroup.createdById`; `Event.createdByPersonId`, `Event.birthdayPersonId`; `EventItem.createdByPersonId`, `EventItem.assignedToPersonId`; `EventPhoto.uploadedById` *(note: column is `uploadedById`, NOT `personId`; relation is `uploadedBy`, `onDelete: Restrict`)*
+- Non-unique **logical** columns (no Prisma relation): `EventInvitation.personId`, `EventInvitation.linkedPersonId`, `EventInvitation.invitedById`; `EventParticipant.invitedById`; `AssistantMessage.personId`
 - Compound-unique on `personId`: `FamilyMember[familyGroupId,personId]`, `HouseholdMember[householdId,personId]`, `NotificationPreference[personId,channel,notifType]`, `RSVP[eventId,personId]`, `EventParticipant[eventId,personId]`
 - Two-column compound: `Relationship[fromPersonId,toPersonId,familyGroupId,type]`
+
+> **Compound-collision data-loss tradeoff (accepted):** the "keep canonical's row, drop duplicate's" rule discards the duplicate row's richer state on collision (e.g. `RSVP.status/respondedAt`, `EventParticipant.role/status`, `FamilyMember.roles/permissions`). This is acceptable because canonical is a *freshly created account* that rarely already holds a row for the same event/family, so collisions are rare; when they do occur, canonical's row wins deterministically. Not worth field-level merge logic for beta-scale data.
 
 ---
 
@@ -130,6 +133,23 @@ describe("mergePersons", () => {
     expect(await db.relationship.findUnique({ where: { id: selfish.id } })).toBeNull();
   });
 
+  it("dedupes a Relationship collision on the toPersonId side", async () => {
+    const canon = await adult("C", "ToSide");
+    const dup = await adult("D", "ToSide");
+    const other = await adult("O", "ToSide");
+    const fg = await db.familyGroup.create({ data: { name: "ToFam", createdById: canon.id } });
+    // canonical already has other->canon; duplicate has the same other->dup that would collide after re-point
+    const canonRel = await db.relationship.create({
+      data: { fromPersonId: other.id, toPersonId: canon.id, type: "PARENT", familyGroupId: fg.id }
+    });
+    const dupRel = await db.relationship.create({
+      data: { fromPersonId: other.id, toPersonId: dup.id, type: "PARENT", familyGroupId: fg.id }
+    });
+    await mergePersons(canon.id, dup.id);
+    expect(await db.relationship.findUnique({ where: { id: canonRel.id } })).not.toBeNull();
+    expect(await db.relationship.findUnique({ where: { id: dupRel.id } })).toBeNull();
+  });
+
   it("refuses to merge two account persons and leaves both intact", async () => {
     const a = await adult("Acc", "One", { userId: `u_a_${Date.now()}` });
     const b = await adult("Acc", "Two", { userId: `u_b_${Date.now()}` });
@@ -138,24 +158,47 @@ describe("mergePersons", () => {
     expect(await db.person.findUnique({ where: { id: b.id } })).not.toBeNull();
   });
 
+  it("refuses to delete an account passed as the duplicate (reversed direction)", async () => {
+    const contactOnly = await adult("Contact", "Only");
+    const account = await adult("Real", "Account", { userId: `u_rev_${Date.now()}` });
+    await expect(mergePersons(contactOnly.id, account.id)).rejects.toThrow();
+    expect(await db.person.findUnique({ where: { id: account.id } })).not.toBeNull();
+  });
+
   it("leaves the duplicate id referenced nowhere after a multi-relation merge", async () => {
     const canon = await adult("C", "Multi");
     const dup = await adult("D", "Multi");
     const fg = await db.familyGroup.create({ data: { name: "MultiFam", createdById: dup.id } });
     await db.notificationPreference.create({ data: { personId: dup.id, channel: "sms", notifType: "rsvp" } });
-    await db.familyMember.create({ data: { familyGroupId: fg.id, personId: dup.id, role: "MEMBER" } });
+    await db.familyMember.create({ data: { familyGroupId: fg.id, personId: dup.id, roles: ["MEMBER"] } });
+    // AssistantMessage.personId is a LOGICAL ref (no FK) — without re-point it would silently orphan
+    await db.assistantMessage.create({
+      data: { conversationId: `c_${Date.now()}`, personId: dup.id, familyGroupId: fg.id, role: "user", content: "hi" }
+    });
+    // logical refs flagged by review — uploadedById / invitedById have no FK constraint
+    const event = await db.event.create({
+      data: { title: "Guard", familyGroupId: fg.id, createdByPersonId: canon.id, startAt: new Date() }
+    });
+    await db.eventPhoto.create({ data: { eventId: event.id, uploadedById: dup.id, key: `k_${Date.now()}`, url: "https://x/p.png" } });
+    await db.eventInvitation.create({ data: { eventId: event.id, invitedById: dup.id, guestEmail: "g@x.com" } });
+    await db.eventParticipant.create({ data: { eventId: event.id, personId: canon.id, invitedById: dup.id } });
 
     await mergePersons(canon.id, dup.id);
 
+    // every Person-reference column from the enumeration now resolves away from the duplicate
     expect(await db.familyGroup.count({ where: { createdById: dup.id } })).toBe(0);
     expect(await db.notificationPreference.count({ where: { personId: dup.id } })).toBe(0);
     expect(await db.familyMember.count({ where: { personId: dup.id } })).toBe(0);
+    expect(await db.assistantMessage.count({ where: { personId: dup.id } })).toBe(0);
+    expect(await db.eventPhoto.count({ where: { uploadedById: dup.id } })).toBe(0);
+    expect(await db.eventInvitation.count({ where: { invitedById: dup.id } })).toBe(0);
+    expect(await db.eventParticipant.count({ where: { invitedById: dup.id } })).toBe(0);
     expect(await db.person.findUnique({ where: { id: dup.id } })).toBeNull();
   });
 });
 ```
 
-> **Note on `FamilyMember.role`:** the fixture above passes `role: "MEMBER"`. If `FamilyMember` has no `role` column or it is non-nullable with a different name, open `schema.prisma`'s `FamilyMember` model and match its required fields exactly before running.
+> **Fixture note:** `FamilyMember` uses `roles: ["MEMBER"]` (the column is `roles String[]`, not a scalar `role`). It also has `permissions String[]` (defaults to empty) and `joinedAt` (defaults now) — no other required fields. Confirmed against `schema.prisma`.
 
 - [ ] **Step 3: Run to verify it fails**
 
@@ -264,21 +307,28 @@ export async function mergePersons(
       tx.person.findUnique({ where: { id: canonicalId } }),
       tx.person.findUnique({ where: { id: duplicateId } })
     ]);
-    if (!canonical || !duplicate) {
-      throw new Error(
-        `mergePersons: person not found (canonical=${canonicalId}, duplicate=${duplicateId})`
-      );
+    if (!canonical) {
+      throw new Error(`mergePersons: canonical person not found (${canonicalId})`);
     }
-    if (canonical.userId && duplicate.userId) {
+    // Idempotent under concurrent/replayed webhook deliveries: if another delivery
+    // already merged+deleted this duplicate, treat as a no-op rather than throwing.
+    if (!duplicate) {
+      console.info(JSON.stringify({ event: "person_merge_noop", reason: "duplicate-absent", canonicalId, duplicateId }));
+      return;
+    }
+    // Invariant: never delete an account Person. The duplicate is the row that gets
+    // deleted, so refuse whenever it has a userId — this covers both account↔account
+    // and the reversed direction (account passed as duplicate, contact-only as canonical).
+    if (duplicate.userId) {
       console.warn(
         JSON.stringify({
           event: "person_merge_refused",
-          reason: "account-account",
+          reason: canonical.userId ? "account-account" : "would-delete-account",
           canonicalId,
           duplicateId
         })
       );
-      throw new Error("mergePersons: refusing to merge two account persons");
+      throw new Error("mergePersons: refusing to delete an account person (duplicate has a userId)");
     }
 
     const repointed: Record<string, number> = {};
@@ -295,16 +345,19 @@ export async function mergePersons(
       await tx.person.update({ where: { id: canonicalId }, data: { guardianPersonId: null } });
     }
 
-    // non-unique FK re-points
+    // non-unique re-points (declared relations + logical Person-id columns)
     const nonUnique: ReadonlyArray<[string, Promise<{ count: number }>]> = [
       ["FamilyGroup.createdById", tx.familyGroup.updateMany({ where: { createdById: duplicateId }, data: { createdById: canonicalId } })],
       ["Event.createdByPersonId", tx.event.updateMany({ where: { createdByPersonId: duplicateId }, data: { createdByPersonId: canonicalId } })],
       ["Event.birthdayPersonId", tx.event.updateMany({ where: { birthdayPersonId: duplicateId }, data: { birthdayPersonId: canonicalId } })],
       ["EventInvitation.personId", tx.eventInvitation.updateMany({ where: { personId: duplicateId }, data: { personId: canonicalId } })],
       ["EventInvitation.linkedPersonId", tx.eventInvitation.updateMany({ where: { linkedPersonId: duplicateId }, data: { linkedPersonId: canonicalId } })],
+      ["EventInvitation.invitedById", tx.eventInvitation.updateMany({ where: { invitedById: duplicateId }, data: { invitedById: canonicalId } })],
       ["EventItem.createdByPersonId", tx.eventItem.updateMany({ where: { createdByPersonId: duplicateId }, data: { createdByPersonId: canonicalId } })],
       ["EventItem.assignedToPersonId", tx.eventItem.updateMany({ where: { assignedToPersonId: duplicateId }, data: { assignedToPersonId: canonicalId } })],
-      ["EventPhoto.personId", tx.eventPhoto.updateMany({ where: { personId: duplicateId }, data: { personId: canonicalId } })]
+      ["EventPhoto.uploadedById", tx.eventPhoto.updateMany({ where: { uploadedById: duplicateId }, data: { uploadedById: canonicalId } })],
+      ["EventParticipant.invitedById", tx.eventParticipant.updateMany({ where: { invitedById: duplicateId }, data: { invitedById: canonicalId } })],
+      ["AssistantMessage.personId", tx.assistantMessage.updateMany({ where: { personId: duplicateId }, data: { personId: canonicalId } })]
     ];
     for (const [label, op] of nonUnique) {
       repointed[label] = (await op).count;
@@ -355,7 +408,7 @@ git commit -m "feat: P3-03 mergePersons transactional Person merge engine"
 **Interfaces:**
 - Consumes: `db`, `Person`.
 - Produces:
-  - `nameCorroborates(candidate: { firstName: string; lastName: string }, account: { firstName: string; lastName: string }): boolean` — true if last names match (case-insensitive, non-empty, not the `"-"` placeholder) OR both first and last match.
+  - `nameCorroborates(candidate: { firstName: string; lastName: string }, account: { firstName: string; lastName: string }): boolean` — true only if **both** first and last names match (case-insensitive), and the account name is a real name (not the `"User"`/`"-"` webhook placeholders). Full-name match (not last-name-only) so two different adults who merely share an email and surname — e.g. spouses — are NOT fused; they fall through to `needs-review`.
   - `selectMergeableContactPerson(opts: { emailNormalized: string; accountPersonId: string; firstName: string; lastName: string }): Promise<MergeDecision>` where `MergeDecision = { action: "merge"; person: Person } | { action: "skip"; reason: "no-candidate" | "dependent-only" | "ambiguous" | "name-mismatch" }`. Finds contact-only (`userId: null`) persons with the same `emailNormalized` (excluding the account person); applies the dependent gate; returns `merge` only for a single adult, name-corroborated match.
 
 - [ ] **Step 1: Write the failing tests**
@@ -366,17 +419,17 @@ Append to `apps/api/src/lib/__tests__/personMerge.test.ts`:
 import { nameCorroborates, selectMergeableContactPerson } from "../personIdentity";
 
 describe("nameCorroborates", () => {
-  it("matches on last name (case-insensitive)", () => {
-    expect(nameCorroborates({ firstName: "Bob", lastName: "Smith" }, { firstName: "Robert", lastName: "smith" })).toBe(true);
-  });
-  it("matches on full name", () => {
+  it("matches on full name (case-insensitive)", () => {
     expect(nameCorroborates({ firstName: "Ann", lastName: "Lee" }, { firstName: "ann", lastName: "lee" })).toBe(true);
+  });
+  it("does NOT match on last name alone when first names differ (spouse guard)", () => {
+    expect(nameCorroborates({ firstName: "Bob", lastName: "Smith" }, { firstName: "Robert", lastName: "smith" })).toBe(false);
   });
   it("does not match on a different surname", () => {
     expect(nameCorroborates({ firstName: "Bob", lastName: "Jones" }, { firstName: "Bob", lastName: "Smith" })).toBe(false);
   });
-  it("does not treat the placeholder last name as a match", () => {
-    expect(nameCorroborates({ firstName: "X", lastName: "-" }, { firstName: "Y", lastName: "-" })).toBe(false);
+  it("does not treat the placeholder name as a match", () => {
+    expect(nameCorroborates({ firstName: "User", lastName: "-" }, { firstName: "User", lastName: "-" })).toBe(false);
   });
 });
 
@@ -442,10 +495,13 @@ export function nameCorroborates(
   account: { firstName: string; lastName: string }
 ): boolean {
   const norm = (s: string): string => s.trim().toLowerCase();
-  const candLast = norm(candidate.lastName);
-  const lastMatch = candLast.length > 0 && candLast !== "-" && candLast === norm(account.lastName);
-  const fullMatch = norm(candidate.firstName) === norm(account.firstName) && candLast === norm(account.lastName);
-  return lastMatch || fullMatch;
+  // Require a full first+last match; reject the webhook placeholders ("User"/"-")
+  // so a missing Clerk name can never corroborate. Last-name-only is intentionally
+  // NOT accepted — two adults sharing an email + surname (spouses) must not fuse.
+  const realName = norm(account.firstName) !== "user" && norm(account.lastName) !== "-";
+  const sameFirst = norm(candidate.firstName) === norm(account.firstName);
+  const sameLast = norm(candidate.lastName) === norm(account.lastName);
+  return realName && sameFirst && sameLast;
 }
 
 export type MergeDecision =
@@ -554,7 +610,7 @@ Append inside the `describe("POST /api/v1/webhooks/clerk", ...)` block in `apps/
     const host = await db.person.create({ data: { firstName: "Host", lastName: "Q", ageGateLevel: "ADULT" } });
     const fg = await db.familyGroup.create({ data: { name: "ReconFam", createdById: host.id } });
     const event = await db.event.create({
-      data: { title: "Picnic", familyGroupId: fg.id, createdByPersonId: host.id, startsAt: new Date() }
+      data: { title: "Picnic", familyGroupId: fg.id, createdByPersonId: host.id, startAt: new Date() }
     });
     const inv = await db.eventInvitation.create({
       data: { eventId: event.id, guestEmail: email, linkedPersonId: guest.id }
@@ -576,7 +632,7 @@ Append inside the `describe("POST /api/v1/webhooks/clerk", ...)` block in `apps/
   });
 ```
 
-> **Fixture accuracy note:** `db.event.create` / `db.eventInvitation.create` / `db.rSVP.create` fixtures above use `startsAt`, `guestEmail`, and `status: "YES"`. Before running, open `schema.prisma` and confirm `Event`'s required scalar fields (it may require `endsAt`, `visibility`, `eventType`, etc.), `EventInvitation`'s required fields, and `RSVP`'s `status` field name/value. Add any missing required fields to the fixtures — these are the only values to adjust; the assertions are correct as written. Note the Prisma delegate for model `RSVP` is `db.rSVP`.
+> **Fixture note (verified against `schema.prisma`):** `Event` required scalars are `title`, `familyGroupId`, `createdByPersonId`, `startAt` (the column is `startAt`, not `startsAt`; `visibility`/`eventType`/`eventVisibility` have defaults). `EventInvitation` requires only `eventId` (the rest are optional). `RSVP` requires `eventId`, `personId`, `status` (free String). The Prisma delegate for model `RSVP` is `db.rSVP`. The assertions are correct as written.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -593,26 +649,46 @@ Add to the imports:
 import { mergePersons, selectMergeableContactPerson } from "../lib/personIdentity";
 ```
 
-Capture the upsert result and add consolidation. Replace the `await db.person.upsert({ ... })` call with `const accountPerson = await db.person.upsert({ ... })` (same object), then immediately after the upsert block (still inside the `if (type === "user.created" || type === "user.updated")` branch) add:
+First, just before the existing `await db.person.upsert({ ... })`, capture whether this account already existed (so consolidation runs only on a genuinely new signup, not a replayed/delayed `user.created` for an existing account):
 
 ```typescript
-      if (type === "user.created" && emailNormalized) {
-        const decision = await selectMergeableContactPerson({
-          emailNormalized,
-          accountPersonId: accountPerson.id,
-          firstName,
-          lastName
-        });
-        if (decision.action === "merge") {
-          await mergePersons(accountPerson.id, decision.person.id, "signup-claim");
-        } else if (decision.reason !== "no-candidate") {
-          console.warn(
-            JSON.stringify({
-              event: "person_merge_needs_review",
-              reason: decision.reason,
-              emailNormalized,
-              accountPersonId: accountPerson.id
-            })
+      const alreadyExisted =
+        type === "user.created"
+          ? (await db.person.findUnique({ where: { userId: clerkUserId }, select: { id: true } })) !== null
+          : true;
+```
+
+Then capture the upsert result: replace `await db.person.upsert({ ... })` with `const accountPerson = await db.person.upsert({ ... })` (same object). Immediately after the upsert block (still inside the `if (type === "user.created" || type === "user.updated")` branch) add:
+
+```typescript
+      if (type === "user.created" && !alreadyExisted && emailNormalized) {
+        // Best-effort consolidation: a concurrent/replayed delivery may race us
+        // (select a candidate another delivery already merged+deleted). mergePersons
+        // is idempotent on a missing duplicate; we still wrap here so NO consolidation
+        // failure can turn an otherwise-successful signup webhook into a 500 (which
+        // Clerk would retry). The account Person already exists either way.
+        try {
+          const decision = await selectMergeableContactPerson({
+            emailNormalized,
+            accountPersonId: accountPerson.id,
+            firstName,
+            lastName
+          });
+          if (decision.action === "merge") {
+            await mergePersons(accountPerson.id, decision.person.id, "signup-claim");
+          } else if (decision.reason !== "no-candidate") {
+            console.warn(
+              JSON.stringify({
+                event: "person_merge_needs_review",
+                reason: decision.reason,
+                accountPersonId: accountPerson.id
+              })
+            );
+          }
+        } catch (mergeErr) {
+          console.error(
+            JSON.stringify({ event: "person_merge_failed", accountPersonId: accountPerson.id }),
+            mergeErr
           );
         }
       }

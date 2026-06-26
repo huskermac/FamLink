@@ -27,7 +27,7 @@ Plan A made contact identity normalized, verified-unique, and resolver-routed, b
 
 1. **Dependent-safety gate (the central decision):** never auto-claim/merge a candidate that looks like a dependent — `ageGateLevel != "ADULT"` **or** `guardianPersonId != null`. The verified email belongs to the guardian, not the child. Resolver-created guests default to `ADULT`/no-guardian, so they are not falsely blocked; the gate specifically protects real child/dependent records carrying a guardian's email.
 2. **Cautious auto-merge + flag** for everyone else: auto-merge only on a **single** contact-only match **with name corroboration**; any ambiguity (multiple matches, or name mismatch) → leave the account `Person` as the upsert created it and emit a `needs-review` structured log. Never guess.
-3. **Account is always canonical.** Merges only ever fuse a contact-only `Person` into an account `Person`. **Account↔account merges are refused** (throw + log) — never silently drop an account.
+3. **Account is always canonical; an account is never the deleted side.** Merges only ever fuse a contact-only `Person` into an account `Person`. `mergePersons` **refuses whenever the duplicate (deleted) row has a `userId`** — this covers both account↔account *and* the reversed direction (account mistakenly passed as the duplicate). Never silently drop an account.
 4. **Observability = structured logs only.** One audit line per merge, one `needs-review` line per ambiguous claim. No new table, no UI.
 5. **Deterministic compound-unique collision rule:** on a row that would violate a compound unique after re-pointing, keep canonical's existing row, drop the duplicate's, log it.
 
@@ -37,8 +37,8 @@ One Prisma transaction:
 
 1. **Guards (pre-flight):**
    - `canonicalId === duplicateId` → no-op return.
-   - Load both; if either missing → throw.
-   - If **both** have `userId` (account↔account) → throw + log `refused account-account merge`. Never proceed.
+   - If canonical missing → throw. If **duplicate** missing → no-op return (idempotent under concurrent/replayed webhook deliveries that already merged it).
+   - If the **duplicate** has a `userId` → throw + log `person_merge_refused`. Never delete an account.
 2. **Re-point every Person-referencing FK** from duplicate → canonical. Authoritative set, enumerated from `schema.prisma`:
    - Self-ref: `Person.guardianPersonId` (duplicate's wards → canonical), and if duplicate itself has a guardian, leave canonical's own guardian untouched. **Guard:** never set canonical's guardian to canonical (self-guardian).
    - `FamilyMember.personId` *(compound unique `[familyGroupId, personId]`)*
@@ -47,11 +47,12 @@ One Prisma transaction:
    - `Relationship.fromPersonId`, `Relationship.toPersonId` *(compound unique `[fromPersonId, toPersonId, familyGroupId, type]`; also guard a relationship from becoming self-referential canonical→canonical)*
    - `FamilyGroup.createdById`
    - `Event.createdByPersonId`, `Event.birthdayPersonId`
-   - `EventInvitation.personId`, `EventInvitation.linkedPersonId`
+   - `EventInvitation.personId`, `EventInvitation.linkedPersonId`, `EventInvitation.invitedById` *(all logical columns — no Prisma relation)*
    - `RSVP.personId` *(compound unique `[eventId, personId]`)*
-   - `EventParticipant.personId` *(compound unique `[eventId, personId]`)*
+   - `EventParticipant.personId` *(compound unique `[eventId, personId]`)*, `EventParticipant.invitedById` *(logical)*
    - `EventItem.createdByPersonId`, `EventItem.assignedToPersonId`
-   - `EventPhoto.personId`
+   - `EventPhoto.uploadedById` *(column is `uploadedById`, NOT `personId`)*
+   - `AssistantMessage.personId` *(logical owner-scoping column, no Prisma relation — silently orphans if not re-pointed)*
 3. **Compound-unique dedupe:** for each compound-unique table above, before/within re-pointing, detect rows where canonical already holds the conflicting key; for those, **keep canonical's row, delete duplicate's**, and log a one-line collision note. Self-referential `Relationship`/guardian rows that would become canonical↔canonical are dropped.
 4. **Delete the duplicate** `Person`.
 5. **Audit log:** emit one structured line: `{ event: "person_merge", canonicalId, duplicateId, trigger, repointed: {<table>: n, …}, collisionsDropped: n }`.
@@ -77,7 +78,7 @@ if emailNormalized and P_acct was newly created:
 
 - **Why post-upsert (not claim-first):** P_acct (verified) and the contact-only match (unverified, same `emailNormalized`) coexist legally under the *verified-only* partial unique index, so there is no insert collision; Plan A's webhook is unchanged; and `mergePersons` (§3) is the single mechanism — fully exercised and tested, not bypassed by an in-place `userId` mutation. Outcome is identical: one `Person` owning the account + the guest's invitation/RSVP history.
 - **Dependent gate** filters candidates *before* the single-match test, so a child carrying the guardian's email is never the thing that gets merged (and never makes the count "ambiguous" against a real adult guest).
-- **Name corroboration:** last-name match (case-insensitive, normalized) OR full-name match against the Clerk-provided first/last. Conservative — a bare email match with a different surname is *not* corroborated → `needs-review`.
+- **Name corroboration:** **full-name** match (first AND last, case-insensitive) against the Clerk-provided names, rejecting the webhook placeholders (`User`/`-`). Last-name-only is intentionally not accepted, so two different adults sharing an email + surname (e.g. spouses) are *not* fused → `needs-review`.
 - **Account↔account is impossible here** by construction (candidates require `userId: null`), so §2.3's refusal is a defense-in-depth guard inside `mergePersons`, not a path this caller can hit.
 - `user.updated` is unchanged (Plan A behavior). Consolidation is signup-only.
 - svix signature verification unchanged.
@@ -105,4 +106,8 @@ No separate code path. Plan A's resolver already stamps `EventInvitation.linkedP
 
 ## 9. Open questions
 
-None outstanding — the three brainstorm decisions (dependent gate, logs-only, claim-first) resolved the spec's prior open items (§12.1 backfill done in Plan A; §12.2 reconcile timing → eager via claim-first; §12.3 default country `US`, unchanged).
+None outstanding — the three brainstorm decisions (dependent gate, logs-only, post-upsert merge) resolved the spec's prior open items (§12.1 backfill done in Plan A; §12.2 reconcile timing → eager via the signup-time merge; §12.3 default country `US`, unchanged).
+
+**Council (Codex) round 1 — applied:** corrected the FK enumeration (`EventPhoto.uploadedById` not `personId`; added logical columns `AssistantMessage.personId`, `EventInvitation.invitedById`, `EventParticipant.invitedById`); tightened `nameCorroborates` to **full-name** match (last-name-only could fuse spouses sharing an email+surname); made the webhook consolidation idempotent/non-fatal under concurrent/replayed deliveries (`mergePersons` no-ops on a missing duplicate; the webhook never 500s on a merge failure); documented the compound-collision data-loss tradeoff as accepted; dropped `emailNormalized` from review logs (PII).
+
+**Council (Codex) round 2 — applied + converged:** strengthened the merge guard to refuse whenever the *duplicate* has a `userId` (closes the reversed-direction account-deletion hole); added the "only on genuinely new signup" pre-upsert existence check so a replayed `user.created` for an existing account can't trigger a later non-signup merge; broadened the "referenced nowhere" guard test to assert across the previously-missed logical columns. Reviewer confirmed the Person-reference enumeration is now complete (billing/subscription models hold no Person reference). No open BLOCKERs remain.
