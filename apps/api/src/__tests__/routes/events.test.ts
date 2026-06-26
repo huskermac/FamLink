@@ -382,7 +382,10 @@ describe("events routes (P1-08)", () => {
       await db.event.update({ where: { id: event.id }, data: { eventVisibility: "OPEN" } });
 
       const otherPerson = await seedGuestPerson({ firstName: "Carol" });
-      await db.person.update({ where: { id: otherPerson.id }, data: { email: "carol@example.com" } });
+      await db.person.update({
+        where: { id: otherPerson.id },
+        data: { email: "carol@example.com", emailNormalized: "carol@example.com" }
+      });
 
       mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
       const res = await request(app)
@@ -393,6 +396,31 @@ describe("events routes (P1-08)", () => {
       expect(res.status).toBe(201);
       const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id } });
       expect(inv!.linkedPersonId).toBe(otherPerson.id);
+    });
+
+    it("guest invite links to a person resolved by normalized contact", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "OPEN" } });
+
+      const contactOnlyPerson = await seedGuestPerson({ firstName: "Casey" });
+      await db.person.update({
+        where: { id: contactOnlyPerson.id },
+        data: { emailNormalized: "guest@x.com" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ kind: "guest", guestEmail: "GUEST@x.com", guestName: "G" }] });
+
+      expect(res.status).toBe(201);
+      const inv = await db.eventInvitation.findFirst({
+        where: { eventId: event.id, guestEmail: "GUEST@x.com" }
+      });
+      expect(inv?.linkedPersonId).toBe(contactOnlyPerson.id);
     });
 
     it("returns 400 for BROADCAST event", async () => {
