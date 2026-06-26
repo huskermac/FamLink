@@ -5,8 +5,8 @@
 | Field | Value |
 |---|---|
 | Last updated | 2026-06-26 |
-| Branch | `codex/p3-03-cif-plan-a` |
-| Checkpoint | CIF Plan A implementation through `a6ed399`; shared-state checkpoint committed after implementation |
+| Branch | `main` |
+| Checkpoint | CIF Plan A merged to `main` via PR #4 (merge `f45f11c`); feature branch deleted (local + remote) |
 | Local verification | PASS: API tests, root type-check, root lint, `git diff --check` |
 
 ---
@@ -19,9 +19,7 @@
 - **W2** - per-person AI entitlement (P3-02, PR #1).
 - **W2b** - entitlement surfacing + foreign-context AI throttle + mobile upsell (P3-02, PR #2).
 - **W3a-API** - cross-family event participation backend (P3-03, PR #3): `EventParticipant` grant + roles, `resolveEventAccess`, cross-family invite/accept/decline/revoke/role, participant RSVP + per-item task contributions, `ForeignInvitedEventDTO`, participant-scoped notifications.
-
-**Implemented on active branch, not merged yet:**
-- **Contact Identity Foundation - Plan A (backbone)** on `codex/p3-03-cif-plan-a`: contact normalization helpers, additive `Person` normalized/verified contact columns, verified-only partial unique indexes, canonical `findOrCreatePersonByContact`, Clerk webhook normalized+verified email writes, guest invite resolver routing through canonical contact identity, and a one-time Clerk verified-contact backfill script. Spec: `docs/superpowers/specs/2026-06-25-contact-identity-foundation-design.md`; plan: `docs/superpowers/plans/2026-06-25-contact-identity-foundation-a-backbone.md`.
+- **Contact Identity Foundation - Plan A (backbone)** (P3-03, PR #4, merge `f45f11c`): contact normalization helpers, additive `Person` normalized/verified contact columns, verified-only partial unique indexes, canonical `findOrCreatePersonByContact`, Clerk webhook normalized+verified email writes, guest invite resolver routing through canonical contact identity, and a one-time Clerk verified-contact backfill script. Spec: `docs/superpowers/specs/2026-06-25-contact-identity-foundation-design.md`; plan: `docs/superpowers/plans/2026-06-25-contact-identity-foundation-a-backbone.md`. **Not yet run in prod:** the additive migration deploy + `backfillClerkContacts.ts --apply`.
 
 **Designed/planned but not executed:**
 - **Contact Identity Foundation Plan B (merge engine)** - not yet written.
@@ -29,8 +27,8 @@
 
 ## Reordered Roadmap (Canonical)
 
-1. Merge or PR **Contact Identity Foundation Plan A** from `codex/p3-03-cif-plan-a`.
-2. Write and execute **Contact Identity Foundation Plan B (merge engine)**.
+1. ~~Merge or PR **Contact Identity Foundation Plan A**~~ - **DONE** (PR #4 merged `f45f11c`).
+2. Write and execute **Contact Identity Foundation Plan B (merge engine)**. *(next)*
 3. **W3a-UI-web**.
 4. **W3a-UI-mobile**.
 5. Rest of **W3b** - passive SMS onboarding (inbound Twilio webhook, "reply Y", STOP/opt-out, phone verification).
@@ -39,7 +37,7 @@
 
 ## Work Completed Since Last Shared-State Update
 
-2026-06-26 CIF Plan A implementation on `codex/p3-03-cif-plan-a`:
+2026-06-26 CIF Plan A **merged to `main`** via PR #4 (merge `f45f11c`); feature branch `codex/p3-03-cif-plan-a` deleted (local + remote). Plan A commits:
 - `599fd6a` - contact normalization helper (`normalizeEmail`, `normalizePhone`) with tests.
 - `1858792` - additive `Person` normalized/verified contact fields plus migration with verified-only partial unique indexes.
 - `13f3feb` - canonical `findOrCreatePersonByContact` resolver with verified-match preference.
@@ -56,9 +54,9 @@ Earlier 2026-06-24/25 stream:
 
 ## Important Commits / PRs
 
-- Active branch `codex/p3-03-cif-plan-a`: `a6ed399`, `43160a0`, `d8075ed`, `13f3feb`, `1858792`, `599fd6a`.
-- PR #1 (W2), PR #2 (W2b), PR #3 (W3a-API) - all merged to `main`.
-- Recent `main`: `9821542` (CI fix), `33d950c`, `715b44c`, `a716488`, `fad140f`, `4c0819d`, `a5f2086`, `bb3bb7e`, `9115a14` (PR #3 merge), `372d98f`.
+- CIF Plan A commits (now on `main` via PR #4): `599fd6a`, `1858792`, `13f3feb`, `d8075ed`, `43160a0`, `a6ed399`; merge `f45f11c`.
+- PR #1 (W2), PR #2 (W2b), PR #3 (W3a-API), PR #4 (CIF Plan A) - all merged to `main`.
+- Recent `main`: `f45f11c` (PR #4 merge), `9821542` (CI fix), `33d950c`, `715b44c`, `a716488`, `fad140f`, `9115a14` (PR #3 merge).
 
 ## Verification Baseline
 
@@ -75,14 +73,13 @@ Earlier 2026-06-24/25 stream:
 
 ## Next Recommended / Authorized Step
 
-Create a PR or make a merge decision for **Contact Identity Foundation Plan A** (`codex/p3-03-cif-plan-a`). After Plan A lands, write and execute **Contact Identity Foundation Plan B (merge engine)**, then return to **W3a-UI-web**.
+**Write and execute Contact Identity Foundation Plan B (merge engine)** - needs a written plan (brainstorm -> writing-plans) before any code. After Plan B lands, return to **W3a-UI-web**. Separately, the Plan A migration still needs to be deployed to prod and `backfillClerkContacts.ts --apply` run.
 
 ## Open Blockers / Questions Needing Steve
 
-1. Decide whether to merge/PR `codex/p3-03-cif-plan-a` now or request review changes first.
-2. Decide when to run `apps/api/src/scripts/backfillClerkContacts.ts --apply` against production after deployment/migration.
-3. CIF Plan B merge policy details still need a written plan before execution.
-4. W3a-UI-web spec section 8 UI choices defaulted (per-suggestion admin toggle; elevation notice copy; decline UX). Confirm or change later; no hard blocker.
+1. Decide when to run `apps/api/src/scripts/backfillClerkContacts.ts --apply` against production after the additive migration deploys.
+2. CIF Plan B merge policy details still need a written plan before execution.
+3. W3a-UI-web spec section 8 UI choices defaulted (per-suggestion admin toggle; elevation notice copy; decline UX). Confirm or change later; no hard blocker.
 
 ## Deferred Items (and Why)
 
@@ -95,4 +92,4 @@ Create a PR or make a merge decision for **Contact Identity Foundation Plan A** 
 
 ## GitNexus Freshness
 
-Up-to-date. `npx.cmd gitnexus analyze` ran 2026-06-26 on `codex/p3-03-cif-plan-a`: 3,029 nodes / 4,189 edges / 97 clusters / 88 flows. `AGENTS.md` and `CLAUDE.md` GitNexus blocks were refreshed to match.
+Up-to-date. `npx gitnexus analyze` ran 2026-06-26 on `main` HEAD `f45f11c` (post-PR-#4 merge): 3,029 nodes / 4,189 edges / 97 clusters / 88 flows. Index at HEAD, 0 commits behind.
