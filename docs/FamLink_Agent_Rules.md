@@ -6,6 +6,21 @@
 
 ---
 
+## Resume Protocol
+
+Before doing implementation work at the start of any session:
+
+1. Read `docs/FamLink_Agent_Rules.md`.
+2. Read `docs/FamLink_Current_State.md`.
+3. Read the tool-specific adapter file for the current tool (`AGENTS.md` for Codex, `CLAUDE.md` for Claude Code).
+4. Check `git status --short --branch` and recent git history as needed to confirm the shared state still matches the working tree.
+5. Check GitNexus freshness before relying on GitNexus. If stale, run `npx gitnexus analyze` from the repo root.
+6. State the current phase/status, the next recommended or authorized step, any blockers, and whether the working tree is clean before beginning feature or implementation work.
+
+If the shared state conflicts with live code or git history, trust the code/history, surface the discrepancy to Steve, and update the shared docs before proceeding.
+
+---
+
 ## Working Style
 
 **Give candid, evidence-based assessments. No cheerleading.** Push back when warranted — on Steve's ideas, on the plan, on the code. Surface risks, tradeoffs, and contrary evidence plainly rather than affirming. Ground opinions in the code, the docs, or named precedent; distinguish fact from judgment; say so when something is unknown rather than guessing. Praise only what is genuinely earned, and keep it brief. Steve has explicitly asked to be told when he is wrong.
