@@ -193,4 +193,76 @@ describe("POST /api/v1/webhooks/clerk", () => {
     const after = await db.person.count();
     expect(after).toBe(before);
   });
+
+  it("user.created: merges a single corroborated contact-only guest into the new account", async () => {
+    const email = `merge_${Date.now()}@example.com`;
+    const guest = await db.person.create({
+      data: { firstName: "Sam", lastName: "Rivera", ageGateLevel: "ADULT", emailNormalized: email }
+    });
+    const clerkId = `user_merge_${Date.now()}`;
+    const { body, headers } = signPayload({
+      type: "user.created",
+      data: { id: clerkId, first_name: "Sam", last_name: "Rivera", email_addresses: [{ email_address: email }] }
+    });
+
+    const res = await request(app).post("/api/v1/webhooks/clerk").set(headers).send(body);
+    expect(res.status).toBe(200);
+
+    // the guest record is gone; exactly one person owns the account + that email
+    expect(await db.person.findUnique({ where: { id: guest.id } })).toBeNull();
+    const acct = await db.person.findUnique({ where: { userId: clerkId } });
+    expect(acct).not.toBeNull();
+    expect(await db.person.count({ where: { emailNormalized: email } })).toBe(1);
+  });
+
+  it("user.created: does NOT merge a dependent child carrying the guardian's email", async () => {
+    const email = `child_${Date.now()}@example.com`;
+    const guardian = await db.person.create({ data: { firstName: "Pat", lastName: "Cole", ageGateLevel: "ADULT" } });
+    const child = await db.person.create({
+      data: { firstName: "Kid", lastName: "Cole", ageGateLevel: "CHILD", emailNormalized: email, guardianPersonId: guardian.id }
+    });
+    const clerkId = `user_parent_${Date.now()}`;
+    const { body, headers } = signPayload({
+      type: "user.created",
+      data: { id: clerkId, first_name: "Pat", last_name: "Cole", email_addresses: [{ email_address: email }] }
+    });
+
+    const res = await request(app).post("/api/v1/webhooks/clerk").set(headers).send(body);
+    expect(res.status).toBe(200);
+
+    // child survives untouched; the account is its own separate person
+    expect(await db.person.findUnique({ where: { id: child.id } })).not.toBeNull();
+    const acct = await db.person.findUnique({ where: { userId: clerkId } });
+    expect(acct?.id).not.toBe(child.id);
+  });
+
+  it("user.created: reconciles a guest's invitation + RSVP onto the new account", async () => {
+    const email = `recon_${Date.now()}@example.com`;
+    const guest = await db.person.create({
+      data: { firstName: "Lee", lastName: "Park", ageGateLevel: "ADULT", emailNormalized: email }
+    });
+    const host = await db.person.create({ data: { firstName: "Host", lastName: "Q", ageGateLevel: "ADULT" } });
+    const fg = await db.familyGroup.create({ data: { name: "ReconFam", createdById: host.id } });
+    const event = await db.event.create({
+      data: { title: "Picnic", familyGroupId: fg.id, createdByPersonId: host.id, startAt: new Date() }
+    });
+    const inv = await db.eventInvitation.create({
+      data: { eventId: event.id, guestEmail: email, linkedPersonId: guest.id }
+    });
+    const rsvp = await db.rSVP.create({ data: { eventId: event.id, personId: guest.id, status: "YES" } });
+
+    const clerkId = `user_recon_${Date.now()}`;
+    const { body, headers } = signPayload({
+      type: "user.created",
+      data: { id: clerkId, first_name: "Lee", last_name: "Park", email_addresses: [{ email_address: email }] }
+    });
+    const res = await request(app).post("/api/v1/webhooks/clerk").set(headers).send(body);
+    expect(res.status).toBe(200);
+
+    const acct = await db.person.findUnique({ where: { userId: clerkId } });
+    expect(acct).not.toBeNull();
+    expect((await db.eventInvitation.findUnique({ where: { id: inv.id } }))?.linkedPersonId).toBe(acct!.id);
+    expect((await db.rSVP.findUnique({ where: { id: rsvp.id } }))?.personId).toBe(acct!.id);
+    expect(await db.person.findUnique({ where: { id: guest.id } })).toBeNull();
+  });
 });

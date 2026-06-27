@@ -4,6 +4,7 @@ import { Webhook } from "svix";
 import { db } from "@famlink/db";
 import { env } from "../lib/env";
 import { normalizeEmail } from "../lib/contact";
+import { mergePersons, selectMergeableContactPerson } from "../lib/personIdentity";
 
 export const webhooksRouter = Router();
 
@@ -70,7 +71,12 @@ webhooksRouter.post("/", async (req: Request, res: Response) => {
         data.email_addresses?.find((e) => e.email_address)?.email_address?.trim() ?? null;
       const emailNormalized = normalizeEmail(primaryEmail);
 
-      await db.person.upsert({
+      const alreadyExisted =
+        type === "user.created"
+          ? (await db.person.findUnique({ where: { userId: clerkUserId }, select: { id: true } })) !== null
+          : true;
+
+      const accountPerson = await db.person.upsert({
         where: { userId: clerkUserId },
         create: {
           userId: clerkUserId,
@@ -91,6 +97,38 @@ webhooksRouter.post("/", async (req: Request, res: Response) => {
           emailVerifiedAt: emailNormalized ? new Date() : null
         }
       });
+
+      if (type === "user.created" && !alreadyExisted && emailNormalized) {
+        // Best-effort consolidation: a concurrent/replayed delivery may race us
+        // (select a candidate another delivery already merged+deleted). mergePersons
+        // is idempotent on a missing duplicate; we still wrap here so NO consolidation
+        // failure can turn an otherwise-successful signup webhook into a 500 (which
+        // Clerk would retry). The account Person already exists either way.
+        try {
+          const decision = await selectMergeableContactPerson({
+            emailNormalized,
+            accountPersonId: accountPerson.id,
+            firstName,
+            lastName
+          });
+          if (decision.action === "merge") {
+            await mergePersons(accountPerson.id, decision.person.id, "signup-claim");
+          } else if (decision.reason !== "no-candidate") {
+            console.warn(
+              JSON.stringify({
+                event: "person_merge_needs_review",
+                reason: decision.reason,
+                accountPersonId: accountPerson.id
+              })
+            );
+          }
+        } catch (mergeErr) {
+          console.error(
+            JSON.stringify({ event: "person_merge_failed", accountPersonId: accountPerson.id }),
+            mergeErr
+          );
+        }
+      }
     }
 
     return res.status(200).json({ received: true });
