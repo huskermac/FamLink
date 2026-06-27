@@ -6,8 +6,8 @@
 |---|---|
 | Last updated | 2026-06-26 |
 | Branch | `main` |
-| Checkpoint | CIF Plan A merged to `main` via PR #4 (merge `f45f11c`); feature branch deleted (local + remote) |
-| Local verification | PASS: API tests, root type-check, root lint, `git diff --check` |
+| Checkpoint | CIF Plan B (merge engine) merged to `main` via PR #5 (merge `a034137`); feature branch deleted (local + remote) |
+| Local verification | PASS: API suite 403/403 (39 files), tsc clean, lint 0 errors |
 
 ---
 
@@ -20,22 +20,24 @@
 - **W2b** - entitlement surfacing + foreign-context AI throttle + mobile upsell (P3-02, PR #2).
 - **W3a-API** - cross-family event participation backend (P3-03, PR #3): `EventParticipant` grant + roles, `resolveEventAccess`, cross-family invite/accept/decline/revoke/role, participant RSVP + per-item task contributions, `ForeignInvitedEventDTO`, participant-scoped notifications.
 - **Contact Identity Foundation - Plan A (backbone)** (P3-03, PR #4, merge `f45f11c`): contact normalization helpers, additive `Person` normalized/verified contact columns, verified-only partial unique indexes, canonical `findOrCreatePersonByContact`, Clerk webhook normalized+verified email writes, guest invite resolver routing through canonical contact identity, and a one-time Clerk verified-contact backfill script. Spec: `docs/superpowers/specs/2026-06-25-contact-identity-foundation-design.md`; plan: `docs/superpowers/plans/2026-06-25-contact-identity-foundation-a-backbone.md`. **Not yet run in prod:** the additive migration deploy + `backfillClerkContacts.ts --apply`.
+- **Contact Identity Foundation - Plan B (merge engine)** (P3-03, PR #5, merge `a034137`): transactional `mergePersons` (re-points every Person-referencing column incl. logical no-FK columns, compound-unique dedupe, delete; refuses to delete an account; idempotent), dependent-safety gate + full-name corroboration (`selectMergeableContactPerson`/`nameCorroborates`), and a retry-safe Clerk `user.created` post-upsert consolidation that merges a safe contact-only guest into the new account (guest invitation/RSVP history reconciles via `linkedPersonId`). Logs-only observability, no new table. Council-validated (Codex, 2 rounds) + final opus review READY TO MERGE. Spec: `docs/superpowers/specs/2026-06-26-cif-plan-b-merge-engine-design.md`; plan: `docs/superpowers/plans/2026-06-26-cif-plan-b-merge-engine.md`.
 
 **Designed/planned but not executed:**
-- **Contact Identity Foundation Plan B (merge engine)** - not yet written.
-- **W3a-UI-web** - spec `docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md` (deferred behind the identity foundation).
+- **W3a-UI-web** - spec `docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md` (was deferred behind the identity foundation, which is now complete — this is next).
 
 ## Reordered Roadmap (Canonical)
 
 1. ~~Merge or PR **Contact Identity Foundation Plan A**~~ - **DONE** (PR #4 merged `f45f11c`).
-2. Write and execute **Contact Identity Foundation Plan B (merge engine)**. *(next)*
-3. **W3a-UI-web**.
+2. ~~Write and execute **Contact Identity Foundation Plan B (merge engine)**~~ - **DONE** (PR #5 merged `a034137`).
+3. **W3a-UI-web**. *(next)*
 4. **W3a-UI-mobile**.
 5. Rest of **W3b** - passive SMS onboarding (inbound Twilio webhook, "reply Y", STOP/opt-out, phone verification).
 6. **W4** - Pro Organizer beta (non-family event admin + B2B billing).
 7. **W1** - Household to Family M2M reframe (migration-heavy).
 
 ## Work Completed Since Last Shared-State Update
+
+2026-06-26 CIF Plan B (merge engine) **merged to `main`** via PR #5 (merge `a034137`); feature branch `p3-03-cif-plan-b-merge-engine` deleted (local + remote). Built via brainstorm -> spec -> plan -> council (Codex, 2 rounds; caught `EventPhoto.uploadedById` not `personId` + missed `AssistantMessage.personId`) -> subagent-driven execution (3 tasks) -> final opus whole-branch review (READY TO MERGE). Plan B commits `366ac4a` (mergePersons), `4dc1c98` (selection + corroboration), `5e25395` (guarded-adult test), `6e3b8b0` (webhook consolidation), `ac20560` (review follow-ups). Verified: branch API suite 403/403 (39 files), main baseline 381/381, tsc/lint clean.
 
 2026-06-26 CIF Plan A **merged to `main`** via PR #4 (merge `f45f11c`); feature branch `codex/p3-03-cif-plan-a` deleted (local + remote). Plan A commits:
 - `599fd6a` - contact normalization helper (`normalizeEmail`, `normalizePhone`) with tests.
@@ -54,12 +56,14 @@ Earlier 2026-06-24/25 stream:
 
 ## Important Commits / PRs
 
-- CIF Plan A commits (now on `main` via PR #4): `599fd6a`, `1858792`, `13f3feb`, `d8075ed`, `43160a0`, `a6ed399`; merge `f45f11c`.
-- PR #1 (W2), PR #2 (W2b), PR #3 (W3a-API), PR #4 (CIF Plan A) - all merged to `main`.
-- Recent `main`: `f45f11c` (PR #4 merge), `9821542` (CI fix), `33d950c`, `715b44c`, `a716488`, `fad140f`, `9115a14` (PR #3 merge).
+- CIF Plan B commits (now on `main` via PR #5): `366ac4a`, `4dc1c98`, `5e25395`, `6e3b8b0`, `ac20560`; merge `a034137`.
+- CIF Plan A commits (on `main` via PR #4): `599fd6a`, `1858792`, `13f3feb`, `d8075ed`, `43160a0`, `a6ed399`; merge `f45f11c`.
+- PR #1 (W2), PR #2 (W2b), PR #3 (W3a-API), PR #4 (CIF Plan A), PR #5 (CIF Plan B) - all merged to `main`.
+- Recent `main`: `a034137` (PR #5 merge), `81553d4` (Plan A checkpoint), `f45f11c` (PR #4 merge), `9821542` (CI fix).
 
 ## Verification Baseline
 
+- **CIF Plan B (2026-06-26, branch `p3-03-cif-plan-b-merge-engine`, now merged):** full API suite **403/403** (39 files); `main` pre-merge baseline 381/381; `tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only). Additive — no schema migration. (Note: an implementer reported transient "33 pre-existing failures" that did NOT reproduce on a clean run — flake, not a regression.)
 - **CI green at `main` HEAD `9821542`** - `lint-and-typecheck`, `test`, and `build` all passed in run 28183812961.
 - CIF Plan A local verification on `codex/p3-03-cif-plan-a` (2026-06-26):
   - `npm.cmd test --workspace=@famlink/api` - PASS, 38 files / 381 tests.
@@ -73,17 +77,16 @@ Earlier 2026-06-24/25 stream:
 
 ## Next Recommended / Authorized Step
 
-**Write and execute Contact Identity Foundation Plan B (merge engine)** - needs a written plan (brainstorm -> writing-plans) before any code. After Plan B lands, return to **W3a-UI-web**. Separately, the Plan A migration still needs to be deployed to prod and `backfillClerkContacts.ts --apply` run.
+**W3a-UI-web** - the Contact Identity Foundation (Plans A + B) is now complete and merged, so the web UI for cross-family participation can build on durable identity. Spec exists (`docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md`); needs an implementation plan (brainstorm/refresh -> writing-plans) before code. Separately, the CIF migration (Plan A) still needs to be deployed to prod and `backfillClerkContacts.ts --apply` run.
 
 ## Open Blockers / Questions Needing Steve
 
 1. Decide when to run `apps/api/src/scripts/backfillClerkContacts.ts --apply` against production after the additive migration deploys.
-2. CIF Plan B merge policy details still need a written plan before execution.
-3. W3a-UI-web spec section 8 UI choices defaulted (per-suggestion admin toggle; elevation notice copy; decline UX). Confirm or change later; no hard blocker.
+2. W3a-UI-web spec section 8 UI choices defaulted (per-suggestion admin toggle; elevation notice copy; decline UX). Confirm or change later; no hard blocker.
 
 ## Deferred Items (and Why)
 
-- **W3a-UI-web / W3a-UI-mobile** - behind Contact Identity Foundation to avoid dedup debt.
+- **W3a-UI-mobile** - after W3a-UI-web (web first). (Contact Identity Foundation is now done, so this sequencing constraint is satisfied.)
 - **Rest of W3b (passive SMS onboarding)** - needs inbound SMS infra plus TCPA/STOP compliance; sequenced after UI.
 - **W4 (Pro Organizer), W1 (Household reframe)** - later in the reframe sequence; W1 is migration-heavy.
 - **eslint warning cleanup (34)** - non-blocking; do in a sweep later.
@@ -92,4 +95,4 @@ Earlier 2026-06-24/25 stream:
 
 ## GitNexus Freshness
 
-Up-to-date. `npx gitnexus analyze` ran 2026-06-26 on `main` HEAD `f45f11c` (post-PR-#4 merge): 3,029 nodes / 4,189 edges / 97 clusters / 88 flows. Index at HEAD, 0 commits behind.
+Up-to-date. `npx gitnexus analyze` ran 2026-06-26 on `main` HEAD `a034137` (post-PR-#5 merge): 3,083 nodes / 4,255 edges / 100 clusters / 89 flows. Index at HEAD, 0 commits behind.
