@@ -96,4 +96,4 @@ Earlier 2026-06-24/25 stream:
 
 ## GitNexus Freshness
 
-Up-to-date. `npx gitnexus analyze` ran 2026-06-29 on `main` HEAD `71a87c8`: 3,082 nodes / 4,255 edges / 99 clusters / 89 flows. Index at HEAD, 0 commits behind.
+Up-to-date after the 2026-06-29 CIF Plan A production checkpoint. `npx gitnexus analyze` ran after the checkpoint commits: 3,081-3,082 doc-sensitive nodes / 4,255 edges / 98-99 clusters / 89 flows. The one-node variance came from generated adapter metadata text only; execution-flow coverage is unchanged.
