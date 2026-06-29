@@ -96,4 +96,4 @@ Earlier 2026-06-24/25 stream:
 
 ## GitNexus Freshness
 
-To be refreshed after the 2026-06-29 CIF Plan A production checkpoint commit. Previous analyze: 2026-06-26 on `main` HEAD `a034137` (post-PR-#5 merge): 3,083 nodes / 4,255 edges / 100 clusters / 89 flows.
+Up-to-date. `npx gitnexus analyze` ran 2026-06-29 on `main` HEAD `71a87c8`: 3,082 nodes / 4,255 edges / 99 clusters / 89 flows. Index at HEAD, 0 commits behind.
