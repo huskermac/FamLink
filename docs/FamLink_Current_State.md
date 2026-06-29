@@ -4,10 +4,10 @@
 
 | Field | Value |
 |---|---|
-| Last updated | 2026-06-26 |
+| Last updated | 2026-06-29 |
 | Branch | `main` |
-| Checkpoint | CIF Plan B (merge engine) merged to `main` via PR #5 (merge `a034137`); feature branch deleted (local + remote) |
-| Local verification | PASS: API suite 403/403 (39 files), tsc clean, lint 0 errors |
+| Checkpoint | CIF Plan A production migration/backfill complete; CIF Plan B (merge engine) merged to `main` via PR #5 |
+| Local verification | PASS: CI on `main` HEAD `e41a6cc` (lint/typecheck, tests, build); production Prisma deploy reported no pending migrations; Clerk contact backfill applied cleanly |
 
 ---
 
@@ -19,7 +19,7 @@
 - **W2** - per-person AI entitlement (P3-02, PR #1).
 - **W2b** - entitlement surfacing + foreign-context AI throttle + mobile upsell (P3-02, PR #2).
 - **W3a-API** - cross-family event participation backend (P3-03, PR #3): `EventParticipant` grant + roles, `resolveEventAccess`, cross-family invite/accept/decline/revoke/role, participant RSVP + per-item task contributions, `ForeignInvitedEventDTO`, participant-scoped notifications.
-- **Contact Identity Foundation - Plan A (backbone)** (P3-03, PR #4, merge `f45f11c`): contact normalization helpers, additive `Person` normalized/verified contact columns, verified-only partial unique indexes, canonical `findOrCreatePersonByContact`, Clerk webhook normalized+verified email writes, guest invite resolver routing through canonical contact identity, and a one-time Clerk verified-contact backfill script. Spec: `docs/superpowers/specs/2026-06-25-contact-identity-foundation-design.md`; plan: `docs/superpowers/plans/2026-06-25-contact-identity-foundation-a-backbone.md`. **Not yet run in prod:** the additive migration deploy + `backfillClerkContacts.ts --apply`.
+- **Contact Identity Foundation - Plan A (backbone)** (P3-03, PR #4, merge `f45f11c`; prod completed 2026-06-29): contact normalization helpers, additive `Person` normalized/verified contact columns, verified-only partial unique indexes, canonical `findOrCreatePersonByContact`, Clerk webhook normalized+verified email writes, guest invite resolver routing through canonical contact identity, and one-time Clerk verified-contact backfill. Spec: `docs/superpowers/specs/2026-06-25-contact-identity-foundation-design.md`; plan: `docs/superpowers/plans/2026-06-25-contact-identity-foundation-a-backbone.md`.
 - **Contact Identity Foundation - Plan B (merge engine)** (P3-03, PR #5, merge `a034137`): transactional `mergePersons` (re-points every Person-referencing column incl. logical no-FK columns, compound-unique dedupe, delete; refuses to delete an account; idempotent), dependent-safety gate + full-name corroboration (`selectMergeableContactPerson`/`nameCorroborates`), and a retry-safe Clerk `user.created` post-upsert consolidation that merges a safe contact-only guest into the new account (guest invitation/RSVP history reconciles via `linkedPersonId`). Logs-only observability, no new table. Council-validated (Codex, 2 rounds) + final opus review READY TO MERGE. Spec: `docs/superpowers/specs/2026-06-26-cif-plan-b-merge-engine-design.md`; plan: `docs/superpowers/plans/2026-06-26-cif-plan-b-merge-engine.md`.
 
 **Designed/planned but not executed:**
@@ -38,6 +38,8 @@
 ## Work Completed Since Last Shared-State Update
 
 2026-06-26 CIF Plan B (merge engine) **merged to `main`** via PR #5 (merge `a034137`); feature branch `p3-03-cif-plan-b-merge-engine` deleted (local + remote). Built via brainstorm -> spec -> plan -> council (Codex, 2 rounds; caught `EventPhoto.uploadedById` not `personId` + missed `AssistantMessage.personId`) -> subagent-driven execution (3 tasks) -> final opus whole-branch review (READY TO MERGE). Plan B commits `366ac4a` (mergePersons), `4dc1c98` (selection + corroboration), `5e25395` (guarded-adult test), `6e3b8b0` (webhook consolidation), `ac20560` (review follow-ups). Verified: branch API suite 403/403 (39 files), main baseline 381/381, tsc/lint clean.
+
+2026-06-29 CIF Plan A production item **completed** from `main` HEAD `e41a6cc`. Pushed adapter metadata cleanup (`e41a6cc`), CI run 28372051672 passed (lint/typecheck, test, build), production Prisma deploy via Railway reported `No pending migrations to apply` against Railway PostgreSQL, and `backfillClerkContacts.ts --apply` updated 1 Person with 0 errors. Post-apply dry run reported `alreadyCurrent: 1`, `wouldUpdate: 0`, `errors: 0`.
 
 2026-06-26 CIF Plan A **merged to `main`** via PR #4 (merge `f45f11c`); feature branch `codex/p3-03-cif-plan-a` deleted (local + remote). Plan A commits:
 - `599fd6a` - contact normalization helper (`normalizeEmail`, `normalizePhone`) with tests.
@@ -77,12 +79,11 @@ Earlier 2026-06-24/25 stream:
 
 ## Next Recommended / Authorized Step
 
-**W3a-UI-web** - the Contact Identity Foundation (Plans A + B) is now complete and merged, so the web UI for cross-family participation can build on durable identity. Spec exists (`docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md`); needs an implementation plan (brainstorm/refresh -> writing-plans) before code. Separately, the CIF migration (Plan A) still needs to be deployed to prod and `backfillClerkContacts.ts --apply` run.
+**W3a-UI-web** - the Contact Identity Foundation (Plans A + B) is now complete, merged, and production-applied, so the web UI for cross-family participation can build on durable identity. Spec exists (`docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md`); needs an implementation plan (brainstorm/refresh -> writing-plans) before code.
 
 ## Open Blockers / Questions Needing Steve
 
-1. Decide when to run `apps/api/src/scripts/backfillClerkContacts.ts --apply` against production after the additive migration deploys.
-2. W3a-UI-web spec section 8 UI choices defaulted (per-suggestion admin toggle; elevation notice copy; decline UX). Confirm or change later; no hard blocker.
+1. W3a-UI-web spec section 8 UI choices defaulted (per-suggestion admin toggle; elevation notice copy; decline UX). Confirm or change later; no hard blocker.
 
 ## Deferred Items (and Why)
 
@@ -95,4 +96,4 @@ Earlier 2026-06-24/25 stream:
 
 ## GitNexus Freshness
 
-Up-to-date. `npx gitnexus analyze` ran 2026-06-26 on `main` HEAD `a034137` (post-PR-#5 merge): 3,083 nodes / 4,255 edges / 100 clusters / 89 flows. Index at HEAD, 0 commits behind.
+To be refreshed after the 2026-06-29 CIF Plan A production checkpoint commit. Previous analyze: 2026-06-26 on `main` HEAD `a034137` (post-PR-#5 merge): 3,083 nodes / 4,255 edges / 100 clusters / 89 flows.
