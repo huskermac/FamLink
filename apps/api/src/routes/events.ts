@@ -235,6 +235,51 @@ familyEventsRouter.post("/:familyId/events", async (req, res) => {
 /** All /api/v1/events/:eventId/* routes */
 export const eventsRouter = Router();
 
+const PreviewQuerySchema = z.object({ token: z.string().min(1) });
+
+eventsRouter.get("/participation/preview", async (req, res) => {
+  const q = PreviewQuerySchema.safeParse(req.query);
+  if (!q.success) { res.status(400).json({ error: "Missing token" }); return; }
+  const requester = personed(req).person;
+
+  const inv = await db.eventInvitation.findFirst({ where: { guestToken: q.data.token } });
+  if (!inv || inv.linkedPersonId !== requester.id) {
+    res.status(403).json({ error: "This invitation is not for your account" });
+    return;
+  }
+
+  if (inv.status === "ACCEPTED") {
+    const grant = await activeEventParticipant(requester.id, inv.eventId);
+    if (!grant) { res.json({ state: "UNAVAILABLE" }); return; }
+    res.json({ state: "ACTIVE", eventId: inv.eventId });
+    return;
+  }
+
+  if (inv.status !== "PENDING" && inv.status !== "DECLINED") {
+    res.json({ state: "UNAVAILABLE" });
+    return;
+  }
+  const ev = await db.event.findUnique({ where: { id: inv.eventId } });
+  if (!ev) { res.json({ state: "UNAVAILABLE" }); return; }
+
+  let invitedByName = "Someone";
+  if (inv.invitedById) {
+    const inviter = await db.person.findUnique({ where: { id: inv.invitedById }, select: { firstName: true, preferredName: true } });
+    if (inviter) invitedByName = inviter.preferredName ?? inviter.firstName;
+  }
+
+  res.json({
+    state: inv.status,
+    eventId: ev.id,
+    eventTitle: ev.title,
+    startAt: ev.startAt.toISOString(),
+    endAt: ev.endAt?.toISOString() ?? null,
+    locationName: ev.locationName,
+    role: inv.role ?? "PARTICIPANT",
+    invitedByName
+  });
+});
+
 eventsRouter.get("/:eventId", async (req, res) => {
   const p = eventIdParam.safeParse(req.params);
   if (!p.success) {

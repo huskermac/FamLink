@@ -1389,4 +1389,62 @@ describe("events routes (P1-08)", () => {
       spy.mockRestore();
     });
   });
+
+  describe("GET /api/v1/events/participation/preview (P3-03 W3a-UI)", () => {
+    it("returns the allowlist preview for a PENDING invite to the requester, with no family name", async () => {
+      const admin = await seedTestPerson({ firstName: "Alice", lastName: "Inviter" });
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Preview Event" });
+      const token = "preview-pending-001";
+      await db.eventInvitation.create({ data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: token, invitedById: admin.id, scope: "INDIVIDUAL", status: "PENDING" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app).get(`/api/v1/events/participation/preview?token=${token}`).set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ state: "PENDING", eventId: event.id, eventTitle: "Preview Event", role: "PARTICIPANT", invitedByName: "Alice" });
+      expect(JSON.stringify(res.body)).not.toContain("Test Family");
+    });
+
+    it("returns state DECLINED for a declined invite", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Declined Preview" });
+      await db.eventInvitation.create({ data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: "preview-declined-001", invitedById: admin.id, scope: "INDIVIDUAL", status: "DECLINED" } });
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app).get(`/api/v1/events/participation/preview?token=preview-declined-001`).set("Authorization", "Bearer mock");
+      expect(res.status).toBe(200);
+      expect(res.body.state).toBe("DECLINED");
+    });
+
+    it("returns ACTIVE (redirect-only) when accepted+active, UNAVAILABLE when revoked", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const active = await seedTestEvent(familyGroup.id, admin.id, { title: "Active" });
+      await db.eventInvitation.create({ data: { eventId: active.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: "preview-active-001", invitedById: admin.id, scope: "INDIVIDUAL", status: "ACCEPTED" } });
+      await db.eventParticipant.create({ data: { eventId: active.id, personId: admin.id, role: "PARTICIPANT", status: "ACTIVE" } });
+      const revoked = await seedTestEvent(familyGroup.id, admin.id, { title: "Revoked" });
+      await db.eventInvitation.create({ data: { eventId: revoked.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: "preview-revoked-001", invitedById: admin.id, scope: "INDIVIDUAL", status: "ACCEPTED" } });
+      await db.eventParticipant.create({ data: { eventId: revoked.id, personId: admin.id, role: "PARTICIPANT", status: "REVOKED" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const a = await request(app).get(`/api/v1/events/participation/preview?token=preview-active-001`).set("Authorization", "Bearer mock");
+      expect(a.body).toEqual({ state: "ACTIVE", eventId: active.id });
+      const r = await request(app).get(`/api/v1/events/participation/preview?token=preview-revoked-001`).set("Authorization", "Bearer mock");
+      expect(r.body).toEqual({ state: "UNAVAILABLE" });
+    });
+
+    it("returns 403 for a token addressed to someone else, 400 for a missing token", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Not Yours" });
+      const outsider = await seedSecondPerson();
+      await db.eventInvitation.create({ data: { eventId: event.id, linkedPersonId: outsider.id, role: "PARTICIPANT", guestToken: "preview-notyours-001", invitedById: admin.id, scope: "INDIVIDUAL", status: "PENDING" } });
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const notYours = await request(app).get(`/api/v1/events/participation/preview?token=preview-notyours-001`).set("Authorization", "Bearer mock");
+      expect(notYours.status).toBe(403);
+      const missing = await request(app).get(`/api/v1/events/participation/preview`).set("Authorization", "Bearer mock");
+      expect(missing.status).toBe(400);
+    });
+  });
 });
