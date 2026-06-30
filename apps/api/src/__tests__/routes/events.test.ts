@@ -892,6 +892,44 @@ describe("events routes (P1-08)", () => {
       const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id, guestToken: token } });
       expect(inv?.status).toBe("DECLINED");
     });
+
+    it("accept: revives a previously DECLINED invitation into an ACTIVE grant", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Revive Me" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+      const token = "revive-token-001";
+      await db.eventInvitation.create({ data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: token, invitedById: admin.id, scope: "INDIVIDUAL", status: "DECLINED" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app).post(`/api/v1/events/${event.id}/participation/accept`).set("Authorization", "Bearer mock").send({ token });
+
+      expect(res.status).toBe(200);
+      expect(res.body.accepted).toBe(true);
+      const grant = await db.eventParticipant.findUnique({ where: { eventId_personId: { eventId: event.id, personId: admin.id } } });
+      expect(grant).toMatchObject({ status: "ACTIVE", role: "PARTICIPANT" });
+      const inv = await db.eventInvitation.findFirst({ where: { eventId: event.id, guestToken: token } });
+      expect(inv?.status).toBe("ACCEPTED");
+    });
+
+    it("accept: an ACCEPTED invitation whose grant was REVOKED cannot self-rejoin", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "No Rejoin" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+      const token = "revoked-token-001";
+      await db.eventInvitation.create({ data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: token, invitedById: admin.id, scope: "INDIVIDUAL", status: "ACCEPTED" } });
+      await db.eventParticipant.create({ data: { eventId: event.id, personId: admin.id, role: "PARTICIPANT", status: "REVOKED" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app).post(`/api/v1/events/${event.id}/participation/accept`).set("Authorization", "Bearer mock").send({ token });
+
+      expect(res.status).toBe(403);
+      const grant = await db.eventParticipant.findUnique({ where: { eventId_personId: { eventId: event.id, personId: admin.id } } });
+      expect(grant?.status).toBe("REVOKED");
+    });
   });
 
   // ── POST participants/:personId/revoke + PUT participants/:personId/role (P3-03 Task 6) ──

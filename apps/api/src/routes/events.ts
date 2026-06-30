@@ -929,7 +929,7 @@ eventsRouter.post("/:eventId/participation/accept", async (req, res) => {
   const requester = personed(req).person;
 
   const inv = await db.eventInvitation.findFirst({
-    where: { eventId: p.data.eventId, guestToken: body.data.token, status: "PENDING" }
+    where: { eventId: p.data.eventId, guestToken: body.data.token, status: { in: ["PENDING", "DECLINED"] } }
   });
   // Bind to authenticated identity: the token's invitation must target THIS person.
   if (!inv || inv.linkedPersonId !== requester.id) {
