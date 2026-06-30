@@ -1038,6 +1038,23 @@ eventsRouter.put("/:eventId/participants/:personId/role", async (req, res) => {
   res.json({ updated: true });
 });
 
+eventsRouter.get("/:eventId/participants", async (req, res) => {
+  const requester = personed(req).person;
+  const access = await resolveEventAccess(req.params.eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  // Owning members ONLY. A cross-family participant (even EVENT_ADMIN) must not read
+  // the roster / person ids across the family boundary — they use the foreign DTO.
+  if (!access.isOwningMember) { res.status(403).json({ error: "Not authorized to view participants" }); return; }
+
+  const grants = await db.eventParticipant.findMany({ where: { eventId: req.params.eventId }, orderBy: { createdAt: "asc" } });
+  const persons = await db.person.findMany({ where: { id: { in: grants.map((g) => g.personId) } }, select: { id: true, firstName: true, preferredName: true } });
+  const nameById = new Map(persons.map((p) => [p.id, p.preferredName ?? p.firstName]));
+
+  res.json({
+    participants: grants.map((g) => ({ personId: g.personId, displayName: nameById.get(g.personId) ?? "Participant", role: g.role, status: g.status }))
+  });
+});
+
 const CreateItemSchema = z.object({ name: z.string().min(1), quantity: z.string().optional(), notes: z.string().optional() });
 const PatchItemSchema = z.object({ name: z.string().min(1).optional(), quantity: z.string().nullable().optional(), notes: z.string().nullable().optional(), status: z.enum(["UNCLAIMED", "CLAIMED", "PROVIDED", "CANCELLED"]).optional() });
 

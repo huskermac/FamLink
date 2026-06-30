@@ -1004,6 +1004,39 @@ describe("events routes (P1-08)", () => {
     });
   });
 
+  describe("GET /api/v1/events/:eventId/participants (P3-03 W3a-UI)", () => {
+    it("returns grants (incl. revoked) for an owning admin", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Manage" });
+      const p1 = await seedGuestPerson({ firstName: "Active", lastName: "One" });
+      const p2 = await seedGuestPerson({ firstName: "Revoked", lastName: "Two" });
+      await db.eventParticipant.create({ data: { eventId: event.id, personId: p1.id, role: "PARTICIPANT", status: "ACTIVE" } });
+      await db.eventParticipant.create({ data: { eventId: event.id, personId: p2.id, role: "EVENT_ADMIN", status: "REVOKED" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app).get(`/api/v1/events/${event.id}/participants`).set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.participants).toEqual(expect.arrayContaining([
+        expect.objectContaining({ personId: p1.id, displayName: "Active", role: "PARTICIPANT", status: "ACTIVE" }),
+        expect.objectContaining({ personId: p2.id, displayName: "Revoked", role: "EVENT_ADMIN", status: "REVOKED" })
+      ]));
+    });
+
+    it("returns 403 for a cross-family EVENT_ADMIN participant (non-member must not read the roster)", async () => {
+      const owner = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(owner.id);
+      const event = await seedTestEvent(familyGroup.id, owner.id, { title: "Foreign Admin" });
+      const outsider = await seedSecondPerson(); // not a member of familyGroup
+      await db.eventParticipant.create({ data: { eventId: event.id, personId: outsider.id, role: "EVENT_ADMIN", status: "ACTIVE" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app).get(`/api/v1/events/${event.id}/participants`).set("Authorization", "Bearer mock");
+      expect(res.status).toBe(403);
+    });
+  });
+
   // ── Per-item task contributions (P3-03 Task 8) ─────────────────────────
 
   describe("POST /api/v1/events/:eventId/items (per-item contribution)", () => {
