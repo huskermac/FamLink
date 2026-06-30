@@ -7,7 +7,7 @@
 | Last updated | 2026-06-30 |
 | Branch | `p3-03-w3a-ui-web` (off `main`; 11 commits `db0f2c7`..`07510ae`; **READY TO MERGE**, awaiting Steve's merge/PR decision) |
 | Checkpoint | **W3a-UI-web implemented** (cross-family participation web UI + day-1 guest delivery). Built via brainstorm → spec (council-vetted) → plan (2 council rounds) → subagent-driven dev (10 tasks, per-task spec+quality review) → whole-branch opus review (READY TO MERGE, no Critical/Important). |
-| Local verification | PASS: full API suite **415/415** (40 files), full web suite **125/125** (24 files), repo-root `type-check` clean, `lint` 0 errors (34 pre-existing warnings), `git diff --check` clean |
+| Local verification | PASS: full API suite **415/415**, full web suite **169/169** (coverage gate green at **87.29%** lines, threshold 80), repo-root `type-check` clean, `lint` 0 errors (34 pre-existing warnings), `git diff --check` clean. `turbo test --filter=@famlink/api --filter=famlink-web -- --coverage` → 4/4 tasks successful |
 
 ---
 
@@ -66,7 +66,7 @@ Earlier 2026-06-24/25 stream:
 
 ## Verification Baseline
 
-- **W3a-UI-web (2026-06-30, branch `p3-03-w3a-ui-web`):** full API suite **415/415** (40 files), full web suite **125/125** (24 files), repo-root `type-check` clean, repo-root `lint` 0 errors (34 pre-existing warnings), `git diff --check` clean. Additive only — no Prisma migration. Whole-branch opus review READY TO MERGE; all isolation invariants verified in code (foreign DTO carries no person ids; `/participants` owning-member-only; preview identity-bound + family-blind; guest copy structurally safe; revival never overrides revoke; `/events/accept` auth-gated).
+- **W3a-UI-web (2026-06-30, branch `p3-03-w3a-ui-web`):** full API suite **415/415** (40 files), full web suite **169/169** (24→26 files; coverage **87.29%** lines vs 80 gate — initial build came in at 75.53% because per-task verification ran targeted `vitest run <file>` not the `--coverage` gate; fixed by commit `320b11d` adding real client/component tests, see `project_verification_coverage_gate` memory), repo-root `type-check` clean, repo-root `lint` 0 errors (34 pre-existing warnings), `git diff --check` clean. Additive only — no Prisma migration. Whole-branch opus review READY TO MERGE; all isolation invariants verified in code (foreign DTO carries no person ids; `/participants` owning-member-only; preview identity-bound + family-blind; guest copy structurally safe; revival never overrides revoke; `/events/accept` auth-gated).
 - **CIF Plan B (2026-06-26, branch `p3-03-cif-plan-b-merge-engine`, now merged):** full API suite **403/403** (39 files); `main` pre-merge baseline 381/381; `tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only). Additive — no schema migration. (Note: an implementer reported transient "33 pre-existing failures" that did NOT reproduce on a clean run — flake, not a regression.)
 - **CI green at `main` HEAD `9821542`** - `lint-and-typecheck`, `test`, and `build` all passed in run 28183812961.
 - CIF Plan A local verification on `codex/p3-03-cif-plan-a` (2026-06-26):
