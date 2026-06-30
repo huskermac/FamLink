@@ -4,7 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { getMyFamilies, getFamilyDetails } from "@/lib/api/family";
-import { getEventInviteeSuggestions, sendInvitations } from "@/lib/api/events";
+import { getEventInviteeSuggestions, sendInvitations, getEventDetails, isForeignEventDTO } from "@/lib/api/events";
 import type { InviteeEntry, InviteeSuggestion } from "@/lib/api/events";
 
 export default function InvitePage() {
@@ -13,16 +13,25 @@ export default function InvitePage() {
   const { getToken } = useAuth();
 
   const [selectedPersonIds, setSelectedPersonIds] = useState<Set<string>>(new Set());
+  const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(new Set());
+  const [adminSuggestionIds, setAdminSuggestionIds] = useState<Set<string>>(new Set());
   const [externalName, setExternalName]   = useState("");
   const [externalEmail, setExternalEmail] = useState("");
   const [externalPhone, setExternalPhone] = useState("");
   const [sending, setSending] = useState(false);
 
+  const eventQuery = useQuery({ queryKey: ["event", eventId], queryFn: () => getEventDetails(eventId, getToken), enabled: !!eventId });
+  const eventData = eventQuery.data;
+  const eventFamilyId = eventData && !isForeignEventDTO(eventData) ? eventData.event.familyGroupId : null;
+
   const familiesQuery = useQuery({
     queryKey: ["families"],
     queryFn:  () => getMyFamilies(getToken),
   });
-  const familyId = familiesQuery.data?.[0]?.familyGroup.id ?? null;
+  const families = familiesQuery.data ?? [];
+  const familyId = eventFamilyId ?? families[0]?.familyGroup.id ?? null;
+  const myMembership = families.find((f) => f.familyGroup.id === familyId);
+  const canAdmin = (myMembership?.roles ?? []).some((r) => r === "ADMIN" || r === "ORGANIZER");
 
   const { data: familyData } = useQuery({
     queryKey: ["family-detail", familyId],
@@ -51,9 +60,10 @@ export default function InvitePage() {
   async function handleSend() {
     setSending(true);
     const invitees: InviteeEntry[] = [
-      ...[...selectedPersonIds].map(id => ({ personId: id })),
+      ...[...selectedPersonIds].map((id): InviteeEntry => ({ kind: "person", personId: id })),
+      ...[...selectedSuggestionIds].map((id): InviteeEntry => ({ kind: "famlinkUser", personId: id, role: adminSuggestionIds.has(id) ? "EVENT_ADMIN" : "PARTICIPANT" })),
       ...(externalEmail || externalPhone
-        ? [{ guestEmail: externalEmail || undefined, guestPhone: externalPhone || undefined, guestName: externalName || "Guest" }]
+        ? [{ kind: "guest", guestEmail: externalEmail || undefined, guestPhone: externalPhone || undefined, guestName: externalName || "Guest" } as InviteeEntry]
         : [])
     ];
     if (invitees.length > 0) {
@@ -107,14 +117,15 @@ export default function InvitePage() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             {suggestions.map(s => (
-              <label key={s.person.id} style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer",
+              <div key={s.person.id} style={{ display: "flex", alignItems: "center", gap: "10px",
                                                 background: "var(--bg-card)", border: "1px solid var(--border)",
                                                 borderRadius: "8px", padding: "10px 12px" }}>
                 <input
                   type="checkbox"
-                  checked={selectedPersonIds.has(s.person.id)}
-                  onChange={() => togglePerson(s.person.id)}
-                  style={{ accentColor: "var(--color-primary, #6366f1)", width: "16px", height: "16px" }}
+                  aria-label={s.person.displayName}
+                  checked={selectedSuggestionIds.has(s.person.id)}
+                  onChange={() => setSelectedSuggestionIds(prev => { const next = new Set(prev); if (next.has(s.person.id)) { next.delete(s.person.id); } else { next.add(s.person.id); } return next; })}
+                  style={{ accentColor: "var(--color-primary, #6366f1)", width: "16px", height: "16px", cursor: "pointer" }}
                 />
                 <div>
                   <div style={{ fontSize: "14px", color: "var(--text-primary)" }}>{s.person.displayName}</div>
@@ -123,7 +134,18 @@ export default function InvitePage() {
                     {s.sharedChildren.length > 0 && ` · co-parent of ${s.sharedChildren.map(c => c.displayName).join(", ")}`}
                   </div>
                 </div>
-              </label>
+                {canAdmin && selectedSuggestionIds.has(s.person.id) && (
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)" }}>
+                    <input
+                      type="checkbox"
+                      aria-label={`make event admin: ${s.person.displayName}`}
+                      checked={adminSuggestionIds.has(s.person.id)}
+                      onChange={() => setAdminSuggestionIds(prev => { const next = new Set(prev); if (next.has(s.person.id)) { next.delete(s.person.id); } else { next.add(s.person.id); } return next; })}
+                    />
+                    make event admin
+                  </label>
+                )}
+              </div>
             ))}
           </div>
         </section>

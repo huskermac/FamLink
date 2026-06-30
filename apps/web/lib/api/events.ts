@@ -170,12 +170,10 @@ export function getRsvpStatus(
 
 // ── Invitations ───────────────────────────────────────────────────────────────
 
-export interface InviteeEntry {
-  personId?: string;
-  guestEmail?: string;
-  guestPhone?: string;
-  guestName?: string;
-}
+export type InviteeEntry =
+  | { kind: "person"; personId: string }
+  | { kind: "famlinkUser"; personId: string; role?: "PARTICIPANT" | "EVENT_ADMIN" }
+  | { kind: "guest"; guestEmail?: string; guestPhone?: string; guestName?: string };
 
 export interface InvitationRecord {
   id: string;
