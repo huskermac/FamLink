@@ -4,10 +4,10 @@
 
 | Field | Value |
 |---|---|
-| Last updated | 2026-06-29 |
-| Branch | `main` |
-| Checkpoint | CIF Plan A production migration/backfill complete; CIF Plan B (merge engine) merged to `main` via PR #5 |
-| Local verification | PASS: CI on `main` HEAD `e41a6cc` (lint/typecheck, tests, build); production Prisma deploy reported no pending migrations; Clerk contact backfill applied cleanly |
+| Last updated | 2026-06-30 |
+| Branch | `p3-03-w3a-ui-web` (off `main`; 11 commits `db0f2c7`..`07510ae`; **READY TO MERGE**, awaiting Steve's merge/PR decision) |
+| Checkpoint | **W3a-UI-web implemented** (cross-family participation web UI + day-1 guest delivery). Built via brainstorm → spec (council-vetted) → plan (2 council rounds) → subagent-driven dev (10 tasks, per-task spec+quality review) → whole-branch opus review (READY TO MERGE, no Critical/Important). |
+| Local verification | PASS: full API suite **415/415** (40 files), full web suite **125/125** (24 files), repo-root `type-check` clean, `lint` 0 errors (34 pre-existing warnings), `git diff --check` clean |
 
 ---
 
@@ -22,20 +22,21 @@
 - **Contact Identity Foundation - Plan A (backbone)** (P3-03, PR #4, merge `f45f11c`; prod completed 2026-06-29): contact normalization helpers, additive `Person` normalized/verified contact columns, verified-only partial unique indexes, canonical `findOrCreatePersonByContact`, Clerk webhook normalized+verified email writes, guest invite resolver routing through canonical contact identity, and one-time Clerk verified-contact backfill. Spec: `docs/superpowers/specs/2026-06-25-contact-identity-foundation-design.md`; plan: `docs/superpowers/plans/2026-06-25-contact-identity-foundation-a-backbone.md`.
 - **Contact Identity Foundation - Plan B (merge engine)** (P3-03, PR #5, merge `a034137`): transactional `mergePersons` (re-points every Person-referencing column incl. logical no-FK columns, compound-unique dedupe, delete; refuses to delete an account; idempotent), dependent-safety gate + full-name corroboration (`selectMergeableContactPerson`/`nameCorroborates`), and a retry-safe Clerk `user.created` post-upsert consolidation that merges a safe contact-only guest into the new account (guest invitation/RSVP history reconciles via `linkedPersonId`). Logs-only observability, no new table. Council-validated (Codex, 2 rounds) + final opus review READY TO MERGE. Spec: `docs/superpowers/specs/2026-06-26-cif-plan-b-merge-engine-design.md`; plan: `docs/superpowers/plans/2026-06-26-cif-plan-b-merge-engine.md`.
 
-**Designed/planned but not executed:**
-- **W3a-UI-web** - spec `docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md` (was deferred behind the identity foundation, which is now complete — this is next).
+- **W3a-UI-web** - cross-family event participation web UI (P3-03, branch `p3-03-w3a-ui-web`, READY TO MERGE): **day-1 guest invitation delivery** (direct email/SMS of the `/rsvp/{token}` link, isolation-safe copy), **participant revival** (accept widened to {PENDING,DECLINED}, never ACCEPTED — admin revoke stays authoritative), identity-bound `GET /events/participation/preview`, owning-member-only `GET /:eventId/participants`, `isOwn` flag on foreign items, and web surfaces: invite-page cross-family roles (admin-gated), `/events/accept` page (state matrix), foreign-DTO participant viewer (add + delete-own tasks), and owning-member participant management. Spec: `docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md`; plan: `docs/superpowers/plans/2026-06-30-w3a-ui-web-cross-family-participation.md`.
 
 ## Reordered Roadmap (Canonical)
 
 1. ~~Merge or PR **Contact Identity Foundation Plan A**~~ - **DONE** (PR #4 merged `f45f11c`).
 2. ~~Write and execute **Contact Identity Foundation Plan B (merge engine)**~~ - **DONE** (PR #5 merged `a034137`).
-3. **W3a-UI-web**. *(next)*
-4. **W3a-UI-mobile**.
+3. ~~**W3a-UI-web**~~ - **DONE, READY TO MERGE** (branch `p3-03-w3a-ui-web`, 11 commits, whole-branch review clean; awaiting merge/PR).
+4. **W3a-UI-mobile**. *(next)*
 5. Rest of **W3b** - passive SMS onboarding (inbound Twilio webhook, "reply Y", STOP/opt-out, phone verification).
 6. **W4** - Pro Organizer beta (non-family event admin + B2B billing).
 7. **W1** - Household to Family M2M reframe (migration-heavy).
 
 ## Work Completed Since Last Shared-State Update
+
+2026-06-30 **W3a-UI-web built** on branch `p3-03-w3a-ui-web` (11 commits `db0f2c7`..`07510ae`), READY TO MERGE. Flow: brainstorm → spec refresh + Codex council (no BLOCKERs) → plan + 2 Codex council rounds (round 2 clean) → subagent-driven execution (10 TDD tasks, fresh implementer + spec/quality reviewer each) → whole-branch opus review (READY TO MERGE, no Critical/Important). Commits: `db0f2c7` guest delivery, `aefc391` accept-revival, `78f1669` preview endpoint, `2c08405` participants list (owning-member-only), `f7c71af` foreign-item `isOwn`, `4aba71d` web client, `1b23ae2` invite-page roles, `d60ef99` accept page, `765e2bd` accept-deps comment fix, `38b49b3` foreign viewer, `07510ae` participant mgmt. A controller re-boundary moved the `InviteeEntry`/`getEventDetails` breaking type changes into their consumer tasks (7/9) to keep the workspace type-checking at every step. Pending Steve: prod has no new migration (additive only — `isOwn` is computed, no schema change); ensure `RESEND_*`/`TWILIO_*`/`WEB_APP_URL` env vars are set in prod for guest delivery to actually send.
 
 2026-06-26 CIF Plan B (merge engine) **merged to `main`** via PR #5 (merge `a034137`); feature branch `p3-03-cif-plan-b-merge-engine` deleted (local + remote). Built via brainstorm -> spec -> plan -> council (Codex, 2 rounds; caught `EventPhoto.uploadedById` not `personId` + missed `AssistantMessage.personId`) -> subagent-driven execution (3 tasks) -> final opus whole-branch review (READY TO MERGE). Plan B commits `366ac4a` (mergePersons), `4dc1c98` (selection + corroboration), `5e25395` (guarded-adult test), `6e3b8b0` (webhook consolidation), `ac20560` (review follow-ups). Verified: branch API suite 403/403 (39 files), main baseline 381/381, tsc/lint clean.
 
@@ -65,6 +66,7 @@ Earlier 2026-06-24/25 stream:
 
 ## Verification Baseline
 
+- **W3a-UI-web (2026-06-30, branch `p3-03-w3a-ui-web`):** full API suite **415/415** (40 files), full web suite **125/125** (24 files), repo-root `type-check` clean, repo-root `lint` 0 errors (34 pre-existing warnings), `git diff --check` clean. Additive only — no Prisma migration. Whole-branch opus review READY TO MERGE; all isolation invariants verified in code (foreign DTO carries no person ids; `/participants` owning-member-only; preview identity-bound + family-blind; guest copy structurally safe; revival never overrides revoke; `/events/accept` auth-gated).
 - **CIF Plan B (2026-06-26, branch `p3-03-cif-plan-b-merge-engine`, now merged):** full API suite **403/403** (39 files); `main` pre-merge baseline 381/381; `tsc --noEmit` clean; `npm run lint` 0 errors (pre-existing warnings only). Additive — no schema migration. (Note: an implementer reported transient "33 pre-existing failures" that did NOT reproduce on a clean run — flake, not a regression.)
 - **CI green at `main` HEAD `9821542`** - `lint-and-typecheck`, `test`, and `build` all passed in run 28183812961.
 - CIF Plan A local verification on `codex/p3-03-cif-plan-a` (2026-06-26):
@@ -79,7 +81,7 @@ Earlier 2026-06-24/25 stream:
 
 ## Next Recommended / Authorized Step
 
-**W3a-UI-web** - the Contact Identity Foundation (Plans A + B) is now complete, merged, and production-applied, so the web UI for cross-family participation can build on durable identity. Spec exists (`docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md`); needs an implementation plan (brainstorm/refresh -> writing-plans) before code.
+**Merge `p3-03-w3a-ui-web`** (Steve's decision: local merge vs PR), then **W3a-UI-mobile** - port the cross-family participation surfaces to the mobile client (accept link → in-app accept, foreign-event viewer, participant RSVP/tasks). The W3a-API + web client + isolation patterns are now the reference. W3a-UI-web spec/plan: `docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md` / `docs/superpowers/plans/2026-06-30-w3a-ui-web-cross-family-participation.md`.
 
 ## Open Blockers / Questions Needing Steve
 
@@ -87,6 +89,8 @@ Earlier 2026-06-24/25 stream:
 
 ## Deferred Items (and Why)
 
+- **W3a-UI-web follow-ups (non-blocking, from final review):** (1) **edit-own** task contribution in the foreign viewer (Steve-approved defer; add/delete-own shipped); (2) `ForeignEventDetail` RSVP button can't reflect the viewer's existing RSVP — the foreign DTO doesn't expose self-RSVP (small DTO addition would fix); (3) edit page renders a perpetual loading skeleton if a foreign DTO loads it (unreachable in practice — no link, API rejects; render an "unavailable" state); (4) phone-channel guest delivery lacks a route-level test (per-channel logic is unit-covered); (5) invite suggestion row lost whole-row click-to-toggle (`<label>`→`<div>`; only the checkbox toggles); (6) preview makes 2 sequential DB lookups (could `Promise.all`).
+- **Repo hygiene (pre-existing, discovered during W3a-UI-web):** `apps/web/src/app/` and `apps/web/src/components/` are **stale duplicate trees** — the live tree is `apps/web/app/` + `apps/web/components/`. `vitest.config.ts` `include` was incrementally widened (lib, app, components) to discover tests in the live tree. Worth a cleanup pass to delete the stale `src/` trees.
 - **W3a-UI-mobile** - after W3a-UI-web (web first). (Contact Identity Foundation is now done, so this sequencing constraint is satisfied.)
 - **Rest of W3b (passive SMS onboarding)** - needs inbound SMS infra plus TCPA/STOP compliance; sequenced after UI.
 - **W4 (Pro Organizer), W1 (Household reframe)** - later in the reframe sequence; W1 is migration-heavy.
@@ -96,4 +100,6 @@ Earlier 2026-06-24/25 stream:
 
 ## GitNexus Freshness
 
-Up-to-date after the 2026-06-29 CIF Plan A production checkpoint. `npx gitnexus analyze` ran after the checkpoint commits: 3,081-3,082 doc-sensitive nodes / 4,255 edges / 98-99 clusters / 89 flows. The one-node variance came from generated adapter metadata text only; execution-flow coverage is unchanged.
+Re-analyzed at the end of the 2026-06-30 W3a-UI-web session (branch `p3-03-w3a-ui-web` HEAD `07510ae`) so the next session resumes against a fresh graph.
+
+Prior note — up-to-date after the 2026-06-29 CIF Plan A production checkpoint. `npx gitnexus analyze` ran after the checkpoint commits: 3,081-3,082 doc-sensitive nodes / 4,255 edges / 98-99 clusters / 89 flows. The one-node variance came from generated adapter metadata text only; execution-flow coverage is unchanged.
