@@ -67,6 +67,11 @@ Data facts that constrain the design:
   (full view + participant management).
 - Two small read endpoints + one accept-widening + guest delivery (§3).
 
+**Deliberately NOT included:** an `invitees[]` array cap. The invite endpoint is unbounded today, but
+this cycle's UI cannot produce a large batch (one external guest + selected members/suggestions per
+submit). Bounding the array (chunked inserts, async delivery, a high pathological-payload guard) is a
+real concern only once bulk import exists, so it is designed with that slice (§6), not here.
+
 **Out of scope:**
 - **§4 elevation** (auto-promoting a typed external email/phone that matches an account into a
   participant invite) — **dropped**. External email/phone stays guest-only; cross-family participant
@@ -129,11 +134,6 @@ deliverable Person contact / prefs). Email when `guestEmail` present, SMS when `
   failed sends are diagnosable. The UI reports "invitation sent" based on invitation **creation**, and
   must not falsely assert delivery success.
 
-### 3.5 Invitees array cap (cheap hardening, council MINOR)
-Since this cycle already edits the invite handler, add `.max(N)` (e.g. `N = 200`) to the
-`SendInvitationsV2Schema.invitees` array (currently unbounded). Protects the transaction and pre-empts
-the future bulk-import abuse/perf risk.
-
 ## 4. Web surfaces
 
 ### 4.1 Invite page (`events/[eventId]/invite/page.tsx`, extend)
@@ -192,12 +192,16 @@ A future slice lets a user paste a CSV/TSV blob or upload a file of name + email
 many guests at once. It is **already supported by the architecture**: each row maps to a
 `{ kind: "guest", guestName, guestEmail | guestPhone }` entry in the existing array invite endpoint —
 **no schema, endpoint, or model change**. Imported rows inherit CIF normalization/dedup
-(`findOrCreatePersonByContact`), existing-invitation skip, guest delivery (§3.4), and the §3.5 cap.
+(`findOrCreatePersonByContact`), existing-invitation skip, and guest delivery (§3.4).
 
 A future import slice adds, client-side: a parser that classifies each value as email vs phone, per-row
 validation surfaced before send, and a result summary ("18 invited, 2 duplicates skipped, 1 invalid")
-diffed against the endpoint's returned created list. This cycle's tagged `InviteeEntry` refactor (§4.1)
-is exactly the shape import reuses, so nothing here forecloses it.
+diffed against the endpoint's returned created list. **Server-side it must address scale**, which this
+cycle deliberately defers: chunk the inserts rather than one long `db.$transaction`, move guest
+email/SMS delivery off the request path (queue/async), and add a high pathological-payload guard
+(framed as rejecting absurd payloads, set well above any real guest list — never a guest-list limit).
+This cycle's tagged `InviteeEntry` refactor (§4.1) is exactly the shape import reuses, so nothing here
+forecloses it.
 
 ## 7. Testing
 
@@ -211,7 +215,6 @@ is exactly the shape import reuses, so nothing here forecloses it.
   - guest delivery: creating a guest invite triggers a direct email/SMS to the invitation contact with
     a body containing the RSVP link and **no** family name; a send failure does not fail the invite;
     the attempt is logged.
-  - invitees `.max(N)` cap rejects an over-cap batch.
 - **Web (vitest + testing-library):** invite page sends `famlinkUser`+role for suggestions and hides the
   role control for non-admins; accept page renders each state-matrix branch and calls accept/decline;
   event detail renders foreign DTO (participant) vs full view (member); participant management shows
@@ -230,13 +233,14 @@ is exactly the shape import reuses, so nothing here forecloses it.
 
 Council (Codex, 2026-06-30): **no BLOCKERs**; four MAJORs + several MINORs folded in (preview
 status-branching, ACCEPTED+revoked handling, guest copy isolation, guest delivery observability, accept
-state matrix, page hardening, `invitedByName` scope, invitees cap).
+state matrix, page hardening, `invitedByName` scope). The council's invitees-cap MINOR was considered
+and **declined for this cycle** (see §2 / §6): a low cap would break real guest lists (weddings) and the
+UI cannot produce large batches until bulk import, where proper bounding is designed.
 
 ## 9. Open items for Steve
 
-1. Confirm the §3.5 invitees cap value (default proposed: 200).
-2. Confirm `invitedByName` = inviter preferred/first name is acceptable to expose on the accept page.
-3. Pre-existing note: the guest RSVP page (`/rsvp/{token}` → `getGuestInvitation`) currently returns
+1. Confirm `invitedByName` = inviter preferred/first name is acceptable to expose on the accept page.
+2. Pre-existing note: the guest RSVP page (`/rsvp/{token}` → `getGuestInvitation`) currently returns
    `familyGroup.name` to the guest. That is a deliberate guest-facing host-name display (an invited
    guest seeing "hosted by the Smith family" is normal evite behavior), distinct from the cross-family
    *participant* isolation invariant. Flagged for awareness; no change proposed this cycle.
