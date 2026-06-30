@@ -12,15 +12,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
-    setupFiles: ["./src/test-setup.ts"],
+    setupFiles: ["./test-setup.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
       thresholds: { lines: 80 }
     },
     include: [
-      "src/**/__tests__/**/*.test.tsx",
-      "src/**/__tests__/**/*.test.ts",
       "lib/**/__tests__/**/*.test.tsx",
       "lib/**/__tests__/**/*.test.ts",
       "app/**/__tests__/**/*.test.tsx",
