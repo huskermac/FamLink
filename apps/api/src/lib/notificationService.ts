@@ -56,6 +56,27 @@ export function truncateNotificationSmsBody(body: string): string {
   return t.length <= MAX_NOTIFICATION_SMS ? t : t.slice(0, MAX_NOTIFICATION_SMS);
 }
 
+export interface GuestInvitationMessage {
+  subject: string;
+  body: string;
+}
+
+/**
+ * Isolation-safe guest invitation copy: ONLY event title, start time, and the
+ * RSVP link. Never accepts (and so never emits) family name, roster, or ids.
+ */
+export function buildGuestInvitationMessage(opts: {
+  eventTitle: string;
+  startAt: Date;
+  rsvpUrl: string;
+}): GuestInvitationMessage {
+  const when = opts.startAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  return {
+    subject: `You're invited: ${opts.eventTitle}`,
+    body: `You're invited to ${opts.eventTitle} on ${when}. RSVP here: ${opts.rsvpUrl}`
+  };
+}
+
 export class NotificationService {
   private readonly resend: Resend;
   private readonly twilioClient: ReturnType<typeof twilio>;
@@ -109,6 +130,39 @@ export class NotificationService {
       body: text
     });
     return true;
+  }
+
+  /**
+   * Direct guest delivery: emails/texts a contact-only invitee the RSVP link.
+   * Bypasses the person-preference path (guests have no deliverable Person
+   * contact / prefs). Each channel is independently non-fatal and logged.
+   */
+  async sendGuestInvitation(opts: {
+    invitationId: string;
+    email?: string | null;
+    phone?: string | null;
+    message: GuestInvitationMessage;
+  }): Promise<void> {
+    if (opts.email) {
+      let success = false;
+      let error: string | undefined;
+      try {
+        success = await this.sendEmail(opts.email, opts.message.subject, opts.message.body);
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+      }
+      console.info(JSON.stringify({ event: "guest_invitation_delivery", invitationId: opts.invitationId, channel: "EMAIL", success, ...(error ? { error } : {}) }));
+    }
+    if (opts.phone) {
+      let success = false;
+      let error: string | undefined;
+      try {
+        success = await this.sendSms(opts.phone, opts.message.body);
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+      }
+      console.info(JSON.stringify({ event: "guest_invitation_delivery", invitationId: opts.invitationId, channel: "SMS", success, ...(error ? { error } : {}) }));
+    }
   }
 
   private async sendPush(

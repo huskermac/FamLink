@@ -10,7 +10,7 @@ import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 import { generateBirthdayEvents } from "../lib/birthdayGenerator";
 import { getInviteeSuggestions } from "../lib/inviteeSuggestions";
 import { resolveEventAccess, toForeignInvitedEventDTO, activeEventParticipant } from "../lib/eventAccess";
-import { NotificationService } from "../lib/notificationService";
+import { NotificationService, buildGuestInvitationMessage } from "../lib/notificationService";
 import { env } from "../lib/env";
 import { findOrCreatePersonByContact } from "../lib/personIdentity";
 
@@ -572,6 +572,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
   const now = new Date();
   const createdInvitations: object[] = [];
   const famlinkUserInvites: Array<{ linkedPersonId: string; guestToken: string }> = [];
+  const guestInvites: Array<{ invitationId: string; guestToken: string; email: string | null; phone: string | null }> = [];
 
   await db.$transaction(async (tx) => {
     for (const invitee of parsed.data.invitees) {
@@ -624,6 +625,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
             }
           });
           createdInvitations.push(created);
+          guestInvites.push({ invitationId: created.id, guestToken: created.guestToken!, email: invitee.guestEmail ?? null, phone: invitee.guestPhone ?? null });
         }
       } else if (invitee.kind === "famlinkUser") {
         const existing = await tx.eventInvitation.findFirst({ where: { eventId, linkedPersonId: invitee.personId } });
@@ -662,6 +664,20 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
         body: `You have a new event invitation. Accept it here: ${acceptLink}`,
         data: { acceptLink }
       }).catch(() => { /* non-fatal */ });
+    }
+  }
+
+  if (guestInvites.length > 0) {
+    const guestNotifier = new NotificationService();
+    for (const g of guestInvites) {
+      const message = buildGuestInvitationMessage({
+        eventTitle: event.title,
+        startAt: event.startAt,
+        rsvpUrl: `${env.WEB_APP_URL}/rsvp/${g.guestToken}`
+      });
+      guestNotifier
+        .sendGuestInvitation({ invitationId: g.invitationId, email: g.email, phone: g.phone, message })
+        .catch(() => { /* non-fatal */ });
     }
   }
 

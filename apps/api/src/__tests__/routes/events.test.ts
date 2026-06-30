@@ -12,6 +12,7 @@ import {
   seedTestPerson
 } from "../helpers/db";
 import { activeEventParticipant } from "../../lib/eventAccess";
+import { NotificationService } from "../../lib/notificationService";
 
 vi.mock("@clerk/express", () => ({
   clerkMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => {
@@ -1319,6 +1320,35 @@ describe("events routes (P1-08)", () => {
           status: RSVPStatus.YES
         })
       );
+    });
+  });
+
+  describe("POST /api/v1/events/:eventId/invitations — guest delivery (P3-03 W3a-UI)", () => {
+    it("invokes sendGuestInvitation with the rsvp link + title and no family name; send failure is non-fatal", async () => {
+      // Each channel inside sendGuestInvitation catches its own error, so we make the
+      // whole method throw to prove the route-level call site is also non-fatal.
+      const spy = vi.spyOn(NotificationService.prototype, "sendGuestInvitation").mockRejectedValue(new Error("boom"));
+
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id); // family name "Test Family"
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Picnic" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "OPEN" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/invitations`)
+        .set("Authorization", "Bearer mock")
+        .send({ invitees: [{ kind: "guest", guestEmail: "ext@example.com", guestName: "Ext Guest" }] });
+
+      expect(res.status).toBe(201);
+      expect(spy).toHaveBeenCalledTimes(1);
+      const arg = spy.mock.calls[0][0];
+      expect(arg.email).toBe("ext@example.com");
+      expect(arg.message.body).toContain("Picnic");
+      expect(arg.message.body).toMatch(/\/rsvp\//);
+      expect(`${arg.message.subject}\n${arg.message.body}`).not.toContain("Test Family");
+
+      spy.mockRestore();
     });
   });
 });
