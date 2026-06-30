@@ -2,22 +2,25 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the merged W3a-API usable on the web client — invite cross-family people with a role, let them accept/decline/revive participation, manage participants — and close the day-1 guest-delivery gap.
+**Goal:** Make the merged W3a-API usable on the web client — invite cross-family people with a role, let them accept/decline/revive participation and contribute tasks, let owners manage participants — and close the day-1 guest-delivery gap.
 
-**Architecture:** Four small additive/surgical API changes on the existing Express + Prisma router (`apps/api/src/routes/events.ts`), then web client functions and four UI surfaces in the Next.js App Router app. The backend already has the participation grant, accept/decline, revoke/role, per-item tasks, the `famlinkUser` invite path, and the isolation-safe `ForeignInvitedEventDTO`; this plan consumes those and fills the gaps.
+**Architecture:** Five small additive/surgical API changes on the existing Express + Prisma router (`apps/api/src/routes/events.ts`, `apps/api/src/lib/notificationService.ts`), then web client functions and four UI surfaces in the Next.js App Router app. The backend already has the participation grant, accept/decline, revoke/role, ownership-scoped per-item tasks, the `famlinkUser` invite path, and the isolation-safe `ForeignInvitedEventDTO`.
 
 **Tech Stack:** Express, Prisma/Postgres, Zod, Resend (email), Twilio (SMS), Clerk auth, Next.js App Router, React, TanStack Query, vitest + supertest (API), vitest + @testing-library/react (web).
 
 **Spec:** `docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md`
 
+> **Round-2 plan (2026-06-30):** revised after a Codex plan-gate review. Fixes: `/participants` gated to owning members only (a cross-family EVENT_ADMIN must NOT read the roster); `previewParticipation` is authenticated with a relative path (matches `apiFetch`, which requires `getToken`); preview HTTP contract aligned (400 absent token / 403 not-yours; ACTIVE returns `{state,eventId}` only); a new Task 5 adds an isolation-safe `isOwn` flag so the foreign viewer can scope edit/delete-own (foreignItemShape strips person ids); admin detection reads the `roles[]` array `getMyFamilies` actually returns, keyed to the **event's** family (not `data[0]`).
+
 ## Global Constraints
 
 - **Commit format:** `feat: P3-03 <short description>` (or `fix:` / `chore:`). Phase tag **P3-03**.
 - **Per-task verification (all three):** from the touched workspace run the task's tests, then `npm run type-check`, then `npm run lint`. Lint errors fail CI — never skip lint.
-- **Cross-tenant isolation (hard invariant):** never leak another family's name, roster, events, or internal IDs across the `FamilyGroup` boundary. The participant viewer only ever consumes the foreign DTO; `/participants` is members/admins only; preview returns no family identifiers.
+- **Cross-tenant isolation (hard invariant):** never leak another family's name, roster, events, or internal **person ids** across the `FamilyGroup` boundary. The participant viewer only consumes the foreign DTO (no person ids — only an `isOwn` boolean); `/participants` is **owning members only**; preview returns no family identifiers.
 - **Guest message copy:** the guest invitation email/SMS body and URL contain **only** event title, start time, and the `/rsvp/{token}` link — no family name, roster, inviter family, participant list, or internal IDs.
 - **Revival never overrides admin revocation:** the accept mutation matches invitation status ∈ {PENDING, DECLINED} only — never ACCEPTED — so an admin-revoked participant (invitation ACCEPTED, grant REVOKED) cannot self-rejoin via the link.
 - **`invitedByName`** exposed to an invitee = the inviter's `preferredName ?? firstName` only, never a family name.
+- **Admin detection (web):** `getMyFamilies()` returns `{ familyGroup, role, roles: string[], joinedAt }[]`. The viewer is an admin of an event when the membership whose `familyGroup.id === event.familyGroupId` has `roles` containing `"ADMIN"` or `"ORGANIZER"`. Always key off the **event's** family, never `data[0]`.
 - **No invitees array cap** this cycle (deliberate — see spec §2/§6).
 - Tests run: API from `apps/api` via `npx vitest run <path>`; web from `apps/web` via `npx vitest run <path>`.
 
@@ -26,37 +29,36 @@
 ## File Structure
 
 **API (`apps/api/src/`):**
-- `lib/notificationService.ts` — MODIFY: add exported `buildGuestInvitationMessage()` (pure) + `NotificationService.sendGuestInvitation()` (reuses private `sendEmail`/`sendSms`, logs per attempt).
-- `routes/events.ts` — MODIFY: wire guest delivery into the `guest` branch of `POST /:eventId/invitations`; widen `participation/accept`; add `GET /participation/preview`; add `GET /:eventId/participants`.
-- `__tests__/lib/guestInvitationMessage.test.ts` — NEW: pure copy/isolation unit test.
-- `__tests__/routes/events.test.ts` — MODIFY: add tests for guest delivery, accept revival, preview, participants list.
+- `lib/notificationService.ts` — MODIFY: add exported `buildGuestInvitationMessage()` (pure) + `NotificationService.sendGuestInvitation()`.
+- `routes/events.ts` — MODIFY: guest delivery in the `guest` branch of `POST /:eventId/invitations`; widen `participation/accept`; add `GET /participation/preview`; add `GET /:eventId/participants`; extend `foreignItemShape` with `isOwn`.
+- `__tests__/lib/guestInvitationMessage.test.ts` — NEW.
+- `__tests__/routes/events.test.ts` — MODIFY: guest delivery, accept revival, preview, participants list, foreign-item `isOwn`.
 
 **Web (`apps/web/`):**
-- `lib/api/events.ts` — MODIFY: tagged `InviteeEntry` (`kind`+`role`), participation/participant/item client functions, foreign-DTO union + type guard.
-- `app/(protected)/events/[eventId]/invite/page.tsx` — MODIFY: `famlinkUser`+role for suggestions (admin-gated), tagged kind shape.
-- `app/events/accept/page.tsx` — NEW: authenticated accept/decline/revive page (state matrix).
-- `components/events/ForeignEventDetail.tsx` — NEW: cross-family participant viewer.
-- `components/events/ParticipantsSection.tsx` — NEW: owning-member participant management.
-- `app/(protected)/events/[eventId]/page.tsx` — MODIFY: branch member vs foreign DTO; mount `ParticipantsSection` for members.
+- `lib/api/family.ts` — MODIFY: add `roles: string[]` to `FamilyMembership`.
+- `lib/api/events.ts` — MODIFY: tagged `InviteeEntry`; `ForeignEventItem`/`ForeignEventDTO`; participation/participant/item client fns; type guard.
+- `app/(protected)/events/[eventId]/invite/page.tsx` — MODIFY.
+- `app/events/accept/page.tsx` + `AcceptClient.tsx` — NEW.
+- `components/events/ForeignEventDetail.tsx` — NEW.
+- `components/events/ParticipantsSection.tsx` — NEW.
+- `app/(protected)/events/[eventId]/page.tsx` — MODIFY.
 - Co-located `__tests__/` for each new/changed web unit.
 
-**Task order & dependencies:** Tasks 1–4 (API) are independent of each other and come first (Task 1 is the day-1 priority). Task 5 (client lib) consumes the API shapes from 1–4. Tasks 6–9 (UI) consume Task 5.
+**Task order & dependencies:** Tasks 1–5 (API) are independent of each other; Task 1 is the day-1 priority. Task 6 (client) consumes API shapes from 1–5. Tasks 7–10 (UI) consume Task 6.
 
 ---
 
 ## Task 1: Guest invitation delivery (day-1, non-negotiable)
 
-Close the gap where the `guest` branch of `POST /:eventId/invitations` creates an invitation but sends nothing. Add an isolation-safe direct email/SMS of the `/rsvp/{token}` link.
-
 **Files:**
 - Modify: `apps/api/src/lib/notificationService.ts`
 - Create: `apps/api/src/__tests__/lib/guestInvitationMessage.test.ts`
-- Modify: `apps/api/src/routes/events.ts` (guest branch of `POST /:eventId/invitations`, ~lines 595–627 + the post-transaction notify block ~654–666)
+- Modify: `apps/api/src/routes/events.ts` (guest branch of `POST /:eventId/invitations`, ~lines 595–627 + post-transaction notify block ~654–666)
 - Modify: `apps/api/src/__tests__/routes/events.test.ts`
 
 **Interfaces:**
 - Produces:
-  - `buildGuestInvitationMessage(opts: { eventTitle: string; startAt: Date; rsvpUrl: string }): { subject: string; body: string }` (exported from `notificationService.ts`)
+  - `buildGuestInvitationMessage(opts: { eventTitle: string; startAt: Date; rsvpUrl: string }): { subject: string; body: string }`
   - `NotificationService.sendGuestInvitation(opts: { invitationId: string; email?: string | null; phone?: string | null; message: { subject: string; body: string } }): Promise<void>`
 
 - [ ] **Step 1: Write the failing pure-copy test**
@@ -68,26 +70,20 @@ import { describe, it, expect } from "vitest";
 import { buildGuestInvitationMessage } from "../../lib/notificationService";
 
 describe("buildGuestInvitationMessage", () => {
-  const opts = {
-    eventTitle: "Soccer Finals",
-    startAt: new Date("2026-07-04T17:00:00Z"),
-    rsvpUrl: "https://app.famlink.test/rsvp/tok_abc123"
-  };
+  const startAt = new Date("2026-07-04T17:00:00Z");
+  const rsvpUrl = "https://app.famlink.test/rsvp/tok_abc123";
 
-  it("includes the event title and the RSVP link", () => {
-    const { subject, body } = buildGuestInvitationMessage(opts);
-    expect(subject).toContain("Soccer Finals");
-    expect(body).toContain("Soccer Finals");
-    expect(body).toContain("https://app.famlink.test/rsvp/tok_abc123");
+  it("emits exactly title + time + link (subject and body)", () => {
+    const { subject, body } = buildGuestInvitationMessage({ eventTitle: "Soccer Finals", startAt, rsvpUrl });
+    const when = startAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+    expect(subject).toBe("You're invited: Soccer Finals");
+    expect(body).toBe(`You're invited to Soccer Finals on ${when}. RSVP here: ${rsvpUrl}`);
   });
 
-  it("leaks no family/tenant identifiers (only title, time, link)", () => {
-    const { subject, body } = buildGuestInvitationMessage({ ...opts, eventTitle: "Soccer Finals" });
-    const blob = `${subject}\n${body}`;
-    // The builder is given ONLY title/time/link, so it cannot contain a family name,
-    // roster, or internal id. Guard against future drift that passes more in.
-    expect(blob).not.toMatch(/family/i);
-    expect(blob).not.toMatch(/roster/i);
+  it("includes the title and the RSVP link", () => {
+    const { body } = buildGuestInvitationMessage({ eventTitle: "Soccer Finals", startAt, rsvpUrl });
+    expect(body).toContain("Soccer Finals");
+    expect(body).toContain(rsvpUrl);
   });
 });
 ```
@@ -99,7 +95,7 @@ Expected: FAIL — `buildGuestInvitationMessage` is not exported.
 
 - [ ] **Step 3: Add `buildGuestInvitationMessage` + `sendGuestInvitation`**
 
-In `apps/api/src/lib/notificationService.ts`, add after the existing `truncateNotificationSmsBody` function (around line 57, before `export class NotificationService`):
+In `apps/api/src/lib/notificationService.ts`, add after `truncateNotificationSmsBody` (~line 57, before `export class NotificationService`):
 
 ```typescript
 export interface GuestInvitationMessage {
@@ -124,13 +120,13 @@ export function buildGuestInvitationMessage(opts: {
 }
 ```
 
-Then add this public method inside the `NotificationService` class (e.g. after `sendSms`, around line 112):
+Add this public method inside the `NotificationService` class (after `sendSms`, ~line 112):
 
 ```typescript
   /**
    * Direct guest delivery: emails/texts a contact-only invitee the RSVP link.
    * Bypasses the person-preference path (guests have no deliverable Person
-   * contact / prefs). Non-fatal; logs each attempt for diagnosis.
+   * contact / prefs). Each channel is independently non-fatal and logged.
    */
   async sendGuestInvitation(opts: {
     invitationId: string;
@@ -164,23 +160,23 @@ Then add this public method inside the `NotificationService` class (e.g. after `
 - [ ] **Step 4: Run the pure test to verify it passes**
 
 Run (from `apps/api`): `npx vitest run src/__tests__/lib/guestInvitationMessage.test.ts`
-Expected: PASS (both tests).
+Expected: PASS.
 
-- [ ] **Step 5: Write the failing route test (guest delivery is invoked, isolation-safe, non-fatal)**
+- [ ] **Step 5: Write the failing route test**
 
-In `apps/api/src/__tests__/routes/events.test.ts`, add near the existing invitation tests. Spy the prototype so no network call happens and we can assert the call + copy:
+In `apps/api/src/__tests__/routes/events.test.ts`, add (import `NotificationService` at the top of the file if not already imported):
 
 ```typescript
 import { NotificationService } from "../../lib/notificationService";
 
 describe("POST /api/v1/events/:eventId/invitations — guest delivery (P3-03 W3a-UI)", () => {
-  it("sends the /rsvp/{token} link to the guest's email with no family name, and does not fail on send error", async () => {
-    const spy = vi
-      .spyOn(NotificationService.prototype, "sendGuestInvitation")
-      .mockRejectedValue(new Error("smtp down")); // proves non-fatal
+  it("invokes sendGuestInvitation with the rsvp link + title and no family name; send failure is non-fatal", async () => {
+    // Each channel inside sendGuestInvitation catches its own error, so we make the
+    // whole method throw to prove the route-level call site is also non-fatal.
+    const spy = vi.spyOn(NotificationService.prototype, "sendGuestInvitation").mockRejectedValue(new Error("boom"));
 
     const admin = await seedTestPerson();
-    const { familyGroup } = await seedTestFamily(admin.id);
+    const { familyGroup } = await seedTestFamily(admin.id); // family name "Test Family"
     const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Picnic" });
     await db.event.update({ where: { id: event.id }, data: { eventVisibility: "OPEN" } });
 
@@ -190,7 +186,7 @@ describe("POST /api/v1/events/:eventId/invitations — guest delivery (P3-03 W3a
       .set("Authorization", "Bearer mock")
       .send({ invitees: [{ kind: "guest", guestEmail: "ext@example.com", guestName: "Ext Guest" }] });
 
-    expect(res.status).toBe(201); // send failure must NOT fail the invite
+    expect(res.status).toBe(201);
     expect(spy).toHaveBeenCalledTimes(1);
     const arg = spy.mock.calls[0][0];
     expect(arg.email).toBe("ext@example.com");
@@ -206,30 +202,25 @@ describe("POST /api/v1/events/:eventId/invitations — guest delivery (P3-03 W3a
 - [ ] **Step 6: Run it to verify it fails**
 
 Run (from `apps/api`): `npx vitest run src/__tests__/routes/events.test.ts -t "guest delivery"`
-Expected: FAIL — `sendGuestInvitation` is never called (spy 0 times).
+Expected: FAIL — `sendGuestInvitation` is never called.
 
 - [ ] **Step 7: Wire guest delivery into the invite handler**
 
 In `apps/api/src/routes/events.ts`, in `POST /:eventId/invitations`:
 
-1. Near the other accumulators (where `famlinkUserInvites` is declared, ~line 574), add:
+1. Near `famlinkUserInvites` (~line 574) add:
 
 ```typescript
   const guestInvites: Array<{ invitationId: string; guestToken: string; email: string | null; phone: string | null }> = [];
 ```
 
-2. In the `guest` branch, after the existing `createdInvitations.push(created);` (inside `if (!existing)`, ~line 626), add:
+2. In the `guest` branch, after the existing `createdInvitations.push(created);` (~line 626) add:
 
 ```typescript
-          guestInvites.push({
-            invitationId: created.id,
-            guestToken: created.guestToken!,
-            email: invitee.guestEmail ?? null,
-            phone: invitee.guestPhone ?? null
-          });
+          guestInvites.push({ invitationId: created.id, guestToken: created.guestToken!, email: invitee.guestEmail ?? null, phone: invitee.guestPhone ?? null });
 ```
 
-3. After the `famlinkUserInvites` notify block (after line ~666, before `res.status(201)`), add:
+3. After the `famlinkUserInvites` notify block (~line 666, before `res.status(201)`) add:
 
 ```typescript
   if (guestInvites.length > 0) {
@@ -247,23 +238,22 @@ In `apps/api/src/routes/events.ts`, in `POST /:eventId/invitations`:
   }
 ```
 
-4. Ensure the import at the top of `events.ts` includes the new export — change the existing `NotificationService` import to also bring in the builder:
+4. Extend the existing import:
 
 ```typescript
 import { NotificationService, buildGuestInvitationMessage } from "../lib/notificationService";
 ```
 
-(Confirm `env` is already imported in `events.ts` — it is used for `env.WEB_APP_URL` in the famlinkUser block.)
+(`env` is already imported — it is used for `env.WEB_APP_URL` in the famlinkUser block.)
 
 - [ ] **Step 8: Run the route test to verify it passes**
 
 Run (from `apps/api`): `npx vitest run src/__tests__/routes/events.test.ts -t "guest delivery"`
-Expected: PASS. (The `.mockRejectedValue` proves the `.catch` keeps it non-fatal; note the spy returns a rejected promise that is swallowed — the assertion on call args still holds.)
+Expected: PASS.
 
 - [ ] **Step 9: Full verification + commit**
 
 Run (from `apps/api`): `npx vitest run src/__tests__/lib/guestInvitationMessage.test.ts src/__tests__/routes/events.test.ts` then `npm run type-check` then `npm run lint`.
-Expected: all PASS / 0 errors.
 
 ```bash
 git add apps/api/src/lib/notificationService.ts apps/api/src/routes/events.ts apps/api/src/__tests__/lib/guestInvitationMessage.test.ts apps/api/src/__tests__/routes/events.test.ts
@@ -274,19 +264,16 @@ git commit -m "feat: P3-03 deliver guest invitations via direct email/SMS"
 
 ## Task 2: Widen participation/accept to revive a declined invite
 
-Let any invitee revive a DECLINED participation by re-clicking their link, without letting an admin-revoked participant self-rejoin.
-
 **Files:**
 - Modify: `apps/api/src/routes/events.ts` (`POST /:eventId/participation/accept`, ~lines 908–932)
 - Modify: `apps/api/src/__tests__/routes/events.test.ts`
 
 **Interfaces:**
-- Consumes: existing `participation/accept` handler and its `ParticipationTokenSchema`.
-- Produces: no signature change; behavior change only (accept now matches invitation status ∈ {PENDING, DECLINED}).
+- Produces: no signature change; accept now matches invitation status ∈ {PENDING, DECLINED}.
 
-- [ ] **Step 1: Write the failing revival test**
+- [ ] **Step 1: Write the failing tests**
 
-Add to `apps/api/src/__tests__/routes/events.test.ts` inside the accept describe block:
+Add to the accept describe block in `apps/api/src/__tests__/routes/events.test.ts`:
 
 ```typescript
 it("accept: revives a previously DECLINED invitation into an ACTIVE grant", async () => {
@@ -296,15 +283,10 @@ it("accept: revives a previously DECLINED invitation into an ACTIVE grant", asyn
   await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
 
   const token = "revive-token-001";
-  await db.eventInvitation.create({
-    data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: token, invitedById: admin.id, scope: "INDIVIDUAL", status: "DECLINED" }
-  });
+  await db.eventInvitation.create({ data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: token, invitedById: admin.id, scope: "INDIVIDUAL", status: "DECLINED" } });
 
   mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
-  const res = await request(app)
-    .post(`/api/v1/events/${event.id}/participation/accept`)
-    .set("Authorization", "Bearer mock")
-    .send({ token });
+  const res = await request(app).post(`/api/v1/events/${event.id}/participation/accept`).set("Authorization", "Bearer mock").send({ token });
 
   expect(res.status).toBe(200);
   expect(res.body.accepted).toBe(true);
@@ -314,40 +296,33 @@ it("accept: revives a previously DECLINED invitation into an ACTIVE grant", asyn
   expect(inv?.status).toBe("ACCEPTED");
 });
 
-it("accept: an ACCEPTED invitation whose grant was REVOKED cannot self-rejoin via the link", async () => {
+it("accept: an ACCEPTED invitation whose grant was REVOKED cannot self-rejoin", async () => {
   const admin = await seedTestPerson();
   const { familyGroup } = await seedTestFamily(admin.id);
   const event = await seedTestEvent(familyGroup.id, admin.id, { title: "No Rejoin" });
   await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
 
   const token = "revoked-token-001";
-  await db.eventInvitation.create({
-    data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: token, invitedById: admin.id, scope: "INDIVIDUAL", status: "ACCEPTED" }
-  });
-  await db.eventParticipant.create({
-    data: { eventId: event.id, personId: admin.id, role: "PARTICIPANT", status: "REVOKED" }
-  });
+  await db.eventInvitation.create({ data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: token, invitedById: admin.id, scope: "INDIVIDUAL", status: "ACCEPTED" } });
+  await db.eventParticipant.create({ data: { eventId: event.id, personId: admin.id, role: "PARTICIPANT", status: "REVOKED" } });
 
   mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
-  const res = await request(app)
-    .post(`/api/v1/events/${event.id}/participation/accept`)
-    .set("Authorization", "Bearer mock")
-    .send({ token });
+  const res = await request(app).post(`/api/v1/events/${event.id}/participation/accept`).set("Authorization", "Bearer mock").send({ token });
 
   expect(res.status).toBe(403);
   const grant = await db.eventParticipant.findUnique({ where: { eventId_personId: { eventId: event.id, personId: admin.id } } });
-  expect(grant?.status).toBe("REVOKED"); // unchanged — revoke stays authoritative
+  expect(grant?.status).toBe("REVOKED");
 });
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
 
 Run (from `apps/api`): `npx vitest run src/__tests__/routes/events.test.ts -t "revives a previously DECLINED"`
-Expected: FAIL — the DECLINED invitation does not match `status: "PENDING"`, so the handler 403s.
+Expected: FAIL — DECLINED does not match `status: "PENDING"`, handler 403s.
 
 - [ ] **Step 3: Widen the accept filter**
 
-In `apps/api/src/routes/events.ts`, in `POST /:eventId/participation/accept`, change the invitation lookup (currently `status: "PENDING"`):
+In `POST /:eventId/participation/accept`, change the lookup:
 
 ```typescript
   const inv = await db.eventInvitation.findFirst({
@@ -355,12 +330,12 @@ In `apps/api/src/routes/events.ts`, in `POST /:eventId/participation/accept`, ch
   });
 ```
 
-Leave the identity check (`inv.linkedPersonId !== requester.id`) and the upsert exactly as-is. (The decline handler is unchanged.)
+Leave the identity check and upsert unchanged. The decline handler is unchanged.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run (from `apps/api`): `npx vitest run src/__tests__/routes/events.test.ts -t "participation/accept"`
-Expected: PASS — both new tests and the pre-existing accept/decline tests stay green (the REVOKED case 403s because its invitation is ACCEPTED, not in {PENDING, DECLINED}).
+Expected: PASS — new + pre-existing accept/decline tests green (the REVOKED case 403s because its invitation is ACCEPTED, not in {PENDING, DECLINED}).
 
 - [ ] **Step 5: Full verification + commit**
 
@@ -375,16 +350,18 @@ git commit -m "feat: P3-03 allow reviving a declined event participation"
 
 ## Task 3: `GET /api/v1/events/participation/preview?token=`
 
-Token-only, identity-bound preview that drives the accept page. Looks up → identity-checks → branches on status (never pre-filters).
-
 **Files:**
-- Modify: `apps/api/src/routes/events.ts` (register the route **immediately before** `eventsRouter.get("/:eventId", …)` at ~line 238 so `/participation/preview` is not swallowed by `/:eventId`)
+- Modify: `apps/api/src/routes/events.ts` (register **immediately before** `eventsRouter.get("/:eventId", …)` at ~line 238 so `/participation/preview` is not swallowed by `/:eventId`)
 - Modify: `apps/api/src/__tests__/routes/events.test.ts`
 
 **Interfaces:**
 - Produces: `GET /api/v1/events/participation/preview?token=<token>`
-  - 200 body: `{ state: "PENDING" | "DECLINED" | "ACTIVE" | "UNAVAILABLE", eventId?, eventTitle?, startAt?, endAt?, locationName?, role?, invitedByName? }`. Fields present for PENDING/DECLINED/ACTIVE; `{ state: "UNAVAILABLE" }` only (no detail) otherwise.
-  - 403 `{ error }` when the token is missing, not found, or not for the requester.
+  - **400** `{ error }` when the `token` query param is absent/empty (malformed request).
+  - **403** `{ error }` when the token is not found or not addressed to the requester (reveals nothing).
+  - **200** body:
+    - PENDING / DECLINED → `{ state, eventId, eventTitle, startAt, endAt, locationName, role, invitedByName }`.
+    - ACCEPTED + live grant → `{ state: "ACTIVE", eventId }` (redirect only — no detail).
+    - ACCEPTED + revoked/absent grant, or any other status → `{ state: "UNAVAILABLE" }`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -392,66 +369,60 @@ Add to `apps/api/src/__tests__/routes/events.test.ts`:
 
 ```typescript
 describe("GET /api/v1/events/participation/preview (P3-03 W3a-UI)", () => {
-  it("returns the allowlist preview for a PENDING invite addressed to the requester, with no family name", async () => {
+  it("returns the allowlist preview for a PENDING invite to the requester, with no family name", async () => {
     const admin = await seedTestPerson({ firstName: "Alice", lastName: "Inviter" });
     const { familyGroup } = await seedTestFamily(admin.id);
     const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Preview Event" });
     const token = "preview-pending-001";
-    await db.eventInvitation.create({
-      data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: token, invitedById: admin.id, scope: "INDIVIDUAL", status: "PENDING" }
-    });
+    await db.eventInvitation.create({ data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: token, invitedById: admin.id, scope: "INDIVIDUAL", status: "PENDING" } });
 
     mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
-    const res = await request(app)
-      .get(`/api/v1/events/participation/preview?token=${token}`)
-      .set("Authorization", "Bearer mock");
+    const res = await request(app).get(`/api/v1/events/participation/preview?token=${token}`).set("Authorization", "Bearer mock");
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ state: "PENDING", eventId: event.id, eventTitle: "Preview Event", role: "PARTICIPANT", invitedByName: "Alice" });
     expect(JSON.stringify(res.body)).not.toContain("Test Family");
   });
 
-  it("returns state DECLINED for a declined invite (revive path)", async () => {
+  it("returns state DECLINED for a declined invite", async () => {
     const admin = await seedTestPerson();
     const { familyGroup } = await seedTestFamily(admin.id);
     const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Declined Preview" });
-    const token = "preview-declined-001";
-    await db.eventInvitation.create({
-      data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: token, invitedById: admin.id, scope: "INDIVIDUAL", status: "DECLINED" }
-    });
+    await db.eventInvitation.create({ data: { eventId: event.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: "preview-declined-001", invitedById: admin.id, scope: "INDIVIDUAL", status: "DECLINED" } });
     mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
-    const res = await request(app).get(`/api/v1/events/participation/preview?token=${token}`).set("Authorization", "Bearer mock");
+    const res = await request(app).get(`/api/v1/events/participation/preview?token=preview-declined-001`).set("Authorization", "Bearer mock");
     expect(res.status).toBe(200);
     expect(res.body.state).toBe("DECLINED");
   });
 
-  it("returns state ACTIVE when ACCEPTED with a live grant, UNAVAILABLE when revoked", async () => {
+  it("returns ACTIVE (redirect-only) when accepted+active, UNAVAILABLE when revoked", async () => {
     const admin = await seedTestPerson();
     const { familyGroup } = await seedTestFamily(admin.id);
     const active = await seedTestEvent(familyGroup.id, admin.id, { title: "Active" });
     await db.eventInvitation.create({ data: { eventId: active.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: "preview-active-001", invitedById: admin.id, scope: "INDIVIDUAL", status: "ACCEPTED" } });
     await db.eventParticipant.create({ data: { eventId: active.id, personId: admin.id, role: "PARTICIPANT", status: "ACTIVE" } });
-
     const revoked = await seedTestEvent(familyGroup.id, admin.id, { title: "Revoked" });
     await db.eventInvitation.create({ data: { eventId: revoked.id, linkedPersonId: admin.id, role: "PARTICIPANT", guestToken: "preview-revoked-001", invitedById: admin.id, scope: "INDIVIDUAL", status: "ACCEPTED" } });
     await db.eventParticipant.create({ data: { eventId: revoked.id, personId: admin.id, role: "PARTICIPANT", status: "REVOKED" } });
 
     mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
     const a = await request(app).get(`/api/v1/events/participation/preview?token=preview-active-001`).set("Authorization", "Bearer mock");
-    expect(a.body).toMatchObject({ state: "ACTIVE", eventId: active.id });
+    expect(a.body).toEqual({ state: "ACTIVE", eventId: active.id });
     const r = await request(app).get(`/api/v1/events/participation/preview?token=preview-revoked-001`).set("Authorization", "Bearer mock");
     expect(r.body).toEqual({ state: "UNAVAILABLE" });
   });
 
-  it("returns 403 for a token addressed to someone else", async () => {
+  it("returns 403 for a token addressed to someone else, 400 for a missing token", async () => {
     const admin = await seedTestPerson();
     const { familyGroup } = await seedTestFamily(admin.id);
     const event = await seedTestEvent(familyGroup.id, admin.id, { title: "Not Yours" });
     const outsider = await seedSecondPerson();
     await db.eventInvitation.create({ data: { eventId: event.id, linkedPersonId: outsider.id, role: "PARTICIPANT", guestToken: "preview-notyours-001", invitedById: admin.id, scope: "INDIVIDUAL", status: "PENDING" } });
-    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID }); // requester is admin, not outsider
-    const res = await request(app).get(`/api/v1/events/participation/preview?token=preview-notyours-001`).set("Authorization", "Bearer mock");
-    expect(res.status).toBe(403);
+    mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+    const notYours = await request(app).get(`/api/v1/events/participation/preview?token=preview-notyours-001`).set("Authorization", "Bearer mock");
+    expect(notYours.status).toBe(403);
+    const missing = await request(app).get(`/api/v1/events/participation/preview`).set("Authorization", "Bearer mock");
+    expect(missing.status).toBe(400);
   });
 });
 ```
@@ -459,7 +430,7 @@ describe("GET /api/v1/events/participation/preview (P3-03 W3a-UI)", () => {
 - [ ] **Step 2: Run them to verify they fail**
 
 Run (from `apps/api`): `npx vitest run src/__tests__/routes/events.test.ts -t "participation/preview"`
-Expected: FAIL — route not defined (404).
+Expected: FAIL — route not defined.
 
 - [ ] **Step 3: Implement the preview route**
 
@@ -474,23 +445,18 @@ eventsRouter.get("/participation/preview", async (req, res) => {
   const requester = personed(req).person;
 
   const inv = await db.eventInvitation.findFirst({ where: { guestToken: q.data.token } });
-  // Identity-bound: reveal nothing for a missing token or one not addressed to the requester.
   if (!inv || inv.linkedPersonId !== requester.id) {
     res.status(403).json({ error: "This invitation is not for your account" });
     return;
   }
 
-  // ACCEPTED → distinguish a live grant (redirect) from a revoked/absent one (generic unavailable).
   if (inv.status === "ACCEPTED") {
     const grant = await activeEventParticipant(requester.id, inv.eventId);
     if (!grant) { res.json({ state: "UNAVAILABLE" }); return; }
-    const ev = await db.event.findUnique({ where: { id: inv.eventId } });
-    if (!ev) { res.json({ state: "UNAVAILABLE" }); return; }
-    res.json({ state: "ACTIVE", eventId: ev.id });
+    res.json({ state: "ACTIVE", eventId: inv.eventId });
     return;
   }
 
-  // PENDING / DECLINED → render the allowlist preview. Any other status → unavailable.
   if (inv.status !== "PENDING" && inv.status !== "DECLINED") {
     res.json({ state: "UNAVAILABLE" });
     return;
@@ -505,7 +471,7 @@ eventsRouter.get("/participation/preview", async (req, res) => {
   }
 
   res.json({
-    state: inv.status, // "PENDING" | "DECLINED"
+    state: inv.status,
     eventId: ev.id,
     eventTitle: ev.title,
     startAt: ev.startAt.toISOString(),
@@ -517,7 +483,7 @@ eventsRouter.get("/participation/preview", async (req, res) => {
 });
 ```
 
-(`activeEventParticipant` and `personed` are already imported in `events.ts`; `z` and `db` too.)
+(`activeEventParticipant`, `personed`, `z`, `db` are already imported.)
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -535,20 +501,18 @@ git commit -m "feat: P3-03 add identity-bound participation preview endpoint"
 
 ---
 
-## Task 4: `GET /api/v1/events/:eventId/participants`
+## Task 4: `GET /api/v1/events/:eventId/participants` (owning members only)
 
-Management list for owning members + event-admins; cross-family participants get 403.
+Management list. **Gated to owning members only** — a cross-family participant, even one granted `EVENT_ADMIN`, gets 403 (they use the foreign DTO's attendee list; the roster + person ids must not cross the family boundary).
 
 **Files:**
-- Modify: `apps/api/src/routes/events.ts` (add near the revoke/role handlers, ~line 952)
+- Modify: `apps/api/src/routes/events.ts` (near the revoke/role handlers, ~line 952)
 - Modify: `apps/api/src/__tests__/routes/events.test.ts`
 
 **Interfaces:**
 - Produces: `GET /api/v1/events/:eventId/participants` → `{ participants: { personId: string; displayName: string; role: "PARTICIPANT" | "EVENT_ADMIN"; status: "ACTIVE" | "REVOKED" }[] }`.
 
 - [ ] **Step 1: Write the failing tests**
-
-Add to `apps/api/src/__tests__/routes/events.test.ts`:
 
 ```typescript
 describe("GET /api/v1/events/:eventId/participants (P3-03 W3a-UI)", () => {
@@ -565,20 +529,18 @@ describe("GET /api/v1/events/:eventId/participants (P3-03 W3a-UI)", () => {
     const res = await request(app).get(`/api/v1/events/${event.id}/participants`).set("Authorization", "Bearer mock");
 
     expect(res.status).toBe(200);
-    expect(res.body.participants).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ personId: p1.id, displayName: "Active", role: "PARTICIPANT", status: "ACTIVE" }),
-        expect.objectContaining({ personId: p2.id, displayName: "Revoked", role: "EVENT_ADMIN", status: "REVOKED" })
-      ])
-    );
+    expect(res.body.participants).toEqual(expect.arrayContaining([
+      expect.objectContaining({ personId: p1.id, displayName: "Active", role: "PARTICIPANT", status: "ACTIVE" }),
+      expect.objectContaining({ personId: p2.id, displayName: "Revoked", role: "EVENT_ADMIN", status: "REVOKED" })
+    ]));
   });
 
-  it("returns 403 for a cross-family participant (non-member)", async () => {
+  it("returns 403 for a cross-family EVENT_ADMIN participant (non-member must not read the roster)", async () => {
     const owner = await seedTestPerson();
     const { familyGroup } = await seedTestFamily(owner.id);
-    const event = await seedTestEvent(familyGroup.id, owner.id, { title: "Foreign" });
+    const event = await seedTestEvent(familyGroup.id, owner.id, { title: "Foreign Admin" });
     const outsider = await seedSecondPerson(); // not a member of familyGroup
-    await db.eventParticipant.create({ data: { eventId: event.id, personId: outsider.id, role: "PARTICIPANT", status: "ACTIVE" } });
+    await db.eventParticipant.create({ data: { eventId: event.id, personId: outsider.id, role: "EVENT_ADMIN", status: "ACTIVE" } });
 
     mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
     const res = await request(app).get(`/api/v1/events/${event.id}/participants`).set("Authorization", "Bearer mock");
@@ -592,37 +554,30 @@ describe("GET /api/v1/events/:eventId/participants (P3-03 W3a-UI)", () => {
 Run (from `apps/api`): `npx vitest run src/__tests__/routes/events.test.ts -t "events/:eventId/participants"`
 Expected: FAIL — route not defined.
 
-- [ ] **Step 3: Implement the participants list route**
+- [ ] **Step 3: Implement the participants list route (members-only gate)**
 
-In `apps/api/src/routes/events.ts`, add (near the revoke/role handlers, ~line 952):
+In `apps/api/src/routes/events.ts`, near the revoke/role handlers (~line 952):
 
 ```typescript
 eventsRouter.get("/:eventId/participants", async (req, res) => {
   const requester = personed(req).person;
   const access = await resolveEventAccess(req.params.eventId, requester.id);
   if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
-  // Members + event-admins only; cross-family participants use the foreign DTO's attendee list.
-  if (!access.isOwningMember && !access.canAdmin) { res.status(403).json({ error: "Not authorized to view participants" }); return; }
+  // Owning members ONLY. A cross-family participant (even EVENT_ADMIN) must not read
+  // the roster / person ids across the family boundary — they use the foreign DTO.
+  if (!access.isOwningMember) { res.status(403).json({ error: "Not authorized to view participants" }); return; }
 
   const grants = await db.eventParticipant.findMany({ where: { eventId: req.params.eventId }, orderBy: { createdAt: "asc" } });
-  const persons = await db.person.findMany({
-    where: { id: { in: grants.map((g) => g.personId) } },
-    select: { id: true, firstName: true, preferredName: true }
-  });
+  const persons = await db.person.findMany({ where: { id: { in: grants.map((g) => g.personId) } }, select: { id: true, firstName: true, preferredName: true } });
   const nameById = new Map(persons.map((p) => [p.id, p.preferredName ?? p.firstName]));
 
   res.json({
-    participants: grants.map((g) => ({
-      personId: g.personId,
-      displayName: nameById.get(g.personId) ?? "Participant",
-      role: g.role,
-      status: g.status
-    }))
+    participants: grants.map((g) => ({ personId: g.personId, displayName: nameById.get(g.personId) ?? "Participant", role: g.role, status: g.status }))
   });
 });
 ```
 
-(`resolveEventAccess` is already imported in `events.ts`.)
+(`resolveEventAccess` is already imported.)
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -635,28 +590,103 @@ Run (from `apps/api`): `npx vitest run src/__tests__/routes/events.test.ts` then
 
 ```bash
 git add apps/api/src/routes/events.ts apps/api/src/__tests__/routes/events.test.ts
-git commit -m "feat: P3-03 add participants list endpoint for event management"
+git commit -m "feat: P3-03 add owning-member-only participants list endpoint"
 ```
 
 ---
 
-## Task 5: Web API client — participation, participants, items, tagged invites
+## Task 5: Expose `isOwn` on foreign event items (enabler for edit/delete-own)
 
-Add the typed client functions and the tagged `InviteeEntry` the UI tasks consume, plus the foreign-DTO union + type guard.
+`foreignItemShape` strips `createdByPersonId` (isolation), so the foreign viewer cannot tell which tasks are the participant's own. Add an isolation-safe `isOwn` boolean (no person id leaks) so the client can scope edit-own/delete-own controls. The API already ownership-enforces the mutations (`authorizeItemMutation`); `isOwn` is purely a UI affordance.
 
 **Files:**
+- Modify: `apps/api/src/routes/events.ts` (`foreignItemShape` ~line 149 + its 3 call sites: ~349, ~994, ~1015)
+- Modify: `apps/api/src/__tests__/routes/events.test.ts`
+
+**Interfaces:**
+- Produces: `foreignItemShape(p: EventItem, requesterId: string)` → `{ id, name, quantity, notes, status, isOwn: boolean }`. The foreign DTO's `tasks[]` and the foreign item create/patch responses now carry `isOwn`.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `apps/api/src/__tests__/routes/events.test.ts` (a cross-family participant fetching the event sees `isOwn` per task):
+
+```typescript
+it("foreign DTO tasks carry isOwn for the requesting participant (no person ids)", async () => {
+  const owner = await seedTestPerson();
+  const { familyGroup } = await seedTestFamily(owner.id);
+  const event = await seedTestEvent(familyGroup.id, owner.id, { title: "Shared" });
+  await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+  const participant = await seedSecondPerson();
+  await db.eventParticipant.create({ data: { eventId: event.id, personId: participant.id, role: "PARTICIPANT", status: "ACTIVE" } });
+  await db.eventItem.create({ data: { eventId: event.id, createdByPersonId: owner.id, name: "Owner Item" } });
+  await db.eventItem.create({ data: { eventId: event.id, createdByPersonId: participant.id, name: "My Item" } });
+
+  mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID }); // the participant
+  const res = await request(app).get(`/api/v1/events/${event.id}`).set("Authorization", "Bearer mock");
+
+  expect(res.status).toBe(200);
+  const mine = res.body.tasks.find((t: { name: string }) => t.name === "My Item");
+  const theirs = res.body.tasks.find((t: { name: string }) => t.name === "Owner Item");
+  expect(mine.isOwn).toBe(true);
+  expect(theirs.isOwn).toBe(false);
+  expect(mine).not.toHaveProperty("createdByPersonId"); // still no person ids
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run (from `apps/api`): `npx vitest run src/__tests__/routes/events.test.ts -t "carry isOwn"`
+Expected: FAIL — tasks have no `isOwn`.
+
+- [ ] **Step 3: Add the `isOwn` parameter + update call sites**
+
+In `apps/api/src/routes/events.ts`, change `foreignItemShape` (~line 149):
+
+```typescript
+function foreignItemShape(p: EventItem, requesterId: string) {
+  return { id: p.id, name: p.name, quantity: p.quantity, notes: p.notes, status: p.status, isOwn: p.createdByPersonId === requesterId };
+}
+```
+
+Update the three call sites:
+- Foreign DTO build (~line 349): `const foreignTasks = items.map((p) => foreignItemShape(p, requester.id));`
+- Item create response (~line 994): `res.status(201).json(isForeign ? foreignItemShape(created, requester.id) : serializeEventItem(created));`
+- Item patch response (~line 1015): `res.json(isForeign ? foreignItemShape(updated, requester.id) : serializeEventItem(updated));`
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run (from `apps/api`): `npx vitest run src/__tests__/routes/events.test.ts -t "carry isOwn"`
+Expected: PASS.
+
+- [ ] **Step 5: Full verification + commit**
+
+Run (from `apps/api`): `npx vitest run src/__tests__/routes/events.test.ts` then `npm run type-check` then `npm run lint`.
+
+```bash
+git add apps/api/src/routes/events.ts apps/api/src/__tests__/routes/events.test.ts
+git commit -m "feat: P3-03 expose isOwn on foreign event items for own-task controls"
+```
+
+---
+
+## Task 6: Web API client — participation, participants, items, tagged invites
+
+**Files:**
+- Modify: `apps/web/lib/api/family.ts` (add `roles: string[]` to `FamilyMembership`)
 - Modify: `apps/web/lib/api/events.ts`
 - Create: `apps/web/lib/api/__tests__/events.client.test.ts`
 
 **Interfaces:**
-- Consumes: API endpoints from Tasks 1–4 plus existing accept/decline/revoke/role/items.
-- Produces (all exported from `apps/web/lib/api/events.ts`):
-  - Types: `InviteeEntry = { kind: "person"; personId } | { kind: "famlinkUser"; personId; role?: "PARTICIPANT" | "EVENT_ADMIN" } | { kind: "guest"; guestEmail?; guestPhone?; guestName? }`
-  - `ParticipationPreview = { state: "PENDING" | "DECLINED" | "ACTIVE" | "UNAVAILABLE"; eventId?: string; eventTitle?: string; startAt?: string; endAt?: string | null; locationName?: string | null; role?: "PARTICIPANT" | "EVENT_ADMIN"; invitedByName?: string }`
-  - `ParticipantRecord = { personId: string; displayName: string; role: "PARTICIPANT" | "EVENT_ADMIN"; status: "ACTIVE" | "REVOKED" }`
-  - `ForeignEventDTO = { id; title; description: string|null; startAt; endAt: string|null; locationName: string|null; locationAddress: string|null; locationMapUrl: string|null; eventType: EventType; participants: { displayName: string; rsvpStatus: RsvpStatus | null }[]; tasks: EventItem[] }`
-  - `isForeignEventDTO(d: EventDetail | ForeignEventDTO): d is ForeignEventDTO` (`!("event" in d)`)
-  - Functions: `previewParticipation(token)`, `acceptParticipation(eventId, token, getToken)`, `declineParticipation(eventId, token, getToken)`, `listParticipants(eventId, getToken)`, `revokeParticipant(eventId, personId, getToken)`, `setParticipantRole(eventId, personId, role, getToken)`, `addItem(eventId, data, getToken)`, `patchItem(eventId, itemId, data, getToken)`, `deleteItem(eventId, itemId, getToken)`.
+- Produces (exported from `apps/web/lib/api/events.ts`):
+  - `InviteeEntry = { kind: "person"; personId } | { kind: "famlinkUser"; personId; role?: "PARTICIPANT" | "EVENT_ADMIN" } | { kind: "guest"; guestEmail?; guestPhone?; guestName? }`
+  - `ParticipationState = "PENDING" | "DECLINED" | "ACTIVE" | "UNAVAILABLE"`
+  - `ParticipationPreview = { state: ParticipationState; eventId?; eventTitle?; startAt?; endAt?: string|null; locationName?: string|null; role?: "PARTICIPANT"|"EVENT_ADMIN"; invitedByName? }`
+  - `ParticipantRecord = { personId; displayName; role: "PARTICIPANT"|"EVENT_ADMIN"; status: "ACTIVE"|"REVOKED" }`
+  - `ForeignEventItem = { id; name; quantity: string|null; notes: string|null; status: string; isOwn: boolean }`
+  - `ForeignEventDTO = { id; title; description: string|null; startAt; endAt: string|null; locationName: string|null; locationAddress: string|null; locationMapUrl: string|null; eventType: EventType; participants: { displayName: string; rsvpStatus: RsvpStatus|null }[]; tasks: ForeignEventItem[] }`
+  - `isForeignEventDTO(d): d is ForeignEventDTO` (`!("event" in d)`)
+  - `previewParticipation(token, getToken)`, `acceptParticipation(eventId, token, getToken)`, `declineParticipation(eventId, token, getToken)`, `listParticipants(eventId, getToken)`, `revokeParticipant(eventId, personId, getToken)`, `setParticipantRole(eventId, personId, role, getToken)`, `addItem(eventId, data, getToken)`, `patchItem(eventId, itemId, data, getToken)`, `deleteItem(eventId, itemId, getToken)`
 
 - [ ] **Step 1: Write the failing client test**
 
@@ -669,26 +699,26 @@ import { previewParticipation, acceptParticipation, isForeignEventDTO } from "@/
 
 vi.mock("@/lib/api", () => ({ apiFetch: vi.fn() }));
 const apiFetch = vi.mocked(api.apiFetch);
+const getToken = vi.fn().mockResolvedValue("t");
 
 beforeEach(() => apiFetch.mockReset());
 
 describe("events client — participation", () => {
-  it("previewParticipation hits the preview endpoint with the token", async () => {
+  it("previewParticipation calls the relative preview path with auth (getToken)", async () => {
     apiFetch.mockResolvedValue({ state: "PENDING", eventId: "e1" });
-    await previewParticipation("tok123");
+    await previewParticipation("tok123", getToken);
     expect(apiFetch).toHaveBeenCalledWith(
-      expect.stringContaining("/events/participation/preview?token=tok123"),
-      expect.objectContaining({ method: "GET" })
+      "/api/v1/events/participation/preview?token=tok123",
+      expect.objectContaining({ method: "GET", getToken })
     );
   });
 
   it("acceptParticipation posts the token to the event's accept route", async () => {
     apiFetch.mockResolvedValue({ accepted: true });
-    const getToken = vi.fn();
     await acceptParticipation("e1", "tok123", getToken);
     expect(apiFetch).toHaveBeenCalledWith(
       "/api/v1/events/e1/participation/accept",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ token: "tok123" }) })
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ token: "tok123" }), getToken })
     );
   });
 
@@ -704,11 +734,22 @@ describe("events client — participation", () => {
 Run (from `apps/web`): `npx vitest run lib/api/__tests__/events.client.test.ts`
 Expected: FAIL — exports not defined.
 
-- [ ] **Step 3: Implement the client additions**
+- [ ] **Step 3a: Add `roles` to the web membership type**
 
-In `apps/web/lib/api/events.ts`:
+In `apps/web/lib/api/family.ts`, extend `FamilyMembership` (the API already sends `roles`):
 
-Replace the existing `InviteeEntry` interface (lines ~173–178) with the tagged union and update `sendInvitations`:
+```typescript
+export interface FamilyMembership {
+  familyGroup: FamilyGroupSummary;
+  role: string;
+  roles: string[];
+  joinedAt: string;
+}
+```
+
+- [ ] **Step 3b: Implement the client additions**
+
+In `apps/web/lib/api/events.ts`, replace the existing `InviteeEntry` interface (~lines 173–178) with:
 
 ```typescript
 export type InviteeEntry =
@@ -717,9 +758,15 @@ export type InviteeEntry =
   | { kind: "guest"; guestEmail?: string; guestPhone?: string; guestName?: string };
 ```
 
-(`sendInvitations` keeps its signature — it already posts `{ invitees }`; only the entry shape changed.)
+Change `getEventDetails` to the union:
 
-Append the new types + functions at the end of the file:
+```typescript
+export function getEventDetails(eventId: string, getToken: GetToken): Promise<EventDetail | ForeignEventDTO> {
+  return apiFetch<EventDetail | ForeignEventDTO>(`/api/v1/events/${encodeURIComponent(eventId)}`, { getToken, method: "GET" });
+}
+```
+
+Append at the end of the file:
 
 ```typescript
 // ── Cross-family participation (W3a-UI) ────────────────────────────────────────
@@ -744,6 +791,15 @@ export interface ParticipantRecord {
   status: "ACTIVE" | "REVOKED";
 }
 
+export interface ForeignEventItem {
+  id: string;
+  name: string;
+  quantity: string | null;
+  notes: string | null;
+  status: string;
+  isOwn: boolean;
+}
+
 export interface ForeignEventDTO {
   id: string;
   title: string;
@@ -755,33 +811,23 @@ export interface ForeignEventDTO {
   locationMapUrl: string | null;
   eventType: EventType;
   participants: { displayName: string; rsvpStatus: RsvpStatus | null }[];
-  tasks: EventItem[];
+  tasks: ForeignEventItem[];
 }
 
 export function isForeignEventDTO(d: EventDetail | ForeignEventDTO): d is ForeignEventDTO {
   return !("event" in d);
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-
-export function previewParticipation(token: string): Promise<ParticipationPreview> {
-  // Authenticated via Clerk cookie/session on the same origin; no getToken needed for this GET.
-  return apiFetch<ParticipationPreview>(
-    `${API_BASE}/api/v1/events/participation/preview?token=${encodeURIComponent(token)}`,
-    { method: "GET" }
-  );
+export function previewParticipation(token: string, getToken: GetToken): Promise<ParticipationPreview> {
+  return apiFetch<ParticipationPreview>(`/api/v1/events/participation/preview?token=${encodeURIComponent(token)}`, { method: "GET", getToken });
 }
 
 export function acceptParticipation(eventId: string, token: string, getToken: GetToken): Promise<{ accepted: boolean }> {
-  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participation/accept`, {
-    method: "POST", body: JSON.stringify({ token }), getToken
-  });
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participation/accept`, { method: "POST", body: JSON.stringify({ token }), getToken });
 }
 
 export function declineParticipation(eventId: string, token: string, getToken: GetToken): Promise<{ declined: boolean }> {
-  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participation/decline`, {
-    method: "POST", body: JSON.stringify({ token }), getToken
-  });
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participation/decline`, { method: "POST", body: JSON.stringify({ token }), getToken });
 }
 
 export function listParticipants(eventId: string, getToken: GetToken): Promise<{ participants: ParticipantRecord[] }> {
@@ -789,22 +835,18 @@ export function listParticipants(eventId: string, getToken: GetToken): Promise<{
 }
 
 export function revokeParticipant(eventId: string, personId: string, getToken: GetToken): Promise<{ revoked: boolean }> {
-  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participants/${encodeURIComponent(personId)}/revoke`, {
-    method: "POST", getToken
-  });
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participants/${encodeURIComponent(personId)}/revoke`, { method: "POST", getToken });
 }
 
 export function setParticipantRole(eventId: string, personId: string, role: "PARTICIPANT" | "EVENT_ADMIN", getToken: GetToken): Promise<{ updated: boolean }> {
-  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participants/${encodeURIComponent(personId)}/role`, {
-    method: "PUT", body: JSON.stringify({ role }), getToken
-  });
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participants/${encodeURIComponent(personId)}/role`, { method: "PUT", body: JSON.stringify({ role }), getToken });
 }
 
-export function addItem(eventId: string, data: { name: string; quantity?: string; notes?: string }, getToken: GetToken): Promise<EventItem> {
+export function addItem(eventId: string, data: { name: string; quantity?: string; notes?: string }, getToken: GetToken): Promise<ForeignEventItem | EventItem> {
   return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/items`, { method: "POST", body: JSON.stringify(data), getToken });
 }
 
-export function patchItem(eventId: string, itemId: string, data: Partial<{ name: string; quantity: string | null; notes: string | null; status: string }>, getToken: GetToken): Promise<EventItem> {
+export function patchItem(eventId: string, itemId: string, data: Partial<{ name: string; quantity: string | null; notes: string | null; status: string }>, getToken: GetToken): Promise<ForeignEventItem | EventItem> {
   return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/items/${encodeURIComponent(itemId)}`, { method: "PATCH", body: JSON.stringify(data), getToken });
 }
 
@@ -812,16 +854,6 @@ export function deleteItem(eventId: string, itemId: string, getToken: GetToken):
   return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/items/${encodeURIComponent(itemId)}`, { method: "DELETE", getToken });
 }
 ```
-
-Update the existing `getEventDetails` return type to the union so the page can branch:
-
-```typescript
-export function getEventDetails(eventId: string, getToken: GetToken): Promise<EventDetail | ForeignEventDTO> {
-  return apiFetch<EventDetail | ForeignEventDTO>(`/api/v1/events/${encodeURIComponent(eventId)}`, { getToken, method: "GET" });
-}
-```
-
-> NOTE: confirm `apiFetch`'s options type allows calls without `getToken` (the preview GET). If `getToken` is required by the signature, make it optional in `apiFetch` or pass a `getToken` that resolves null — check `apps/web/lib/api.ts` and follow whatever the existing public/guest fetches do (e.g. `getGuestInvitation` uses a raw `fetch`). If `apiFetch` cannot omit auth, use a raw `fetch(`${API_BASE}…`)` for `previewParticipation`, mirroring `getGuestInvitation`.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -833,25 +865,22 @@ Expected: PASS.
 Run (from `apps/web`): `npx vitest run lib/api/__tests__/events.client.test.ts` then `npm run type-check` then `npm run lint`.
 
 ```bash
-git add apps/web/lib/api/events.ts apps/web/lib/api/__tests__/events.client.test.ts
+git add apps/web/lib/api/family.ts apps/web/lib/api/events.ts apps/web/lib/api/__tests__/events.client.test.ts
 git commit -m "feat: P3-03 add web client for participation, participants, items"
 ```
 
 ---
 
-## Task 6: Invite page — cross-family participant invites with role
+## Task 7: Invite page — cross-family participant invites with role
 
-Send suggestions as `kind: "famlinkUser"` with a per-suggestion admin toggle (admin-gated); send members as `kind: "person"`; external as `kind: "guest"`.
+Send suggestions as `kind:"famlinkUser"` with a per-suggestion admin toggle (admin-gated, keyed to the event's family); members as `kind:"person"`; external as `kind:"guest"`.
 
 **Files:**
 - Modify: `apps/web/app/(protected)/events/[eventId]/invite/page.tsx`
 - Create: `apps/web/app/(protected)/events/[eventId]/invite/__tests__/invite.page.test.tsx`
 
 **Interfaces:**
-- Consumes: `sendInvitations`, `InviteeEntry` (tagged) from Task 5; `getEventInviteeSuggestions`, `getMyFamilies`, `getFamilyDetails`.
-- Produces: the invite UI; viewer-admin detection drives whether the role toggle renders.
-
-**Admin detection:** the viewer is an admin when their `FamilyMember` membership for the event's family has role ADMIN/ORGANIZER. The invitee-suggestions endpoint is already only populated for the family; reuse the family detail/membership already fetched. Concretely: read the current user's membership from `getMyFamilies` (it returns `roles`), and treat `roles` containing `"ADMIN"` or `"ORGANIZER"` as `canAdmin`.
+- Consumes: `sendInvitations`, `InviteeEntry`, `getEventDetails`, `isForeignEventDTO` (Task 6); `getEventInviteeSuggestions`, `getMyFamilies`, `getFamilyDetails`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -867,121 +896,130 @@ vi.mock("@clerk/nextjs", () => ({ useAuth: () => ({ getToken: vi.fn().mockResolv
 vi.mock("next/navigation", () => ({ useParams: () => ({ eventId: "e1" }), useRouter: () => ({ push: vi.fn() }) }));
 
 const mockSend = vi.fn().mockResolvedValue({ invitations: [] });
-vi.mock("@/lib/api/events", () => ({
-  sendInvitations: (...a: unknown[]) => mockSend(...a),
-  getEventInviteeSuggestions: vi.fn()
-}));
+vi.mock("@/lib/api/events", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/events")>("@/lib/api/events");
+  return {
+    ...actual,
+    sendInvitations: (...a: unknown[]) => mockSend(...a),
+    getEventInviteeSuggestions: vi.fn(),
+    getEventDetails: vi.fn()
+  };
+});
 vi.mock("@/lib/api/family", () => ({ getMyFamilies: vi.fn(), getFamilyDetails: vi.fn() }));
 
-// Drive query data deterministically
 const queryData: Record<string, unknown> = {};
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: ({ queryKey }: { queryKey: unknown[] }) => ({ data: queryData[String(queryKey[0])] }),
+  useQuery: ({ queryKey }: { queryKey: unknown[] }) => ({ data: queryData[String(queryKey[0])] })
 }));
 
 beforeEach(() => {
   mockSend.mockClear();
-  queryData["families"] = [{ familyGroup: { id: "fam1" }, roles: ["ADMIN", "ORGANIZER"] }];
+  queryData["event"] = { event: { id: "e1", familyGroupId: "fam1" } };       // member shape
+  queryData["families"] = [{ familyGroup: { id: "fam1" }, role: "ADMIN", roles: ["ADMIN", "ORGANIZER"] }];
   queryData["family-detail"] = { members: [] };
   queryData["invitee-suggestions"] = { suggestions: [{ person: { id: "p2", displayName: "Cross Person", avatarUrl: null }, via: { personId: "p1", personName: "Me", relationshipType: "CO_PARENT", relationshipState: "ACTIVE" }, sharedChildren: [] }] };
 });
 
 describe("InvitePage cross-family invites", () => {
-  it("sends a suggestion as kind:famlinkUser with role EVENT_ADMIN when the admin toggle is on", async () => {
+  it("sends a suggestion as kind:famlinkUser role EVENT_ADMIN when the admin toggle is on", async () => {
     render(<InvitePage />);
-    await userEvent.click(screen.getByLabelText(/Cross Person/i));            // select the suggestion
-    await userEvent.click(screen.getByLabelText(/make event admin/i));        // toggle admin
+    await userEvent.click(screen.getByLabelText("Cross Person"));
+    await userEvent.click(screen.getByLabelText(/make event admin/i));
     await userEvent.click(screen.getByRole("button", { name: /send invitations/i }));
-    expect(mockSend).toHaveBeenCalledWith("e1", [
-      { kind: "famlinkUser", personId: "p2", role: "EVENT_ADMIN" }
-    ], expect.anything());
+    expect(mockSend).toHaveBeenCalledWith("e1", [{ kind: "famlinkUser", personId: "p2", role: "EVENT_ADMIN" }], expect.anything());
   });
 
-  it("hides the admin toggle for a non-admin viewer", () => {
-    queryData["families"] = [{ familyGroup: { id: "fam1" }, roles: ["MEMBER"] }];
+  it("hides the admin toggle for a non-admin viewer of the event's family", () => {
+    queryData["families"] = [{ familyGroup: { id: "fam1" }, role: "MEMBER", roles: ["MEMBER"] }];
     render(<InvitePage />);
     expect(screen.queryByLabelText(/make event admin/i)).toBeNull();
   });
 });
 ```
 
-> If `getMyFamilies` does not currently return `roles` per membership, confirm its shape in `apps/web/lib/api/family.ts`; if absent, derive admin from `getFamilyDetails` members (find the member whose `person.id` is the current user and read its `roles`). Use whichever field actually carries the role and adjust the test data key accordingly — do not invent a field.
-
 - [ ] **Step 2: Run it to verify it fails**
 
 Run (from `apps/web`): `npx vitest run "app/(protected)/events/[eventId]/invite/__tests__/invite.page.test.tsx"`
-Expected: FAIL — current page sends bare `{ personId }` and has no admin toggle.
+Expected: FAIL — page sends bare `{ personId }`, has no admin toggle, and has no event/family-scoped admin check.
 
 - [ ] **Step 3: Implement the invite-page changes**
 
 In `apps/web/app/(protected)/events/[eventId]/invite/page.tsx`:
 
-1. Track suggestion selections + per-suggestion admin separately from member selections:
+1. Add imports + an event query, and derive the event's family + admin from it:
+
+```typescript
+import { getEventInviteeSuggestions, sendInvitations, getEventDetails } from "@/lib/api/events";
+import type { InviteeEntry, InviteeSuggestion } from "@/lib/api/events";
+import { isForeignEventDTO } from "@/lib/api/events";
+```
+
+```typescript
+  const eventQuery = useQuery({ queryKey: ["event", eventId], queryFn: () => getEventDetails(eventId, getToken), enabled: !!eventId });
+  const eventData = eventQuery.data;
+  const eventFamilyId = eventData && !isForeignEventDTO(eventData) ? eventData.event.familyGroupId : null;
+```
+
+2. Replace the `familyId` derivation (currently `families?.[0]?.familyGroup.id`) so members/suggestions/admin all key off the event's family:
+
+```typescript
+  const families = familiesQuery.data ?? [];
+  const familyId = eventFamilyId ?? families[0]?.familyGroup.id ?? null;
+  const myMembership = families.find((f) => f.familyGroup.id === familyId);
+  const canAdmin = (myMembership?.roles ?? []).some((r) => r === "ADMIN" || r === "ORGANIZER");
+```
+
+(Keep `getFamilyDetails(familyId)` for the members list — now correctly the event's family.)
+
+3. Add suggestion-selection + per-suggestion admin state:
 
 ```typescript
   const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(new Set());
   const [adminSuggestionIds, setAdminSuggestionIds] = useState<Set<string>>(new Set());
 ```
 
-2. Derive `canAdmin` from membership (using the actual role field — see note above):
-
-```typescript
-  const myFamily = familiesQuery.data?.[0];
-  const canAdmin = (myFamily?.roles ?? []).some((r: string) => r === "ADMIN" || r === "ORGANIZER");
-```
-
-3. Build the tagged invitee list in `handleSend`:
+4. Build the tagged invitee list in `handleSend`:
 
 ```typescript
   async function handleSend() {
     setSending(true);
     const invitees: InviteeEntry[] = [
       ...[...selectedPersonIds].map((id): InviteeEntry => ({ kind: "person", personId: id })),
-      ...[...selectedSuggestionIds].map((id): InviteeEntry => ({
-        kind: "famlinkUser",
-        personId: id,
-        role: adminSuggestionIds.has(id) ? "EVENT_ADMIN" : "PARTICIPANT"
-      })),
+      ...[...selectedSuggestionIds].map((id): InviteeEntry => ({ kind: "famlinkUser", personId: id, role: adminSuggestionIds.has(id) ? "EVENT_ADMIN" : "PARTICIPANT" })),
       ...(externalEmail || externalPhone
         ? [{ kind: "guest", guestEmail: externalEmail || undefined, guestPhone: externalPhone || undefined, guestName: externalName || "Guest" } as InviteeEntry]
         : [])
     ];
-    if (invitees.length > 0) {
-      await sendInvitations(eventId, invitees, getToken);
-    }
+    if (invitees.length > 0) { await sendInvitations(eventId, invitees, getToken); }
     router.push(`/events/${eventId}`);
   }
 ```
 
-4. In the suggestions list, use `selectedSuggestionIds`/`toggleSuggestion` (not the member set) and render the admin toggle only when `canAdmin`:
+5. In the suggestions list, bind the checkbox to `selectedSuggestionIds` and render the admin toggle only when `canAdmin`:
 
 ```tsx
                 <input
                   type="checkbox"
                   aria-label={s.person.displayName}
                   checked={selectedSuggestionIds.has(s.person.id)}
-                  onChange={() => setSelectedSuggestionIds(prev => {
-                    const next = new Set(prev); next.has(s.person.id) ? next.delete(s.person.id) : next.add(s.person.id); return next;
-                  })}
+                  onChange={() => setSelectedSuggestionIds(prev => { const next = new Set(prev); next.has(s.person.id) ? next.delete(s.person.id) : next.add(s.person.id); return next; })}
                   style={{ accentColor: "var(--color-primary, #6366f1)", width: "16px", height: "16px" }}
                 />
-                {/* …existing name/subtext… */}
+                {/* …existing name/subtext block… */}
                 {canAdmin && selectedSuggestionIds.has(s.person.id) && (
                   <label style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)" }}>
                     <input
                       type="checkbox"
                       aria-label={`make event admin: ${s.person.displayName}`}
                       checked={adminSuggestionIds.has(s.person.id)}
-                      onChange={() => setAdminSuggestionIds(prev => {
-                        const next = new Set(prev); next.has(s.person.id) ? next.delete(s.person.id) : next.add(s.person.id); return next;
-                      })}
+                      onChange={() => setAdminSuggestionIds(prev => { const next = new Set(prev); next.has(s.person.id) ? next.delete(s.person.id) : next.add(s.person.id); return next; })}
                     />
                     make event admin
                   </label>
                 )}
 ```
 
-(The member list keeps using `selectedPersonIds`/`togglePerson` unchanged.)
+(The member list keeps `selectedPersonIds`/`togglePerson` unchanged.)
 
 - [ ] **Step 4: Run the test to verify it passes**
 
@@ -999,9 +1037,7 @@ git commit -m "feat: P3-03 invite cross-family participants with role from invit
 
 ---
 
-## Task 7: Accept page — accept / decline / revive (state matrix)
-
-A new authenticated page at `/events/accept?token=` that previews and acts on a participation invite.
+## Task 8: Accept page — accept / decline / revive (state matrix)
 
 **Files:**
 - Create: `apps/web/app/events/accept/page.tsx`
@@ -1009,10 +1045,8 @@ A new authenticated page at `/events/accept?token=` that previews and acts on a 
 - Create: `apps/web/app/events/accept/__tests__/AcceptClient.test.tsx`
 
 **Interfaces:**
-- Consumes: `previewParticipation`, `acceptParticipation`, `declineParticipation` (Task 5).
-- Produces: `AcceptClient` component (token via prop) rendering each `ParticipationState`.
-
-**State matrix:** PENDING → summary + Accept/Decline; DECLINED → summary + re-accept nudge + Accept; ACTIVE → redirect to `/events/:eventId`; UNAVAILABLE / load error → generic "no longer available", no detail. Page hardening: do not log the query string; no third-party analytics on this route.
+- Consumes: `previewParticipation(token, getToken)`, `acceptParticipation`, `declineParticipation` (Task 6).
+- Produces: `AcceptClient({ token }: { token: string })`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1037,33 +1071,33 @@ vi.mock("@/lib/api/events", () => ({
   declineParticipation: (...a: unknown[]) => mockDecline(...a)
 }));
 
-beforeEach(() => { push.mockClear(); mockAccept.mockClear(); mockDecline.mockClear(); });
+beforeEach(() => { push.mockClear(); mockPreview.mockReset(); mockAccept.mockClear(); mockDecline.mockClear(); });
 
 describe("AcceptClient", () => {
   it("PENDING: renders summary and accepts", async () => {
     mockPreview.mockResolvedValue({ state: "PENDING", eventId: "e1", eventTitle: "Picnic", role: "PARTICIPANT", invitedByName: "Alice" });
     render(<AcceptClient token="tok1" />);
-    expect(await screen.findByText(/Picnic/)).toBeInTheDocument();
+    expect(await screen.findByText("Picnic")).toBeInTheDocument();
     expect(screen.getByText(/Alice/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /^accept$/i }));
     await waitFor(() => expect(mockAccept).toHaveBeenCalledWith("e1", "tok1", expect.anything()));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/events/e1"));
   });
 
-  it("DECLINED: shows a re-accept nudge", async () => {
+  it("DECLINED: shows a re-accept nudge with an Accept button", async () => {
     mockPreview.mockResolvedValue({ state: "DECLINED", eventId: "e1", eventTitle: "Picnic", role: "PARTICIPANT", invitedByName: "Alice" });
     render(<AcceptClient token="tok1" />);
     expect(await screen.findByText(/declined/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /accept/i })).toBeInTheDocument();
   });
 
-  it("ACTIVE: redirects to the event without rendering buttons", async () => {
+  it("ACTIVE: redirects to the event", async () => {
     mockPreview.mockResolvedValue({ state: "ACTIVE", eventId: "e9" });
     render(<AcceptClient token="tok1" />);
     await waitFor(() => expect(push).toHaveBeenCalledWith("/events/e9"));
   });
 
-  it("UNAVAILABLE: renders a generic message with no event detail", async () => {
+  it("UNAVAILABLE: generic message, no event detail", async () => {
     mockPreview.mockResolvedValue({ state: "UNAVAILABLE" });
     render(<AcceptClient token="tok1" />);
     expect(await screen.findByText(/no longer available/i)).toBeInTheDocument();
@@ -1072,7 +1106,7 @@ describe("AcceptClient", () => {
   it("decline shows an inline confirmation", async () => {
     mockPreview.mockResolvedValue({ state: "PENDING", eventId: "e1", eventTitle: "Picnic", role: "PARTICIPANT", invitedByName: "Alice" });
     render(<AcceptClient token="tok1" />);
-    await screen.findByText(/Picnic/);
+    await screen.findByText("Picnic");
     await userEvent.click(screen.getByRole("button", { name: /decline/i }));
     expect(await screen.findByText(/you declined/i)).toBeInTheDocument();
   });
@@ -1084,7 +1118,7 @@ describe("AcceptClient", () => {
 Run (from `apps/web`): `npx vitest run app/events/accept/__tests__/AcceptClient.test.tsx`
 Expected: FAIL — `AcceptClient` does not exist.
 
-- [ ] **Step 3: Implement the client component**
+- [ ] **Step 3: Implement `AcceptClient`**
 
 Create `apps/web/app/events/accept/AcceptClient.tsx`:
 
@@ -1108,7 +1142,7 @@ export function AcceptClient({ token }: { token: string }) {
 
   useEffect(() => {
     let active = true;
-    previewParticipation(token)
+    previewParticipation(token, getToken)
       .then((p) => {
         if (!active) return;
         if (p.state === "ACTIVE" && p.eventId) { router.push(`/events/${p.eventId}`); return; }
@@ -1118,7 +1152,7 @@ export function AcceptClient({ token }: { token: string }) {
       })
       .catch(() => { if (active) setView("unavailable"); });
     return () => { active = false; };
-  }, [token, router]);
+  }, [token, getToken, router]);
 
   async function onAccept() {
     if (!preview?.eventId) return;
@@ -1168,7 +1202,7 @@ export function AcceptClient({ token }: { token: string }) {
 }
 ```
 
-Create `apps/web/app/events/accept/page.tsx` (server component reads the token from search params; do not log it):
+Create `apps/web/app/events/accept/page.tsx` (server component reads the token; never log it):
 
 ```tsx
 import { AcceptClient } from "./AcceptClient";
@@ -1184,27 +1218,29 @@ export default async function AcceptPage({ searchParams }: { searchParams: Promi
 }
 ```
 
-> Auth: `/events/accept` is outside the `(protected)` group. Confirm how the app gates auth (Clerk middleware matcher in `apps/web/middleware.ts`). The accept flow requires a signed-in user (the API identity-binds). Ensure this route is covered by Clerk's middleware so a signed-out user is sent to sign-in and returned here; if the matcher excludes it, add it. Match the project's existing protected-route convention rather than inventing one.
+- [ ] **Step 4: Ensure Clerk gates `/events/accept`**
 
-- [ ] **Step 4: Run the test to verify it passes**
+`/events/accept` is outside the `(protected)` route group. Open `apps/web/middleware.ts` (or wherever the Clerk middleware/matcher lives) and confirm a signed-out visitor to `/events/accept` is sent to sign-in and returned here (the API identity-binds the token, so an authenticated user is required). If the matcher excludes it, add `/events/accept` to the protected matcher, following the existing convention in that file. Do not invent a new auth mechanism.
+
+- [ ] **Step 5: Run the test to verify it passes**
 
 Run (from `apps/web`): `npx vitest run app/events/accept/__tests__/AcceptClient.test.tsx`
 Expected: PASS (all five).
 
-- [ ] **Step 5: Full verification + commit**
+- [ ] **Step 6: Full verification + commit**
 
 Run (from `apps/web`): the test above, then `npm run type-check`, then `npm run lint`.
 
 ```bash
-git add apps/web/app/events/accept/
+git add apps/web/app/events/accept/ apps/web/middleware.ts
 git commit -m "feat: P3-03 add cross-family participation accept page"
 ```
 
 ---
 
-## Task 8: Event detail — cross-family participant viewer
+## Task 9: Event detail — foreign participant viewer (read + RSVP + own-task contribution)
 
-Render the isolation-safe foreign DTO for a cross-family participant instead of the member view.
+Render the isolation-safe foreign DTO for a cross-family participant: fields, attendees, an RSVP control, and task contribution (add any; delete/edit only `isOwn` tasks — the API enforces ownership, `isOwn` scopes the controls).
 
 **Files:**
 - Create: `apps/web/components/events/ForeignEventDetail.tsx`
@@ -1212,7 +1248,7 @@ Render the isolation-safe foreign DTO for a cross-family participant instead of 
 - Modify: `apps/web/app/(protected)/events/[eventId]/page.tsx`
 
 **Interfaces:**
-- Consumes: `ForeignEventDTO`, `isForeignEventDTO`, `addItem`, `patchItem`, `deleteItem`, `updateRsvp` (Task 5 + existing).
+- Consumes: `ForeignEventDTO`, `ForeignEventItem`, `isForeignEventDTO`, `addItem`, `deleteItem` (Task 6); `RsvpButton` (existing).
 - Produces: `ForeignEventDetail({ dto, eventId }: { dto: ForeignEventDTO; eventId: string })`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1227,21 +1263,33 @@ import type { ForeignEventDTO } from "@/lib/api/events";
 
 vi.mock("@clerk/nextjs", () => ({ useAuth: () => ({ getToken: vi.fn() }) }));
 vi.mock("@/components/events/RsvpButton", () => ({ RsvpButton: () => <div data-testid="rsvp" /> }));
+vi.mock("@tanstack/react-query", () => ({
+  useMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  useQueryClient: () => ({ invalidateQueries: vi.fn() })
+}));
+vi.mock("@/lib/api/events", () => ({ addItem: vi.fn(), deleteItem: vi.fn() }));
 
 const dto: ForeignEventDTO = {
   id: "e1", title: "Shared Picnic", description: "Bring food", startAt: "2026-07-04T17:00:00Z", endAt: null,
   locationName: "Park", locationAddress: null, locationMapUrl: null, eventType: "PARTY",
   participants: [{ displayName: "Alice", rsvpStatus: "YES" }, { displayName: "Bob", rsvpStatus: null }],
-  tasks: []
+  tasks: [
+    { id: "i1", name: "Mine", quantity: null, notes: null, status: "UNCLAIMED", isOwn: true },
+    { id: "i2", name: "Theirs", quantity: null, notes: null, status: "UNCLAIMED", isOwn: false }
+  ]
 };
 
 describe("ForeignEventDetail", () => {
-  it("renders the foreign event fields, attendees and an RSVP control", () => {
+  it("renders fields, attendees, RSVP, tasks, and a delete only on own tasks", () => {
     render(<ForeignEventDetail dto={dto} eventId="e1" />);
     expect(screen.getByText("Shared Picnic")).toBeInTheDocument();
     expect(screen.getByText("Park")).toBeInTheDocument();
     expect(screen.getByText("Alice")).toBeInTheDocument();
     expect(screen.getByTestId("rsvp")).toBeInTheDocument();
+    expect(screen.getByText("Mine")).toBeInTheDocument();
+    expect(screen.getByText("Theirs")).toBeInTheDocument();
+    // delete control only on the own task
+    expect(screen.getAllByRole("button", { name: /delete/i }).length).toBe(1);
   });
 });
 ```
@@ -1258,10 +1306,26 @@ Create `apps/web/components/events/ForeignEventDetail.tsx`:
 ```tsx
 "use client";
 
-import type { ForeignEventDTO } from "@/lib/api/events";
+import { useState } from "react";
+import { useAuth } from "@clerk/nextjs";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { addItem, deleteItem, type ForeignEventDTO } from "@/lib/api/events";
 import { RsvpButton } from "@/components/events/RsvpButton";
 
 export function ForeignEventDetail({ dto, eventId }: { dto: ForeignEventDTO; eventId: string }) {
+  const { getToken } = useAuth();
+  const qc = useQueryClient();
+  const [newItem, setNewItem] = useState("");
+
+  const add = useMutation({
+    mutationFn: (name: string) => addItem(eventId, { name }, getToken),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["event", eventId] })
+  });
+  const remove = useMutation({
+    mutationFn: (itemId: string) => deleteItem(eventId, itemId, getToken),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["event", eventId] })
+  });
+
   return (
     <div className="flex flex-col gap-6 p-6 max-w-2xl">
       <div>
@@ -1289,29 +1353,35 @@ export function ForeignEventDetail({ dto, eventId }: { dto: ForeignEventDTO; eve
             ))}
       </div>
 
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
         <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>Items</p>
-        {dto.tasks.length === 0
-          ? <p className="text-xs italic" style={{ color: "var(--text-muted)" }}>None yet</p>
-          : dto.tasks.map((t) => (
-              <div key={t.id} className="flex items-center justify-between rounded-md px-3 py-2" style={{ border: "1px solid var(--border)", background: "var(--bg-card)" }}>
-                <span className="text-sm" style={{ color: "var(--text-primary)" }}>{t.name}</span>
-                {t.quantity && <span className="text-xs" style={{ color: "var(--text-muted)" }}>{t.quantity}</span>}
-              </div>
-            ))}
+        {dto.tasks.map((t) => (
+          <div key={t.id} className="flex items-center justify-between rounded-md px-3 py-2" style={{ border: "1px solid var(--border)", background: "var(--bg-card)" }}>
+            <span className="text-sm" style={{ color: "var(--text-primary)" }}>{t.name}{t.quantity ? ` · ${t.quantity}` : ""}</span>
+            {t.isOwn && <button onClick={() => remove.mutate(t.id)} className="text-xs" style={{ color: "var(--danger, #dc2626)" }}>Delete</button>}
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            aria-label="add item"
+            value={newItem}
+            onChange={(e) => setNewItem(e.target.value)}
+            placeholder="Add an item"
+            style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-card)" }}
+          />
+          <button onClick={() => { if (newItem.trim()) { add.mutate(newItem.trim()); setNewItem(""); } }} style={{ padding: "8px 12px" }}>Add</button>
+        </div>
       </div>
     </div>
   );
 }
 ```
 
-> Scope note: this task renders the foreign view (read + RSVP). Task-scoped item add/edit-own/delete-own controls reuse `addItem`/`patchItem`/`deleteItem` and may be layered here in a follow-up step within this task if time allows; the API already ownership-scopes mutations. Keep the first green build read-only + RSVP, then add the own-item controls behind the same component if included.
+> Edit-own is intentionally out of this task's first green build (delete-own + add cover contribution). If desired, an inline name edit using `patchItem` on `isOwn` tasks can be layered in a follow-up within this file without interface changes.
 
 - [ ] **Step 4: Branch the event-detail page on DTO shape**
 
-In `apps/web/app/(protected)/events/[eventId]/page.tsx`:
-
-Update the import and add the branch right after the `isError || !data` guard (after line 62):
+In `apps/web/app/(protected)/events/[eventId]/page.tsx`, update imports and add the branch right after the `isError || !data` guard (~line 62):
 
 ```tsx
 import { getEventDetails, isForeignEventDTO } from "@/lib/api/events";
@@ -1323,13 +1393,13 @@ import { ForeignEventDetail } from "@/components/events/ForeignEventDetail";
     return <ForeignEventDetail dto={data} eventId={eventId} />;
   }
 
-  const { event, rsvps, eventItems } = data; // existing member path below, unchanged
+  const { event, rsvps, eventItems } = data; // member path below, unchanged
 ```
 
-- [ ] **Step 5: Run the component test + verify the page typechecks**
+- [ ] **Step 5: Run the component test + typecheck the page**
 
 Run (from `apps/web`): `npx vitest run components/events/__tests__/ForeignEventDetail.test.tsx` then `npm run type-check`.
-Expected: PASS / no type errors (the `isForeignEventDTO` guard narrows `data` to `EventDetail` for the member path).
+Expected: PASS / no type errors (the guard narrows `data` to `EventDetail` for the member path).
 
 - [ ] **Step 6: Lint + commit**
 
@@ -1337,22 +1407,20 @@ Run (from `apps/web`): `npm run lint`.
 
 ```bash
 git add apps/web/components/events/ForeignEventDetail.tsx apps/web/components/events/__tests__/ForeignEventDetail.test.tsx "apps/web/app/(protected)/events/[eventId]/page.tsx"
-git commit -m "feat: P3-03 render foreign DTO for cross-family event participants"
+git commit -m "feat: P3-03 render foreign DTO with task contribution for participants"
 ```
 
 ---
 
-## Task 9: Event detail — owning-member participant management
-
-Add a Participants section to the member view with admin revoke/role controls.
+## Task 10: Event detail — owning-member participant management
 
 **Files:**
 - Create: `apps/web/components/events/ParticipantsSection.tsx`
 - Create: `apps/web/components/events/__tests__/ParticipantsSection.test.tsx`
-- Modify: `apps/web/app/(protected)/events/[eventId]/page.tsx` (mount the section in the member view)
+- Modify: `apps/web/app/(protected)/events/[eventId]/page.tsx`
 
 **Interfaces:**
-- Consumes: `listParticipants`, `revokeParticipant`, `setParticipantRole` (Task 5).
+- Consumes: `listParticipants`, `revokeParticipant`, `setParticipantRole` (Task 6); `getMyFamilies` for admin detection.
 - Produces: `ParticipantsSection({ eventId, canAdmin }: { eventId: string; canAdmin: boolean })`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1365,7 +1433,6 @@ import { describe, it, expect, vi } from "vitest";
 import { ParticipantsSection } from "@/components/events/ParticipantsSection";
 
 vi.mock("@clerk/nextjs", () => ({ useAuth: () => ({ getToken: vi.fn() }) }));
-
 const participants = [
   { personId: "p1", displayName: "Active One", role: "PARTICIPANT", status: "ACTIVE" },
   { personId: "p2", displayName: "Revoked Two", role: "EVENT_ADMIN", status: "REVOKED" }
@@ -1382,7 +1449,7 @@ describe("ParticipantsSection", () => {
     render(<ParticipantsSection eventId="e1" canAdmin={true} />);
     expect(screen.getByText("Active One")).toBeInTheDocument();
     expect(screen.getByText("Revoked Two")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /revoke/i }).length).toBe(1); // only the ACTIVE one
+    expect(screen.getAllByRole("button", { name: /revoke/i }).length).toBe(1);
   });
 
   it("hides admin controls when canAdmin is false", () => {
@@ -1437,8 +1504,7 @@ export function ParticipantsSection({ eventId, canAdmin }: { eventId: string; ca
           </span>
           {canAdmin && p.status === "ACTIVE" && (
             <span style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setRole.mutate({ personId: p.personId, role: p.role === "EVENT_ADMIN" ? "PARTICIPANT" : "EVENT_ADMIN" })}
-                      className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              <button onClick={() => setRole.mutate({ personId: p.personId, role: p.role === "EVENT_ADMIN" ? "PARTICIPANT" : "EVENT_ADMIN" })} className="text-xs" style={{ color: "var(--text-secondary)" }}>
                 {p.role === "EVENT_ADMIN" ? "Make participant" : "Make admin"}
               </button>
               <button onClick={() => revoke.mutate(p.personId)} className="text-xs" style={{ color: "var(--danger, #dc2626)" }}>Revoke</button>
@@ -1451,17 +1517,27 @@ export function ParticipantsSection({ eventId, canAdmin }: { eventId: string; ca
 }
 ```
 
-- [ ] **Step 4: Mount in the member view**
+- [ ] **Step 4: Mount in the member view with event-scoped admin detection**
 
-In `apps/web/app/(protected)/events/[eventId]/page.tsx`, render the section in the member path (e.g. inside the `details` tab content, after the Items block ~line 149). For `canAdmin`, reuse the same membership-role check pattern as Task 6 (derive from the family/membership query the page already has access to, or fetch families and read roles). Pass `canAdmin`:
+In `apps/web/app/(protected)/events/[eventId]/page.tsx`, add a `getMyFamilies` query and derive `canAdmin` from the **event's** family, then mount the section in the details tab (after the items block, ~line 149):
 
 ```tsx
+import { getMyFamilies } from "@/lib/api/family";
 import { ParticipantsSection } from "@/components/events/ParticipantsSection";
-// …in the details tab, after the items block:
-<ParticipantsSection eventId={eventId} canAdmin={canAdmin} />
 ```
 
-> If the detail page does not currently know the viewer's role, add a `getMyFamilies` query (as the invite page does) and compute `canAdmin` from the membership roles for `event.familyGroupId`. Do not hardcode `canAdmin` true (the existing `isOrganizer = true` placeholder at line 66 is a known stub — leave its tab logic, but derive a real `canAdmin` for this control).
+```tsx
+  const { data: families } = useQuery({ queryKey: ["families"], queryFn: () => getMyFamilies(getToken) });
+  // computed after the member-narrowed `event` is in scope:
+  const myMembership = (families ?? []).find((f) => f.familyGroup.id === event.familyGroupId);
+  const canAdmin = (myMembership?.roles ?? []).some((r) => r === "ADMIN" || r === "ORGANIZER");
+```
+
+```tsx
+          <ParticipantsSection eventId={eventId} canAdmin={canAdmin} />
+```
+
+(Place the `useQuery` for families with the other hooks near the top of the component — hooks must not be conditional. Compute `myMembership`/`canAdmin` after `event` is narrowed in the member branch. Leave the existing `isOrganizer = true` tab stub as-is; this `canAdmin` governs only the participant controls.)
 
 - [ ] **Step 5: Run the component test + typecheck**
 
@@ -1481,19 +1557,20 @@ git commit -m "feat: P3-03 add participant management to owning-member event vie
 
 ## Final Verification (after all tasks)
 
-- [ ] Run the full API suite (from `apps/api`): `npx vitest run` → all green.
-- [ ] Run the full web suite (from `apps/web`): `npx vitest run` → all green.
-- [ ] From repo root: `npm run type-check` and `npm run lint` across workspaces → 0 errors.
+- [ ] Full API suite (from `apps/api`): `npx vitest run` → green.
+- [ ] Full web suite (from `apps/web`): `npx vitest run` → green.
+- [ ] Repo root: `npm run type-check` and `npm run lint` across workspaces → 0 errors.
 - [ ] `git diff --check` → clean.
-- [ ] Run `mcp__gitnexus.detect_changes` vs `main` → confirm only the expected symbols/flows changed.
-- [ ] Manual smoke (optional, dev): create an OPEN event, invite an external email → confirm a guest delivery log line; invite a cross-family suggestion as admin → open the accept link in a second account → accept → land on the event; decline then re-open the link → re-accept (revival); revoke from the member view → confirm the link then shows "no longer available".
+- [ ] `mcp__gitnexus.detect_changes` vs `main` → only expected symbols/flows changed.
+- [ ] Manual smoke (dev): OPEN event → invite external email → confirm a `guest_invitation_delivery` log line; invite a cross-family suggestion as admin → open the accept link in a second account → accept → land on the event; decline then re-open the link → re-accept (revival); revoke from the member view → the link then shows "no longer available".
 - [ ] Update `docs/FamLink_Current_State.md` (status, commits, verification baseline, next step) and re-run `npx gitnexus analyze`.
 
 ---
 
 ## Self-Review (performed during planning)
 
-- **Spec coverage:** §3.1 preview → Task 3; §3.2 participants → Task 4; §3.3 accept widening/revival → Task 2; §3.4 guest delivery → Task 1; §4.1 invite page → Task 6; §4.2 accept page → Task 7; §4.3 foreign viewer → Task 8 + member participant mgmt → Task 9; §4.4 client → Task 5; §5 isolation invariants → enforced in Tasks 1/3/4/8 and asserted in their tests; §6 bulk import → deferred (no task, by design); §7 testing → folded into each task. No uncovered requirement.
+- **Spec coverage:** §3.1 preview → Task 3; §3.2 participants → Task 4; §3.3 accept/revival → Task 2; §3.4 guest delivery → Task 1; foreign-item ownership enabler (implicit in §4.3 add/edit-own/delete-own) → Task 5; §4.1 invite page → Task 7; §4.2 accept page → Task 8; §4.3 foreign viewer + contribution → Task 9; §4.3 member participant mgmt → Task 10; §4.4 client → Task 6; §5 isolation → enforced/asserted in Tasks 1/3/4/5/9; §6 bulk import → deferred (no task, by design). No uncovered requirement.
 - **Placeholders:** none — every code/test step carries real content.
-- **Type consistency:** `InviteeEntry`, `ParticipationPreview`/`ParticipationState`, `ParticipantRecord`, `ForeignEventDTO`, and `isForeignEventDTO` are defined in Task 5 and consumed unchanged in Tasks 6–9; the preview `state` values match the API in Task 3; accept/decline/revoke/role signatures match the existing endpoints.
-- **Flagged confirmations** (noted inline, not placeholders — verify against live code during execution): `apiFetch` auth-optional for the preview GET (Task 5); the membership-role field used for `canAdmin` (Tasks 6/9); Clerk middleware coverage of `/events/accept` (Task 7). Each has a concrete fallback.
+- **Type consistency:** `InviteeEntry`, `ParticipationPreview`/`ParticipationState`, `ParticipantRecord`, `ForeignEventItem`, `ForeignEventDTO`, `isForeignEventDTO` defined in Task 6 and consumed unchanged in Tasks 7–10; preview `state` values match the API (Task 3); `previewParticipation(token, getToken)` matches `apiFetch`'s required `getToken`; `foreignItemShape`'s new `isOwn` (Task 5) flows into `ForeignEventItem` (Task 6) and the `isOwn`-scoped delete (Task 9).
+- **Council round-2 fixes applied:** participants gate = owning-member-only (BLOCKER); preview auth/relative-path (BLOCKER); preview 400/403 contract (BLOCKER); Task 5 `isOwn` enabler so Task 9 truly implements own-task controls (MAJOR); admin detection via the real `roles[]` keyed to the event's family (MAJOR×2); ACTIVE preview returns `{state,eventId}` only, contract aligned (MAJOR); AcceptClient test resets `mockPreview` (MINOR); guest-copy test asserts the seeded family NAME is absent rather than banning the word (MINOR).
+- **Remaining execution-time confirmation (one, with fallback):** Clerk middleware coverage of `/events/accept` (Task 8 Step 4) — concrete instruction to add it to the matcher if absent.
