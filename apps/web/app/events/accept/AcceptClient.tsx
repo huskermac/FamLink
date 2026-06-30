@@ -27,9 +27,9 @@ export function AcceptClient({ token }: { token: string }) {
       })
       .catch(() => { if (active) setView("unavailable"); });
     return () => { active = false; };
-    // Intentionally omit getToken/router: Clerk's useAuth() returns a new getToken
-    // identity on every render, so including it would re-run this effect (and
-    // re-fetch the preview, clobbering local state) on every state update.
+    // Intentionally omit getToken/router: this is a one-shot preview fetch on mount.
+    // In production, getToken (Clerk) and router (Next App Router) are referentially stable,
+    // so token is the only value that should trigger a re-run.
   }, [token]);
 
   async function onAccept() {
