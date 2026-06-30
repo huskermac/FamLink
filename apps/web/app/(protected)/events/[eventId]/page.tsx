@@ -4,10 +4,13 @@ import { useState, use } from "react";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
-import { getEventDetails } from "@/lib/api/events";
+import { getEventDetails, isForeignEventDTO } from "@/lib/api/events";
+import { getMyFamilies } from "@/lib/api/family";
 import { RsvpButton } from "@/components/events/RsvpButton";
 import { OrganizerDashboard } from "@/components/events/OrganizerDashboard";
 import { PhotoGallery } from "@/components/photos/PhotoGallery";
+import { ForeignEventDetail } from "@/components/events/ForeignEventDetail";
+import { ParticipantsSection } from "@/components/events/ParticipantsSection";
 
 type Params = { eventId: string };
 
@@ -42,6 +45,10 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
     queryKey: ["event", eventId],
     queryFn: () => getEventDetails(eventId, getToken)
   });
+  const { data: families } = useQuery({
+    queryKey: ["families"],
+    queryFn: () => getMyFamilies(getToken)
+  });
 
   if (isLoading) {
     return (
@@ -61,9 +68,16 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
     );
   }
 
-  const { event, rsvps, eventItems } = data;
+  if (isForeignEventDTO(data)) {
+    return <ForeignEventDetail dto={data} eventId={eventId} />;
+  }
+
+  const { event, rsvps, eventItems } = data; // member path below, unchanged
 
   const isOrganizer = true;
+
+  const myMembership = (families ?? []).find((f) => f.familyGroup.id === event.familyGroupId);
+  const canAdmin = (myMembership?.roles ?? []).some((r) => r === "ADMIN" || r === "ORGANIZER");
 
   const tabs: { id: Tab; label: string; show: boolean }[] = [
     { id: "details", label: "Details", show: true },
@@ -147,6 +161,7 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
               ))}
             </div>
           )}
+          <ParticipantsSection eventId={eventId} canAdmin={canAdmin} />
         </div>
       )}
 

@@ -115,8 +115,8 @@ export function getEvents(
   });
 }
 
-export function getEventDetails(eventId: string, getToken: GetToken): Promise<EventDetail> {
-  return apiFetch<EventDetail>(`/api/v1/events/${encodeURIComponent(eventId)}`, {
+export function getEventDetails(eventId: string, getToken: GetToken): Promise<EventDetail | ForeignEventDTO> {
+  return apiFetch<EventDetail | ForeignEventDTO>(`/api/v1/events/${encodeURIComponent(eventId)}`, {
     getToken,
     method: "GET"
   });
@@ -170,12 +170,10 @@ export function getRsvpStatus(
 
 // ── Invitations ───────────────────────────────────────────────────────────────
 
-export interface InviteeEntry {
-  personId?: string;
-  guestEmail?: string;
-  guestPhone?: string;
-  guestName?: string;
-}
+export type InviteeEntry =
+  | { kind: "person"; personId: string }
+  | { kind: "famlinkUser"; personId: string; role?: "PARTICIPANT" | "EVENT_ADMIN" }
+  | { kind: "guest"; guestEmail?: string; guestPhone?: string; guestName?: string };
 
 export interface InvitationRecord {
   id: string;
@@ -241,4 +239,89 @@ export async function submitGuestRsvp(token: string, status: "ACCEPTED" | "DECLI
   });
   if (!res.ok) throw new Error("RSVP failed");
   return res.json();
+}
+
+// ── Cross-family participation (W3a-UI) ────────────────────────────────────────
+
+export type ParticipationState = "PENDING" | "DECLINED" | "ACTIVE" | "UNAVAILABLE";
+
+export interface ParticipationPreview {
+  state: ParticipationState;
+  eventId?: string;
+  eventTitle?: string;
+  startAt?: string;
+  endAt?: string | null;
+  locationName?: string | null;
+  role?: "PARTICIPANT" | "EVENT_ADMIN";
+  invitedByName?: string;
+}
+
+export interface ParticipantRecord {
+  personId: string;
+  displayName: string;
+  role: "PARTICIPANT" | "EVENT_ADMIN";
+  status: "ACTIVE" | "REVOKED";
+}
+
+export interface ForeignEventItem {
+  id: string;
+  name: string;
+  quantity: string | null;
+  notes: string | null;
+  status: string;
+  isOwn: boolean;
+}
+
+export interface ForeignEventDTO {
+  id: string;
+  title: string;
+  description: string | null;
+  startAt: string;
+  endAt: string | null;
+  locationName: string | null;
+  locationAddress: string | null;
+  locationMapUrl: string | null;
+  eventType: EventType;
+  participants: { displayName: string; rsvpStatus: RsvpStatus | null }[];
+  tasks: ForeignEventItem[];
+}
+
+export function isForeignEventDTO(d: EventDetail | ForeignEventDTO): d is ForeignEventDTO {
+  return !("event" in d);
+}
+
+export function previewParticipation(token: string, getToken: GetToken): Promise<ParticipationPreview> {
+  return apiFetch<ParticipationPreview>(`/api/v1/events/participation/preview?token=${encodeURIComponent(token)}`, { method: "GET", getToken });
+}
+
+export function acceptParticipation(eventId: string, token: string, getToken: GetToken): Promise<{ accepted: boolean }> {
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participation/accept`, { method: "POST", body: JSON.stringify({ token }), getToken });
+}
+
+export function declineParticipation(eventId: string, token: string, getToken: GetToken): Promise<{ declined: boolean }> {
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participation/decline`, { method: "POST", body: JSON.stringify({ token }), getToken });
+}
+
+export function listParticipants(eventId: string, getToken: GetToken): Promise<{ participants: ParticipantRecord[] }> {
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participants`, { method: "GET", getToken });
+}
+
+export function revokeParticipant(eventId: string, personId: string, getToken: GetToken): Promise<{ revoked: boolean }> {
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participants/${encodeURIComponent(personId)}/revoke`, { method: "POST", getToken });
+}
+
+export function setParticipantRole(eventId: string, personId: string, role: "PARTICIPANT" | "EVENT_ADMIN", getToken: GetToken): Promise<{ updated: boolean }> {
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/participants/${encodeURIComponent(personId)}/role`, { method: "PUT", body: JSON.stringify({ role }), getToken });
+}
+
+export function addItem(eventId: string, data: { name: string; quantity?: string; notes?: string }, getToken: GetToken): Promise<ForeignEventItem | EventItem> {
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/items`, { method: "POST", body: JSON.stringify(data), getToken });
+}
+
+export function patchItem(eventId: string, itemId: string, data: Partial<{ name: string; quantity: string | null; notes: string | null; status: string }>, getToken: GetToken): Promise<ForeignEventItem | EventItem> {
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/items/${encodeURIComponent(itemId)}`, { method: "PATCH", body: JSON.stringify(data), getToken });
+}
+
+export function deleteItem(eventId: string, itemId: string, getToken: GetToken): Promise<void> {
+  return apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/items/${encodeURIComponent(itemId)}`, { method: "DELETE", getToken });
 }

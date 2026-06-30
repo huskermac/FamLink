@@ -10,7 +10,7 @@ import { emitEventCreated, emitRsvpUpdated, getIo } from "../lib/socketServer";
 import { generateBirthdayEvents } from "../lib/birthdayGenerator";
 import { getInviteeSuggestions } from "../lib/inviteeSuggestions";
 import { resolveEventAccess, toForeignInvitedEventDTO, activeEventParticipant } from "../lib/eventAccess";
-import { NotificationService } from "../lib/notificationService";
+import { NotificationService, buildGuestInvitationMessage } from "../lib/notificationService";
 import { env } from "../lib/env";
 import { findOrCreatePersonByContact } from "../lib/personIdentity";
 
@@ -146,8 +146,8 @@ function serializeEventItem(p: EventItem) {
 
 // Isolation-safe task shape for a cross-family participant: NO internal person
 // ids (createdByPersonId / assignedToPersonId), no eventId / visibility.
-function foreignItemShape(p: EventItem) {
-  return { id: p.id, name: p.name, quantity: p.quantity, notes: p.notes, status: p.status };
+function foreignItemShape(p: EventItem, requesterId: string) {
+  return { id: p.id, name: p.name, quantity: p.quantity, notes: p.notes, status: p.status, isOwn: p.createdByPersonId === requesterId };
 }
 
 async function loadEventForMember(eventId: string, requesterPersonId: string) {
@@ -234,6 +234,51 @@ familyEventsRouter.post("/:familyId/events", async (req, res) => {
 
 /** All /api/v1/events/:eventId/* routes */
 export const eventsRouter = Router();
+
+const PreviewQuerySchema = z.object({ token: z.string().min(1) });
+
+eventsRouter.get("/participation/preview", async (req, res) => {
+  const q = PreviewQuerySchema.safeParse(req.query);
+  if (!q.success) { res.status(400).json({ error: "Missing token" }); return; }
+  const requester = personed(req).person;
+
+  const inv = await db.eventInvitation.findFirst({ where: { guestToken: q.data.token } });
+  if (!inv || inv.linkedPersonId !== requester.id) {
+    res.status(403).json({ error: "This invitation is not for your account" });
+    return;
+  }
+
+  if (inv.status === "ACCEPTED") {
+    const grant = await activeEventParticipant(requester.id, inv.eventId);
+    if (!grant) { res.json({ state: "UNAVAILABLE" }); return; }
+    res.json({ state: "ACTIVE", eventId: inv.eventId });
+    return;
+  }
+
+  if (inv.status !== "PENDING" && inv.status !== "DECLINED") {
+    res.json({ state: "UNAVAILABLE" });
+    return;
+  }
+  const ev = await db.event.findUnique({ where: { id: inv.eventId } });
+  if (!ev) { res.json({ state: "UNAVAILABLE" }); return; }
+
+  let invitedByName = "Someone";
+  if (inv.invitedById) {
+    const inviter = await db.person.findUnique({ where: { id: inv.invitedById }, select: { firstName: true, preferredName: true } });
+    if (inviter) invitedByName = inviter.preferredName ?? inviter.firstName;
+  }
+
+  res.json({
+    state: inv.status,
+    eventId: ev.id,
+    eventTitle: ev.title,
+    startAt: ev.startAt.toISOString(),
+    endAt: ev.endAt?.toISOString() ?? null,
+    locationName: ev.locationName,
+    role: inv.role ?? "PARTICIPANT",
+    invitedByName
+  });
+});
 
 eventsRouter.get("/:eventId", async (req, res) => {
   const p = eventIdParam.safeParse(req.params);
@@ -346,7 +391,7 @@ eventsRouter.get("/:eventId", async (req, res) => {
         const items = await db.eventItem.findMany({ where: { eventId }, orderBy: { createdAt: "asc" } });
         // Per-item visibility filtering for foreign participants is not implemented;
         // all event tasks are shared-surface in W3a.
-        const foreignTasks = items.map(foreignItemShape);
+        const foreignTasks = items.map((p) => foreignItemShape(p, requester.id));
         res.json(toForeignInvitedEventDTO(event, participantList, foreignTasks));
         return;
       }
@@ -572,6 +617,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
   const now = new Date();
   const createdInvitations: object[] = [];
   const famlinkUserInvites: Array<{ linkedPersonId: string; guestToken: string }> = [];
+  const guestInvites: Array<{ invitationId: string; guestToken: string; email: string | null; phone: string | null }> = [];
 
   await db.$transaction(async (tx) => {
     for (const invitee of parsed.data.invitees) {
@@ -624,6 +670,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
             }
           });
           createdInvitations.push(created);
+          guestInvites.push({ invitationId: created.id, guestToken: created.guestToken!, email: invitee.guestEmail ?? null, phone: invitee.guestPhone ?? null });
         }
       } else if (invitee.kind === "famlinkUser") {
         const existing = await tx.eventInvitation.findFirst({ where: { eventId, linkedPersonId: invitee.personId } });
@@ -662,6 +709,20 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
         body: `You have a new event invitation. Accept it here: ${acceptLink}`,
         data: { acceptLink }
       }).catch(() => { /* non-fatal */ });
+    }
+  }
+
+  if (guestInvites.length > 0) {
+    const guestNotifier = new NotificationService();
+    for (const g of guestInvites) {
+      const message = buildGuestInvitationMessage({
+        eventTitle: event.title,
+        startAt: event.startAt,
+        rsvpUrl: `${env.WEB_APP_URL}/rsvp/${g.guestToken}`
+      });
+      guestNotifier
+        .sendGuestInvitation({ invitationId: g.invitationId, email: g.email, phone: g.phone, message })
+        .catch(() => { /* non-fatal */ });
     }
   }
 
@@ -913,7 +974,7 @@ eventsRouter.post("/:eventId/participation/accept", async (req, res) => {
   const requester = personed(req).person;
 
   const inv = await db.eventInvitation.findFirst({
-    where: { eventId: p.data.eventId, guestToken: body.data.token, status: "PENDING" }
+    where: { eventId: p.data.eventId, guestToken: body.data.token, status: { in: ["PENDING", "DECLINED"] } }
   });
   // Bind to authenticated identity: the token's invitation must target THIS person.
   if (!inv || inv.linkedPersonId !== requester.id) {
@@ -977,6 +1038,23 @@ eventsRouter.put("/:eventId/participants/:personId/role", async (req, res) => {
   res.json({ updated: true });
 });
 
+eventsRouter.get("/:eventId/participants", async (req, res) => {
+  const requester = personed(req).person;
+  const access = await resolveEventAccess(req.params.eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  // Owning members ONLY. A cross-family participant (even EVENT_ADMIN) must not read
+  // the roster / person ids across the family boundary — they use the foreign DTO.
+  if (!access.isOwningMember) { res.status(403).json({ error: "Not authorized to view participants" }); return; }
+
+  const grants = await db.eventParticipant.findMany({ where: { eventId: req.params.eventId }, orderBy: { createdAt: "asc" } });
+  const persons = await db.person.findMany({ where: { id: { in: grants.map((g) => g.personId) } }, select: { id: true, firstName: true, preferredName: true } });
+  const nameById = new Map(persons.map((p) => [p.id, p.preferredName ?? p.firstName]));
+
+  res.json({
+    participants: grants.map((g) => ({ personId: g.personId, displayName: nameById.get(g.personId) ?? "Participant", role: g.role, status: g.status }))
+  });
+});
+
 const CreateItemSchema = z.object({ name: z.string().min(1), quantity: z.string().optional(), notes: z.string().optional() });
 const PatchItemSchema = z.object({ name: z.string().min(1).optional(), quantity: z.string().nullable().optional(), notes: z.string().nullable().optional(), status: z.enum(["UNCLAIMED", "CLAIMED", "PROVIDED", "CANCELLED"]).optional() });
 
@@ -991,7 +1069,7 @@ eventsRouter.post("/:eventId/items", async (req, res) => {
     data: { eventId: req.params.eventId, createdByPersonId: requester.id, name: body.data.name, quantity: body.data.quantity ?? null, notes: body.data.notes ?? null }
   });
   const isForeign = !access.isOwningMember && access.eventRole !== null;
-  res.status(201).json(isForeign ? foreignItemShape(created) : serializeEventItem(created));
+  res.status(201).json(isForeign ? foreignItemShape(created, requester.id) : serializeEventItem(created));
 });
 
 async function authorizeItemMutation(eventId: string, itemId: string, personId: string) {
@@ -1012,7 +1090,7 @@ eventsRouter.patch("/:eventId/items/:itemId", async (req, res) => {
   if (r.error === "forbidden") { res.status(403).json({ error: "You can only edit your own contribution" }); return; }
   const updated = await db.eventItem.update({ where: { id: req.params.itemId }, data: body.data });
   const isForeign = !r.access.isOwningMember && r.access.eventRole !== null;
-  res.json(isForeign ? foreignItemShape(updated) : serializeEventItem(updated));
+  res.json(isForeign ? foreignItemShape(updated, requester.id) : serializeEventItem(updated));
 });
 
 eventsRouter.delete("/:eventId/items/:itemId", async (req, res) => {
