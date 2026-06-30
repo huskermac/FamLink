@@ -4,7 +4,7 @@ import { useState, use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getEventDetails, updateEvent } from "@/lib/api/events";
+import { getEventDetails, updateEvent, isForeignEventDTO } from "@/lib/api/events";
 import type { EventType, EventVisibility } from "@/lib/api/events";
 import { EVENT_TYPE_CONFIG } from "@/lib/eventTypes";
 
@@ -47,7 +47,7 @@ export default function EditEventPage({ params }: { params: Promise<Params> }) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (data && !initialized) {
+    if (data && !isForeignEventDTO(data) && !initialized) {
       const { event } = data;
       setTitle(event.title);
       setStartTime(toDatetimeLocal(event.startAt));

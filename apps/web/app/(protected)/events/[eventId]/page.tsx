@@ -4,10 +4,11 @@ import { useState, use } from "react";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
-import { getEventDetails } from "@/lib/api/events";
+import { getEventDetails, isForeignEventDTO } from "@/lib/api/events";
 import { RsvpButton } from "@/components/events/RsvpButton";
 import { OrganizerDashboard } from "@/components/events/OrganizerDashboard";
 import { PhotoGallery } from "@/components/photos/PhotoGallery";
+import { ForeignEventDetail } from "@/components/events/ForeignEventDetail";
 
 type Params = { eventId: string };
 
@@ -61,7 +62,11 @@ export default function EventDetailPage({ params }: { params: Promise<Params> })
     );
   }
 
-  const { event, rsvps, eventItems } = data;
+  if (isForeignEventDTO(data)) {
+    return <ForeignEventDetail dto={data} eventId={eventId} />;
+  }
+
+  const { event, rsvps, eventItems } = data; // member path below, unchanged
 
   const isOrganizer = true;
 

@@ -115,8 +115,8 @@ export function getEvents(
   });
 }
 
-export function getEventDetails(eventId: string, getToken: GetToken): Promise<EventDetail> {
-  return apiFetch<EventDetail>(`/api/v1/events/${encodeURIComponent(eventId)}`, {
+export function getEventDetails(eventId: string, getToken: GetToken): Promise<EventDetail | ForeignEventDTO> {
+  return apiFetch<EventDetail | ForeignEventDTO>(`/api/v1/events/${encodeURIComponent(eventId)}`, {
     getToken,
     method: "GET"
   });
