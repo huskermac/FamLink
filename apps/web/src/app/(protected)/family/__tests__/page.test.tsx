@@ -39,6 +39,7 @@ const mockMemberships: FamilyMembership[] = [
       updatedAt: "2024-01-01T00:00:00Z",
     },
     role: "ADMIN",
+    roles: ["ADMIN"],
     joinedAt: "2024-01-01T00:00:00Z",
   },
 ];

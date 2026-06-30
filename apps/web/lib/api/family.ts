@@ -33,6 +33,7 @@ export interface FamilyGroupSummary {
 export interface FamilyMembership {
   familyGroup: FamilyGroupSummary;
   role: string;
+  roles: string[];
   joinedAt: string;
 }
 

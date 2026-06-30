@@ -20,7 +20,9 @@ export default defineConfig({
     },
     include: [
       "src/**/__tests__/**/*.test.tsx",
-      "src/**/__tests__/**/*.test.ts"
+      "src/**/__tests__/**/*.test.ts",
+      "lib/**/__tests__/**/*.test.tsx",
+      "lib/**/__tests__/**/*.test.ts"
     ],
     passWithNoTests: true
   }
