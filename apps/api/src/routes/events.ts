@@ -146,8 +146,8 @@ function serializeEventItem(p: EventItem) {
 
 // Isolation-safe task shape for a cross-family participant: NO internal person
 // ids (createdByPersonId / assignedToPersonId), no eventId / visibility.
-function foreignItemShape(p: EventItem) {
-  return { id: p.id, name: p.name, quantity: p.quantity, notes: p.notes, status: p.status };
+function foreignItemShape(p: EventItem, requesterId: string) {
+  return { id: p.id, name: p.name, quantity: p.quantity, notes: p.notes, status: p.status, isOwn: p.createdByPersonId === requesterId };
 }
 
 async function loadEventForMember(eventId: string, requesterPersonId: string) {
@@ -391,7 +391,7 @@ eventsRouter.get("/:eventId", async (req, res) => {
         const items = await db.eventItem.findMany({ where: { eventId }, orderBy: { createdAt: "asc" } });
         // Per-item visibility filtering for foreign participants is not implemented;
         // all event tasks are shared-surface in W3a.
-        const foreignTasks = items.map(foreignItemShape);
+        const foreignTasks = items.map((p) => foreignItemShape(p, requester.id));
         res.json(toForeignInvitedEventDTO(event, participantList, foreignTasks));
         return;
       }
@@ -1069,7 +1069,7 @@ eventsRouter.post("/:eventId/items", async (req, res) => {
     data: { eventId: req.params.eventId, createdByPersonId: requester.id, name: body.data.name, quantity: body.data.quantity ?? null, notes: body.data.notes ?? null }
   });
   const isForeign = !access.isOwningMember && access.eventRole !== null;
-  res.status(201).json(isForeign ? foreignItemShape(created) : serializeEventItem(created));
+  res.status(201).json(isForeign ? foreignItemShape(created, requester.id) : serializeEventItem(created));
 });
 
 async function authorizeItemMutation(eventId: string, itemId: string, personId: string) {
@@ -1090,7 +1090,7 @@ eventsRouter.patch("/:eventId/items/:itemId", async (req, res) => {
   if (r.error === "forbidden") { res.status(403).json({ error: "You can only edit your own contribution" }); return; }
   const updated = await db.eventItem.update({ where: { id: req.params.itemId }, data: body.data });
   const isForeign = !r.access.isOwningMember && r.access.eventRole !== null;
-  res.json(isForeign ? foreignItemShape(updated) : serializeEventItem(updated));
+  res.json(isForeign ? foreignItemShape(updated, requester.id) : serializeEventItem(updated));
 });
 
 eventsRouter.delete("/:eventId/items/:itemId", async (req, res) => {

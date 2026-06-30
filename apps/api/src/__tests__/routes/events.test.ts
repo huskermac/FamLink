@@ -1480,4 +1480,28 @@ describe("events routes (P1-08)", () => {
       expect(missing.status).toBe(400);
     });
   });
+
+  describe("GET /api/v1/events/:eventId foreign DTO", () => {
+    it("foreign DTO tasks carry isOwn for the requesting participant (no person ids)", async () => {
+      const owner = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(owner.id);
+      const event = await seedTestEvent(familyGroup.id, owner.id, { title: "Shared" });
+      await db.event.update({ where: { id: event.id }, data: { eventVisibility: "PRIVATE" } });
+
+      const participant = await seedSecondPerson();
+      await db.eventParticipant.create({ data: { eventId: event.id, personId: participant.id, role: "PARTICIPANT", status: "ACTIVE" } });
+      await db.eventItem.create({ data: { eventId: event.id, createdByPersonId: owner.id, name: "Owner Item" } });
+      await db.eventItem.create({ data: { eventId: event.id, createdByPersonId: participant.id, name: "My Item" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID }); // the participant
+      const res = await request(app).get(`/api/v1/events/${event.id}`).set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      const mine = res.body.tasks.find((t: { name: string }) => t.name === "My Item");
+      const theirs = res.body.tasks.find((t: { name: string }) => t.name === "Owner Item");
+      expect(mine.isOwn).toBe(true);
+      expect(theirs.isOwn).toBe(false);
+      expect(mine).not.toHaveProperty("createdByPersonId"); // still no person ids
+    });
+  });
 });
