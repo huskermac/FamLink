@@ -4,9 +4,9 @@
 
 | Field | Value |
 |---|---|
-| Last updated | 2026-06-30 |
-| Branch | `p3-03-w3a-ui-web` (off `main`; 11 commits `db0f2c7`..`07510ae`; **READY TO MERGE**, awaiting Steve's merge/PR decision) |
-| Checkpoint | **W3a-UI-web implemented** (cross-family participation web UI + day-1 guest delivery). Built via brainstorm → spec (council-vetted) → plan (2 council rounds) → subagent-driven dev (10 tasks, per-task spec+quality review) → whole-branch opus review (READY TO MERGE, no Critical/Important). |
+| Last updated | 2026-07-01 |
+| Branch | `main` at `35be8f7` (W3a-UI-web branch merged + deleted; working tree clean apart from a pending GitNexus adapter regeneration). |
+| Checkpoint | **W3a-UI-web MERGED** (PR #6, merge `e7952e3`) — cross-family participation web UI + day-1 guest delivery. Built via brainstorm → spec (council-vetted) → plan (2 council rounds) → subagent-driven dev (10 tasks, per-task spec+quality review) → whole-branch opus review (clean). Follow-on **PR #7** (merge `35be8f7`) relocated web tests out of the stale `apps/web/src/` tree and removed it. **Next: W3a-UI-mobile.** |
 | Local verification | PASS: full API suite **415/415**, full web suite **169/169** (coverage gate green at **87.29%** lines, threshold 80), repo-root `type-check` clean, `lint` 0 errors (34 pre-existing warnings), `git diff --check` clean. `turbo test --filter=@famlink/api --filter=famlink-web -- --coverage` → 4/4 tasks successful |
 
 ---
@@ -22,19 +22,21 @@
 - **Contact Identity Foundation - Plan A (backbone)** (P3-03, PR #4, merge `f45f11c`; prod completed 2026-06-29): contact normalization helpers, additive `Person` normalized/verified contact columns, verified-only partial unique indexes, canonical `findOrCreatePersonByContact`, Clerk webhook normalized+verified email writes, guest invite resolver routing through canonical contact identity, and one-time Clerk verified-contact backfill. Spec: `docs/superpowers/specs/2026-06-25-contact-identity-foundation-design.md`; plan: `docs/superpowers/plans/2026-06-25-contact-identity-foundation-a-backbone.md`.
 - **Contact Identity Foundation - Plan B (merge engine)** (P3-03, PR #5, merge `a034137`): transactional `mergePersons` (re-points every Person-referencing column incl. logical no-FK columns, compound-unique dedupe, delete; refuses to delete an account; idempotent), dependent-safety gate + full-name corroboration (`selectMergeableContactPerson`/`nameCorroborates`), and a retry-safe Clerk `user.created` post-upsert consolidation that merges a safe contact-only guest into the new account (guest invitation/RSVP history reconciles via `linkedPersonId`). Logs-only observability, no new table. Council-validated (Codex, 2 rounds) + final opus review READY TO MERGE. Spec: `docs/superpowers/specs/2026-06-26-cif-plan-b-merge-engine-design.md`; plan: `docs/superpowers/plans/2026-06-26-cif-plan-b-merge-engine.md`.
 
-- **W3a-UI-web** - cross-family event participation web UI (P3-03, branch `p3-03-w3a-ui-web`, READY TO MERGE): **day-1 guest invitation delivery** (direct email/SMS of the `/rsvp/{token}` link, isolation-safe copy), **participant revival** (accept widened to {PENDING,DECLINED}, never ACCEPTED — admin revoke stays authoritative), identity-bound `GET /events/participation/preview`, owning-member-only `GET /:eventId/participants`, `isOwn` flag on foreign items, and web surfaces: invite-page cross-family roles (admin-gated), `/events/accept` page (state matrix), foreign-DTO participant viewer (add + delete-own tasks), and owning-member participant management. Spec: `docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md`; plan: `docs/superpowers/plans/2026-06-30-w3a-ui-web-cross-family-participation.md`.
+- **W3a-UI-web** - cross-family event participation web UI (P3-03, PR #6, merge `e7952e3`): **day-1 guest invitation delivery** (direct email/SMS of the `/rsvp/{token}` link, isolation-safe copy), **participant revival** (accept widened to {PENDING,DECLINED}, never ACCEPTED — admin revoke stays authoritative), identity-bound `GET /events/participation/preview`, owning-member-only `GET /:eventId/participants`, `isOwn` flag on foreign items, and web surfaces: invite-page cross-family roles (admin-gated), `/events/accept` page (state matrix), foreign-DTO participant viewer (add + delete-own tasks), and owning-member participant management. Spec: `docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md`; plan: `docs/superpowers/plans/2026-06-30-w3a-ui-web-cross-family-participation.md`.
 
 ## Reordered Roadmap (Canonical)
 
 1. ~~Merge or PR **Contact Identity Foundation Plan A**~~ - **DONE** (PR #4 merged `f45f11c`).
 2. ~~Write and execute **Contact Identity Foundation Plan B (merge engine)**~~ - **DONE** (PR #5 merged `a034137`).
-3. ~~**W3a-UI-web**~~ - **DONE, READY TO MERGE** (branch `p3-03-w3a-ui-web`, 11 commits, whole-branch review clean; awaiting merge/PR).
+3. ~~**W3a-UI-web**~~ - **DONE, MERGED** (PR #6, merge `e7952e3`; branch deleted). Stale `apps/web/src/` tree removed via PR #7 (merge `35be8f7`).
 4. **W3a-UI-mobile**. *(next)*
 5. Rest of **W3b** - passive SMS onboarding (inbound Twilio webhook, "reply Y", STOP/opt-out, phone verification).
 6. **W4** - Pro Organizer beta (non-family event admin + B2B billing).
 7. **W1** - Household to Family M2M reframe (migration-heavy).
 
 ## Work Completed Since Last Shared-State Update
+
+2026-07-01 **W3a-UI-web merged to `main`** via PR #6 (merge `e7952e3`); feature branch `p3-03-w3a-ui-web` deleted (local + remote). Follow-on **PR #7** (merge `35be8f7`, commit `573f0a2`) relocated the web tests out of the stale `apps/web/src/` duplicate tree and deleted that tree (repo-hygiene deferred item — done); its worktree/branch `claude/objective-galileo-2d532a` cleaned up. Repo now clean: only `main`, no lingering worktrees, remote pruned. **Pending Steve:** set `RESEND_*`/`TWILIO_*`/`WEB_APP_URL` in prod so guest invitation email/SMS actually send (no migration needed — W3a-UI-web was additive).
 
 2026-06-30 **W3a-UI-web built** on branch `p3-03-w3a-ui-web` (11 commits `db0f2c7`..`07510ae`), READY TO MERGE. Flow: brainstorm → spec refresh + Codex council (no BLOCKERs) → plan + 2 Codex council rounds (round 2 clean) → subagent-driven execution (10 TDD tasks, fresh implementer + spec/quality reviewer each) → whole-branch opus review (READY TO MERGE, no Critical/Important). Commits: `db0f2c7` guest delivery, `aefc391` accept-revival, `78f1669` preview endpoint, `2c08405` participants list (owning-member-only), `f7c71af` foreign-item `isOwn`, `4aba71d` web client, `1b23ae2` invite-page roles, `d60ef99` accept page, `765e2bd` accept-deps comment fix, `38b49b3` foreign viewer, `07510ae` participant mgmt. A controller re-boundary moved the `InviteeEntry`/`getEventDetails` breaking type changes into their consumer tasks (7/9) to keep the workspace type-checking at every step. Pending Steve: prod has no new migration (additive only — `isOwn` is computed, no schema change); ensure `RESEND_*`/`TWILIO_*`/`WEB_APP_URL` env vars are set in prod for guest delivery to actually send.
 
@@ -81,7 +83,7 @@ Earlier 2026-06-24/25 stream:
 
 ## Next Recommended / Authorized Step
 
-**Merge `p3-03-w3a-ui-web`** (Steve's decision: local merge vs PR), then **W3a-UI-mobile** - port the cross-family participation surfaces to the mobile client (accept link → in-app accept, foreign-event viewer, participant RSVP/tasks). The W3a-API + web client + isolation patterns are now the reference. W3a-UI-web spec/plan: `docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md` / `docs/superpowers/plans/2026-06-30-w3a-ui-web-cross-family-participation.md`.
+**W3a-UI-mobile** - port the cross-family participation surfaces to the mobile client (accept link → in-app accept, foreign-event viewer, participant RSVP/tasks). The W3a-API + web client + isolation patterns are now the reference. W3a-UI-web spec/plan: `docs/superpowers/specs/2026-06-25-w3a-ui-web-cross-family-participation-design.md` / `docs/superpowers/plans/2026-06-30-w3a-ui-web-cross-family-participation.md`.
 
 ## Open Blockers / Questions Needing Steve
 
@@ -90,7 +92,6 @@ Earlier 2026-06-24/25 stream:
 ## Deferred Items (and Why)
 
 - **W3a-UI-web follow-ups (non-blocking, from final review):** (1) **edit-own** task contribution in the foreign viewer (Steve-approved defer; add/delete-own shipped); (2) `ForeignEventDetail` RSVP button can't reflect the viewer's existing RSVP — the foreign DTO doesn't expose self-RSVP (small DTO addition would fix); (3) edit page renders a perpetual loading skeleton if a foreign DTO loads it (unreachable in practice — no link, API rejects; render an "unavailable" state); (4) phone-channel guest delivery lacks a route-level test (per-channel logic is unit-covered); (5) invite suggestion row lost whole-row click-to-toggle (`<label>`→`<div>`; only the checkbox toggles); (6) preview makes 2 sequential DB lookups (could `Promise.all`).
-- **Repo hygiene (pre-existing, discovered during W3a-UI-web):** `apps/web/src/app/` and `apps/web/src/components/` are **stale duplicate trees** — the live tree is `apps/web/app/` + `apps/web/components/`. `vitest.config.ts` `include` was incrementally widened (lib, app, components) to discover tests in the live tree. Worth a cleanup pass to delete the stale `src/` trees.
 - **W3a-UI-mobile** - after W3a-UI-web (web first). (Contact Identity Foundation is now done, so this sequencing constraint is satisfied.)
 - **Rest of W3b (passive SMS onboarding)** - needs inbound SMS infra plus TCPA/STOP compliance; sequenced after UI.
 - **W4 (Pro Organizer), W1 (Household reframe)** - later in the reframe sequence; W1 is migration-heavy.
