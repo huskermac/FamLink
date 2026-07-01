@@ -34,8 +34,12 @@ count=0
 while IFS='=' read -r key value; do
   [ -z "$key" ] && continue
   case "$key" in \#*) continue ;; esac
-  value="${value%\"}"
-  value="${value#\"}"
+  key="${key%$'\r'}"
+  value="${value%$'\r'}"
+  case "$value" in
+    \"*\") value="${value%\"}"; value="${value#\"}" ;;
+    \'*\') value="${value%\'}"; value="${value#\'}" ;;
+  esac
   infisical secrets set "${key}=${value}" --env="$ENVIRONMENT" --path="/" > /dev/null
   count=$((count + 1))
 done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE")
