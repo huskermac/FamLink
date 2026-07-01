@@ -11,7 +11,7 @@ Applies to every SECRET-typed row below unless a row says otherwise.
 1. Generate the new value at the source (vendor dashboard, or app-generated for `GUEST_TOKEN_SECRET`).
 2. `infisical secrets set "<NAME>=<new-value>" --env=prod --path="/"` — repeat for `dev`/`test` if the same credential is shared across environments (prefer separate dev/test credentials where the vendor supports it).
 3. Railway dashboard → **FamLink API** service → Variables → update `<NAME>` → Railway redeploys automatically on variable change.
-4. Locally: `infisical run --env=dev -- npm run dev:infisical` picks up the new value automatically — no manual `.env` edit needed once Infisical is the local source.
+4. Locally: `npm run dev:infisical` picks up the new value automatically — no manual `.env` edit needed once Infisical is the local source.
 5. Confirm the new value works (health check, or the specific feature that uses it).
 6. Revoke the OLD value at the source once step 5 is confirmed. Don't leave both valid longer than necessary.
 7. Add a row to the Audit Log at the bottom of this file.
