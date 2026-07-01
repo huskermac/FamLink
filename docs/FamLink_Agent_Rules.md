@@ -120,6 +120,7 @@ At session start, read `docs/FamLink_Current_State.md` (and your tool-private bo
 - Do not introduce security vulnerabilities (injection, XSS, cross-tenant leakage, etc.).
 - Do not add features, refactoring, or comments beyond what was asked.
 - Cross-tenant isolation is a hard invariant (see ADR + the W3a isolation rules): never leak another family's name/roster/events/IDs across the `FamilyGroup` boundary.
+- Never paste, print, or display a real secret value (API key, token, password, connection string) inside a Claude Code session or transcript. Reference which store holds it — an Infisical environment, a Railway service variable — instead of pasting the value itself, even when rotating or debugging. This is how the June 2026 Postgres-password and GitHub-PAT leaks happened (both via transcript display, not via git). See `docs/FamLink_Secrets_Runbook.md`.
 
 ---
 
