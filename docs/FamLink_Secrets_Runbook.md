@@ -16,6 +16,8 @@ Applies to every SECRET-typed row below unless a row says otherwise.
 6. Revoke the OLD value at the source once step 5 is confirmed. Don't leave both valid longer than necessary.
 7. Add a row to the Audit Log at the bottom of this file.
 
+**If you add a brand-new secret name** (not just rotate an existing one), also add it to `turbo.json`'s `globalPassThroughEnv` array. Turborepo enters Strict Environment Variable Mode the moment `globalPassThroughEnv` exists at all — any var not explicitly listed there gets silently stripped before `infisical run -- turbo dev` hands it to a child task, even though `infisical run` itself successfully injected it into the parent process. This was invisible for most secrets during the initial 2026-07-01 rollout because they also happened to exist in local `.env`/`.env.local` (which `apps/api/src/loadEnv.ts` reads independently of Infisical) — it only surfaced once a secret (`STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`) existed solely in Infisical with no local fallback.
+
 ## Secret inventory
 
 ### Database & cache
