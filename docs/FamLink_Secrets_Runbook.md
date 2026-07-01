@@ -9,7 +9,7 @@
 Applies to every SECRET-typed row below unless a row says otherwise.
 
 1. Generate the new value at the source (vendor dashboard, or app-generated for `GUEST_TOKEN_SECRET`).
-2. `infisical secrets set "<NAME>=<new-value>" --env=prod --path="/"` — repeat for `dev`/`test` if the same credential is shared across environments (prefer separate dev/test credentials where the vendor supports it).
+2. `infisical secrets set "<NAME>=<new-value>" --env=prod` — repeat for `dev`/`test` if the same credential is shared across environments (prefer separate dev/test credentials where the vendor supports it). Do not add `--path="/"`: on Git Bash for Windows, MSYS rewrites a literal `/` argument into the Git install path before it reaches `infisical.exe`, breaking the call with a 400 "Invalid secret path" error. Omitting `--path` uses Infisical's root-path default and avoids this entirely.
 3. Railway dashboard → **FamLink API** service → Variables → update `<NAME>` → Railway redeploys automatically on variable change.
 4. Locally: `npm run dev:infisical` picks up the new value automatically — no manual `.env` edit needed once Infisical is the local source.
 5. Confirm the new value works (health check, or the specific feature that uses it).

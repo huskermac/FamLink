@@ -17,8 +17,14 @@
 #   ./scripts/secrets/import-to-infisical.sh test apps/api/.env.test
 #
 # Prod has no local file with real values by design — enter prod secrets
-# by hand (`infisical secrets set NAME=value --env=prod --path="/"`),
-# copying each value directly from the Railway dashboard.
+# by hand (`infisical secrets set NAME=value --env=prod`), copying each
+# value directly from the Railway dashboard.
+#
+# Note: this deliberately omits `--path=`. On Git Bash for Windows, MSYS
+# rewrites a literal "/" argument into the Git install path before it
+# reaches infisical.exe (a native Windows binary), which breaks the call
+# with a 400 "Invalid secret path" error. Omitting --path uses Infisical's
+# root-path default and avoids the rewrite entirely.
 
 set -euo pipefail
 
@@ -41,7 +47,7 @@ while IFS='=' read -r key value; do
     \"*\") value="${value%\"}"; value="${value#\"}" ;;
     \'*\') value="${value%\'}"; value="${value#\'}" ;;
   esac
-  infisical secrets set "${key}=${value}" --env="$ENVIRONMENT" --path="/" > /dev/null
+  infisical secrets set "${key}=${value}" --env="$ENVIRONMENT" > /dev/null
   count=$((count + 1))
 done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE")
 
