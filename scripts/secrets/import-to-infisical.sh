@@ -37,6 +37,7 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 count=0
+skipped=0
 while IFS='=' read -r key value; do
   [ -z "$key" ] && continue
   case "$key" in \#*) continue ;; esac
@@ -47,9 +48,14 @@ while IFS='=' read -r key value; do
     \"*\") value="${value%\"}"; value="${value#\"}" ;;
     \'*\') value="${value%\'}"; value="${value#\'}" ;;
   esac
+  if [ -z "$value" ]; then
+    echo "Skipping $key: empty value (Infisical rejects empty secrets — fill it in locally first if you need it in Infisical)" >&2
+    skipped=$((skipped + 1))
+    continue
+  fi
   infisical secrets set "${key}=${value}" --env="$ENVIRONMENT" > /dev/null
   count=$((count + 1))
 done < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE")
 
-echo "Imported $count secrets into Infisical environment '$ENVIRONMENT' from $ENV_FILE."
+echo "Imported $count secrets into Infisical environment '$ENVIRONMENT' from $ENV_FILE (skipped $skipped empty-valued keys)."
 echo "No values were printed above. Verify with: infisical secrets --env=$ENVIRONMENT"
