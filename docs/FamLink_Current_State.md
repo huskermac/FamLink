@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Last updated | 2026-07-01 |
-| Branch | `main` at `35be8f7` (W3a-UI-web branch merged + deleted; working tree clean apart from a pending GitNexus adapter regeneration). |
+| Branch | `main` at `17d6b54` (secrets hardening + live Infisical rollout fixes, all pushed). |
 | Checkpoint | **W3a-UI-web MERGED** (PR #6, merge `e7952e3`) — cross-family participation web UI + day-1 guest delivery. Built via brainstorm → spec (council-vetted) → plan (2 council rounds) → subagent-driven dev (10 tasks, per-task spec+quality review) → whole-branch opus review (clean). Follow-on **PR #7** (merge `35be8f7`) relocated web tests out of the stale `apps/web/src/` tree and removed it. **Next: W3a-UI-mobile.** |
 | Local verification | PASS: full API suite **415/415**, full web suite **169/169** (coverage gate green at **87.29%** lines, threshold 80), repo-root `type-check` clean, `lint` 0 errors (34 pre-existing warnings), `git diff --check` clean. `turbo test --filter=@famlink/api --filter=famlink-web -- --coverage` → 4/4 tasks successful |
 
@@ -36,7 +36,11 @@
 
 ## Work Completed Since Last Shared-State Update
 
-2026-07-01 **Secrets management hardening** (docs/scripts, branch `chore/secrets-management-hardening`): added `docs/FamLink_Secrets_Runbook.md` (full secret inventory + standard rotation procedure + audit log), `scripts/secrets/import-to-infisical.sh` (one-time local-values-to-Infisical import, Steve-run-only), `npm run dev:infisical` convenience script, `.env.example` header notes across all three files, and a governance rule in `FamLink_Agent_Rules.md` (never paste real secret values into a session — targets the actual cause of the June 2026 leaks). Spec: `docs/superpowers/specs/2026-07-01-secrets-management-design.md`; plan: `docs/superpowers/plans/2026-07-01-secrets-management-hardening.md`. **Pending Steve (Manual Steps, not part of this plan's task runner):** install Infisical CLI, `infisical login` + `infisical init`, create Stripe restricted key + scoped R2 token, run the import script locally, verify `npm run dev:infisical` boots the API.
+2026-07-01 **Secrets management hardening — LIVE** (PR #8 merged `3638758`, plus 4 follow-up fix commits `53de0ba`..`17d6b54` on `main` from real rollout). `docs/FamLink_Secrets_Runbook.md` (full secret inventory + standard rotation procedure + audit log), `scripts/secrets/import-to-infisical.sh`, `npm run dev:infisical`, `.env.example` header notes, governance rule in `FamLink_Agent_Rules.md`. Steve ran the actual rollout end-to-end; it surfaced and fixed 4 real bugs: (1) `.sh` files silently routed through PowerShell's file association instead of running as bash — needed explicit `& "C:\Program Files\Git\bin\bash.exe"` invocation; (2) `--path="/"` in `infisical secrets set` got MSYS-rewritten into the Git install path on Git Bash for Windows, breaking every call with a 400 — fixed by dropping `--path` entirely (commit `b9c21d4`); (3) Infisical hard-rejects empty-valued secrets, which previously aborted the whole import script mid-run under `set -e` — fixed to skip-and-warn instead (commit `ac8dde0`); (4) `turbo.json`'s pre-existing `globalPassThroughEnv` (just `DATABASE_URL`/`TEST_DATABASE_URL`) silently switches Turborepo into Strict Environment Variable Mode, stripping every other Infisical-injected secret before it reached `@famlink/api` — invisible for 33/35 secrets that also existed in local `.env` as a fallback, only surfaced once `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` (Infisical-only, no local fallback) hit Zod "Required" — fixed by listing every `env.ts` variable in `globalPassThroughEnv` (commit `17d6b54`). **Verified end-to-end:** `npm run dev:infisical` boots the API cleanly, `GET /health` → 200. Spec: `docs/superpowers/specs/2026-07-01-secrets-management-design.md`; plan: `docs/superpowers/plans/2026-07-01-secrets-management-hardening.md`.
+
+**Still open (Tier-1 hardening, deferred):** Cloudflare R2 access token is still broad-account-scope — needs a bucket-scoped (`famlink-photos`-only) replacement token, same treatment as the Stripe restricted key.
+
+**New finding, needs Steve's own follow-up (not done today, deliberately not rushed):** prod's `STRIPE_SECRET_KEY` is `rk_test_...` — **production billing is running in Stripe test mode, not live.** Confirmed real (not an artifact of today's work) — Steve confirmed this should actually be live. Follow-up: create an `rk_live_...` restricted key (same permission scope: Subscriptions/Customers/Checkout Sessions/Webhooks) + a live-mode webhook endpoint's `STRIPE_WEBHOOK_SECRET`, then rotate both into Railway prod when ready to accept real payments.
 
 2026-07-01 **W3a-UI-web merged to `main`** via PR #6 (merge `e7952e3`); feature branch `p3-03-w3a-ui-web` deleted (local + remote). Follow-on **PR #7** (merge `35be8f7`, commit `573f0a2`) relocated the web tests out of the stale `apps/web/src/` duplicate tree and deleted that tree (repo-hygiene deferred item — done); its worktree/branch `claude/objective-galileo-2d532a` cleaned up. Repo now clean: only `main`, no lingering worktrees, remote pruned. **Pending Steve:** set `RESEND_*`/`TWILIO_*`/`WEB_APP_URL` in prod so guest invitation email/SMS actually send (no migration needed — W3a-UI-web was additive).
 
@@ -90,6 +94,7 @@ Earlier 2026-06-24/25 stream:
 ## Open Blockers / Questions Needing Steve
 
 1. W3a-UI-web spec section 8 UI choices defaulted (per-suggestion admin toggle; elevation notice copy; decline UX). Confirm or change later; no hard blocker.
+2. **Prod Stripe is in test mode** (`rk_test_...`) — real billing has never been live. Steve confirmed this should be live; needs a deliberate follow-up (new `rk_live_...` restricted key + live-mode webhook endpoint + Railway rotation) when ready — not done as part of the 2026-07-01 secrets hardening session (intentionally not rushed).
 
 ## Deferred Items (and Why)
 
@@ -98,6 +103,7 @@ Earlier 2026-06-24/25 stream:
 - **Rest of W3b (passive SMS onboarding)** - needs inbound SMS infra plus TCPA/STOP compliance; sequenced after UI.
 - **W4 (Pro Organizer), W1 (Household reframe)** - later in the reframe sequence; W1 is migration-heavy.
 - **eslint warning cleanup (34)** - non-blocking; do in a sweep later.
+- **Cloudflare R2 scoped token** - Tier-1 secrets hardening item not yet done; current `CLOUDFLARE_R2_ACCESS_KEY_ID`/`SECRET_ACCESS_KEY` are still broad-account-scope, need replacing with a token scoped to only the `famlink-photos` bucket (same treatment already applied to Stripe).
 - **Secrets manager (Infisical)** - future infra hygiene; do cheap tool-agnostic hardening first (restricted Stripe keys, rotation runbook).
 - **Naming** - "KinScape"/"FamScape" taken, "FamLink" contested (Google Family Link); parked pending real USPTO/domain clearance before marketing.
 

@@ -103,3 +103,5 @@ These two are intentionally **not** wired through Infisical — different mechan
 |---|---|---|---|
 | 2026-06-18 | `DATABASE_URL` (Railway Postgres password) | Steve | Exposed via `~/.claude.json` + session transcript |
 | 2026-06-18 | GitHub PAT | Steve | Exposed via `~/.claude.json` + session transcript |
+| 2026-07-01 | All secrets (`dev`/`test` Infisical environments) | Steve | Initial migration from local `.env`/`.env.local`/`packages/db/.env`/`apps/api/.env.test` into Infisical via `import-to-infisical.sh` |
+| 2026-07-01 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (`dev` only) | Steve | Net-new, not a rotation — previously unset in any local file. Added existing test-mode restricted key (`rk_test_...`) + a `stripe listen`-issued webhook secret. |
