@@ -36,6 +36,7 @@ while IFS='=' read -r key value; do
   case "$key" in \#*) continue ;; esac
   key="${key%$'\r'}"
   value="${value%$'\r'}"
+  while [[ "$value" == *[[:space:]] ]]; do value="${value%[[:space:]]}"; done
   case "$value" in
     \"*\") value="${value%\"}"; value="${value#\"}" ;;
     \'*\') value="${value%\'}"; value="${value#\'}" ;;
