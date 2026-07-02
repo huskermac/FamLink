@@ -4,9 +4,9 @@
 
 | Field | Value |
 |---|---|
-| Last updated | 2026-07-01 |
-| Branch | `main` at `17d6b54` (secrets hardening + live Infisical rollout fixes, all pushed). |
-| Checkpoint | **W3a-UI-web MERGED** (PR #6, merge `e7952e3`) — cross-family participation web UI + day-1 guest delivery. Built via brainstorm → spec (council-vetted) → plan (2 council rounds) → subagent-driven dev (10 tasks, per-task spec+quality review) → whole-branch opus review (clean). Follow-on **PR #7** (merge `35be8f7`) relocated web tests out of the stale `apps/web/src/` tree and removed it. **Next: W3a-UI-mobile.** |
+| Last updated | 2026-07-02 |
+| Branch | `main` (docs-only checkpoint on top of `17d6b54`). |
+| Checkpoint | **PRODUCTION BILLING IS LIVE (2026-07-02):** Stripe account activated, live products/prices, `rk_live_` restricted key, live webhook endpoint, prod `PricingTier` on live monthly prices, smoke-tested with a real checkout (BASE/TRIALING, webhook 200s). Also: R2 token now bucket-scoped (old revoked), `NODE_ENV=production` in prod. See 2026-07-02 entry below + `docs/FamLink_Secrets_Runbook.md` audit log. **Next: W3a-UI-mobile.** |
 | Local verification | PASS: full API suite **415/415**, full web suite **169/169** (coverage gate green at **87.29%** lines, threshold 80), repo-root `type-check` clean, `lint` 0 errors (34 pre-existing warnings), `git diff --check` clean. `turbo test --filter=@famlink/api --filter=famlink-web -- --coverage` → 4/4 tasks successful |
 
 ---
@@ -35,6 +35,13 @@
 7. **W1** - Household to Family M2M reframe (migration-heavy).
 
 ## Work Completed Since Last Shared-State Update
+
+2026-07-02 **Key-hygiene + Stripe live cutover session (ops, no code changes):**
+- **Cloudflare R2 token rotated to bucket-scoped** (`famlink-photos-scoped-2026-07`, Object R/W on `famlink-photos` only). Set in Infisical `dev`+`prod` via clipboard flow (values never in transcript), Railway prod updated, verified with a real S3 put/get/list/delete round-trip, old April token revoked. Local `.env` still holds the dead old values — clean up eventually (only `npm run dev:infisical` matters).
+- **`NODE_ENV=production` in Railway prod** (was `development` since launch → errorHandler leaked error internals to API clients).
+- **Stripe live cutover COMPLETE:** account activated (Steve); live products FamLink Family $4.99/mo (`price_1TooXuEpMILkAfP5GtcOZVAf`), Active Seat $1.99/mo (`price_1TooYaEpMILkAfP5CVevcjVN`), Unlimited $14.99/mo (`price_1TooZVEpMILkAfP5skzRY3Bj`); restricted live key `famlink-api-prod-live` (Customers/Checkout Sessions/Subscriptions/Invoices/Customer Portal Write + Products Read — note the API needs Invoices/Portal/Prices, which the old test-key scope list missed); live webhook `famlink-api-production` (`we_1ToogsEpMILkAfP5MkA5NnyZ`, API version `2026-05-27.dahlia` matching the SDK pin, 5 events); prod `PricingTier` updated to live **monthly** prices (fixing a latent yearly-base/monthly-seat interval mix that would have broken seat-overflow checkout); stale test-mode `stripeCustomerId` cleared. Customer portal already matched ops-doc config. **Smoke test passed with a real checkout:** webhook 2/2 delivered (0 failed), `FamilySubscription` → BASE/TRIALING (14-day trial, first charge ~Jul 16), live customer+subscription attached. The web app nav has no billing link — smoke test used `/billing/plans` directly (small UI gap, noted).
+- **Vercel plugin confirmed disabled** (`settings.json` `vercel-plugin@vercel-vercel-plugin: false`); stale TODO memory removed.
+- **New security findings** (see Open Blockers): Railway Agent chat contains an April 2026 full `.env` paste (6 still-live secrets exposed — rotation decision pending); prod auth runs on a Clerk TEST instance; `RESEND_FROM_DOMAIN=resend.dev` (sandbox) blocks guest email to real guests pending a real domain.
 
 2026-07-01 **Secrets management hardening — LIVE** (PR #8 merged `3638758`, plus 4 follow-up fix commits `53de0ba`..`17d6b54` on `main` from real rollout). `docs/FamLink_Secrets_Runbook.md` (full secret inventory + standard rotation procedure + audit log), `scripts/secrets/import-to-infisical.sh`, `npm run dev:infisical`, `.env.example` header notes, governance rule in `FamLink_Agent_Rules.md`. Steve ran the actual rollout end-to-end; it surfaced and fixed 4 real bugs: (1) `.sh` files silently routed through PowerShell's file association instead of running as bash — needed explicit `& "C:\Program Files\Git\bin\bash.exe"` invocation; (2) `--path="/"` in `infisical secrets set` got MSYS-rewritten into the Git install path on Git Bash for Windows, breaking every call with a 400 — fixed by dropping `--path` entirely (commit `b9c21d4`); (3) Infisical hard-rejects empty-valued secrets, which previously aborted the whole import script mid-run under `set -e` — fixed to skip-and-warn instead (commit `ac8dde0`); (4) `turbo.json`'s pre-existing `globalPassThroughEnv` (just `DATABASE_URL`/`TEST_DATABASE_URL`) silently switches Turborepo into Strict Environment Variable Mode, stripping every other Infisical-injected secret before it reached `@famlink/api` — invisible for 33/35 secrets that also existed in local `.env` as a fallback, only surfaced once `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` (Infisical-only, no local fallback) hit Zod "Required" — fixed by listing every `env.ts` variable in `globalPassThroughEnv` (commit `17d6b54`). **Verified end-to-end:** `npm run dev:infisical` boots the API cleanly, `GET /health` → 200. Spec: `docs/superpowers/specs/2026-07-01-secrets-management-design.md`; plan: `docs/superpowers/plans/2026-07-01-secrets-management-hardening.md`.
 
@@ -94,7 +101,10 @@ Earlier 2026-06-24/25 stream:
 ## Open Blockers / Questions Needing Steve
 
 1. W3a-UI-web spec section 8 UI choices defaulted (per-suggestion admin toggle; elevation notice copy; decline UX). Confirm or change later; no hard blocker.
-2. **Prod Stripe is in test mode** (`rk_test_...`) — real billing has never been live. Steve confirmed this should be live; needs a deliberate follow-up (new `rk_live_...` restricted key + live-mode webhook endpoint + Railway rotation) when ready — not done as part of the 2026-07-01 secrets hardening session (intentionally not rushed).
+2. ~~Prod Stripe is in test mode~~ — **DONE 2026-07-02, production billing live** (see Work Completed).
+3. **Railway Agent chat secret exposure (found 2026-07-02):** the Railway project's AI-agent chat history contains a full April 2026 `.env` paste. Presumed-live exposed values: `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET`, `GUEST_TOKEN_SECRET`, `RESEND_API_KEY`, `TWILIO_AUTH_TOKEN`, `FIREBASE_PRIVATE_KEY` (the old Postgres password in the same paste is already dead). **Steve to decide: rotate all six (recommended, runbook procedure) + delete the Railway agent conversation if the UI allows.**
+4. **Prod auth is on a Clerk TEST instance** (`pk_test_`/`sk_test_`, `moral-marlin-29.clerk.accounts.dev`). Moving to a Clerk production instance requires a real domain.
+5. **Guest email delivery blocked on domain:** `RESEND_FROM_DOMAIN=resend.dev` (sandbox — only delivers to the account owner). Needs a real domain verified in Resend; ties into the parked naming decision (same blocker as the Clerk prod instance). SMS delivery is already fully configured.
 
 ## Deferred Items (and Why)
 
@@ -103,7 +113,9 @@ Earlier 2026-06-24/25 stream:
 - **Rest of W3b (passive SMS onboarding)** - needs inbound SMS infra plus TCPA/STOP compliance; sequenced after UI.
 - **W4 (Pro Organizer), W1 (Household reframe)** - later in the reframe sequence; W1 is migration-heavy.
 - **eslint warning cleanup (34)** - non-blocking; do in a sweep later.
-- **Cloudflare R2 scoped token** - Tier-1 secrets hardening item not yet done; current `CLOUDFLARE_R2_ACCESS_KEY_ID`/`SECRET_ACCESS_KEY` are still broad-account-scope, need replacing with a token scoped to only the `famlink-photos` bucket (same treatment already applied to Stripe).
+- ~~Cloudflare R2 scoped token~~ - **DONE 2026-07-02** (bucket-scoped token live, old revoked; see Work Completed).
+- **Billing nav link** - the web app exposes `/billing/plans` and `/settings/billing` but no nav link to them; found during the 2026-07-02 live smoke test. Small UI task.
+- **Dev Stripe restricted key re-scope** - the test-mode key's scope (Subscriptions/Customers/Checkout Sessions/Webhooks) is missing Invoices/Customer Portal/Products-read that the API actually uses; re-scope to match `famlink-api-prod-live` when convenient.
 - **Secrets manager (Infisical)** - future infra hygiene; do cheap tool-agnostic hardening first (restricted Stripe keys, rotation runbook).
 - **Naming** - "KinScape"/"FamScape" taken, "FamLink" contested (Google Family Link); parked pending real USPTO/domain clearance before marketing.
 

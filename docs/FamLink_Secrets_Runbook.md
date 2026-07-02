@@ -32,7 +32,7 @@ Applies to every SECRET-typed row below unless a row says otherwise.
 
 | Variable | Type | Consumed by | Stored in |
 |---|---|---|---|
-| `CLERK_SECRET_KEY` | SECRET | `apps/api` (JWT verify), `apps/web` (server-side) | Clerk dashboard (source) + Railway "FamLink API" service + local `.env`/`.env.local`. `apps/web` is not yet deployed to a hosting provider (only `railway.toml` exists, configured for `apps/api` only) — the web-side copy is local-dev-only today. |
+| `CLERK_SECRET_KEY` | SECRET | `apps/api` (JWT verify), `apps/web` (server-side) | Clerk dashboard (source) + Railway "FamLink API" service + **Vercel `fam-link-web` project env vars** + local `.env`/`.env.local`. (An earlier version of this row wrongly said `apps/web` wasn't deployed — it has been live on Vercel at `https://fam-link-web.vercel.app` since 2026-06-12; see `docs/FamLink_Production_Ops_Reference.md`.) **⚠️ Prod currently uses a Clerk TEST instance (`pk_test_`/`sk_test_`, `*.accounts.dev`) — moving to a Clerk production instance requires a real domain; tracked as a follow-up.** |
 | `CLERK_WEBHOOK_SECRET` | SECRET | `apps/api` webhook route | Clerk dashboard (Svix signing secret, source) + Railway "FamLink API" service + local `.env` |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `CLERK_PUBLISHABLE_KEY` | public identifier, not secret | `apps/web` (browser), `apps/api` | Clerk dashboard; record only |
 
@@ -70,14 +70,14 @@ Applies to every SECRET-typed row below unless a row says otherwise.
 
 | Variable | Type | Consumed by | Stored in |
 |---|---|---|---|
-| `CLOUDFLARE_R2_ACCESS_KEY_ID` / `CLOUDFLARE_R2_SECRET_ACCESS_KEY` | SECRET | `apps/api` (photo storage) | Cloudflare dashboard → R2 → API tokens (source) + Railway "FamLink API" service + local `.env`. **Tier-1 hardening: scope this token to only the `famlink-photos` bucket, not full account access.** |
+| `CLOUDFLARE_R2_ACCESS_KEY_ID` / `CLOUDFLARE_R2_SECRET_ACCESS_KEY` | SECRET | `apps/api` (photo storage) | Cloudflare dashboard → R2 → API tokens (source) + Infisical `dev`/`prod` + Railway "FamLink API" service + local `.env`. **Scoped 2026-07-02:** token `famlink-photos-scoped-2026-07` has Object Read & Write on the `famlink-photos` bucket only (Tier-1 hardening done; old broad-account token revoked). |
 | `CLOUDFLARE_R2_ACCOUNT_ID` / `CLOUDFLARE_R2_BUCKET_NAME` / `CLOUDFLARE_R2_PUBLIC_URL` | not secret | `apps/api` | record only |
 
 ### Stripe (billing)
 
 | Variable | Type | Consumed by | Stored in |
 |---|---|---|---|
-| `STRIPE_SECRET_KEY` | SECRET | `apps/api` (billing) | Stripe dashboard (source) + Railway "FamLink API" service + local `.env`. **Tier-1 hardening: replace with a restricted key scoped to Subscriptions/Customers/Checkout Sessions/Webhooks only — `apps/api` never needs full account access.** |
+| `STRIPE_SECRET_KEY` | SECRET | `apps/api` (billing) | Stripe dashboard (source) + Infisical (`dev`=test key, `prod`=live key) + Railway "FamLink API" service + local `.env`. **Prod is LIVE mode as of 2026-07-02:** restricted key `famlink-api-prod-live` (`rk_live_...`) scoped to Customers/Checkout Sessions/Subscriptions/Invoices/Customer Portal **Write** + Products **Read**, nothing else. NOTE: the older scope list (Subscriptions/Customers/Checkout Sessions/Webhooks) was too narrow — the API also creates invoices + billing-portal sessions and reads prices; the dev test key should be re-scoped to match when convenient. |
 | `STRIPE_WEBHOOK_SECRET` | SECRET | `apps/api` webhook route | Stripe dashboard (source, per-endpoint signing secret) + Railway "FamLink API" service + local `.env` |
 | `STRIPE_PRICE_BASE` / `STRIPE_PRICE_BASE_SEAT` / `STRIPE_PRICE_UNLIMITED` | not secret (price IDs) | `apps/api` | record only |
 
@@ -87,6 +87,14 @@ Applies to every SECRET-typed row below unless a row says otherwise.
 |---|---|---|---|
 | `TURBO_TOKEN` / `TURBO_TEAM` | low-sensitivity (remote cache auth) | CI only | **Currently unset** — `gh secret list` showed zero repo secrets configured as of 2026-07-01; turbo remote caching is effectively disabled in CI. If enabled later, lives in GitHub repo Settings → Secrets, intentionally outside Infisical's reach (see design spec Non-goals). |
 | `DATABASE_URL` (CI workflow-level `env:` block) | **currently unset**, same reason | — | `.github/workflows/ci.yml` references `secrets.DATABASE_URL` defensively but no value is configured; `prisma generate` in the `lint-and-typecheck`/`build` jobs does not require live connectivity. If this is ever set for real, add a row here to track it. |
+
+## Known exposure: Railway Agent chat history (found 2026-07-02)
+
+The Railway project's built-in AI-agent chat (right sidebar of the project canvas) contains a **full plaintext paste of the April 2026 `.env`** ("Please add these variables to the API" message). Values sitting in that chat history: the pre-rotation Postgres password (dead — rotated 2026-06-18), `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET`, `GUEST_TOKEN_SECRET`, `RESEND_API_KEY`, `TWILIO_AUTH_TOKEN`, `FIREBASE_PRIVATE_KEY` — the latter six presumed still live. **Rotate all six** per the standard procedure, and clear/delete that agent conversation if Railway's UI allows. Same exposure class as the June 2026 transcript incident.
+
+Related findings from the same review:
+- `RESEND_FROM_DOMAIN` in prod is `resend.dev` (Resend sandbox) — guest invite email cannot reach real guests until a real domain is verified in Resend. Blocked on the parked naming/domain decision.
+- `NODE_ENV` in prod was `development` (leaks error internals to clients via the errorHandler dev branch) — fixed to `production` 2026-07-02.
 
 ## Secrets outside dotenv (Claude Code's own MCP config)
 
@@ -105,3 +113,7 @@ These two are intentionally **not** wired through Infisical — different mechan
 | 2026-06-18 | GitHub PAT | Steve | Exposed via `~/.claude.json` + session transcript |
 | 2026-07-01 | All secrets (`dev`/`test` Infisical environments) | Steve | Initial migration from local `.env`/`.env.local`/`packages/db/.env`/`apps/api/.env.test` into Infisical via `import-to-infisical.sh` |
 | 2026-07-01 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (`dev` only) | Steve | Net-new, not a rotation — previously unset in any local file. Added existing test-mode restricted key (`rk_test_...`) + a `stripe listen`-issued webhook secret. |
+| 2026-07-02 | `CLOUDFLARE_R2_ACCESS_KEY_ID` + `CLOUDFLARE_R2_SECRET_ACCESS_KEY` | Steve + Claude | Tier-1 hardening: replaced broad-account R2 token with bucket-scoped `famlink-photos-scoped-2026-07` (Object R/W, `famlink-photos` only). Set in Infisical `dev`+`prod` (clipboard flow, values never in transcript), Railway prod updated, verified via S3 put/get/list/delete round-trip + prod redeploy healthy. Old token revoked at Cloudflare. |
+| 2026-07-02 | `NODE_ENV` (Railway prod, not a secret) | Steve + Claude | Was `development` in prod since launch — errorHandler leaked error internals to clients. Set to `production`, same deploy as the R2 rotation. |
+| 2026-07-02 | `STRIPE_SECRET_KEY` (prod → LIVE mode) | Steve + Claude | Stripe live cutover: account activated, live products/prices created (Family $4.99/mo `price_1TooXuEpMILkAfP5GtcOZVAf`, Active Seat $1.99/mo `price_1TooYaEpMILkAfP5CVevcjVN`, Unlimited $14.99/mo `price_1TooZVEpMILkAfP5skzRY3Bj`), new restricted live key `famlink-api-prod-live` set in Infisical `prod` + Railway (clipboard flow). Prod `PricingTier` rows updated to live **monthly** prices (fixing a latent yearly-base/monthly-seat interval mix); stale test-mode `stripeCustomerId` cleared from the one CANCELED FamilySubscription. |
+| 2026-07-02 | `STRIPE_WEBHOOK_SECRET` (prod) | Steve + Claude | New live-mode webhook endpoint `famlink-api-production` (`we_1ToogsEpMILkAfP5MkA5NnyZ`) at `https://famlink-api-production.up.railway.app/api/v1/billing/webhook`, API version `2026-05-27.dahlia` (matches SDK pin), 5 events. Signing secret set in Infisical `prod` + Railway. Customer portal (live) verified: payment-method update + cancel-at-period-end ON, plan switching/quantity OFF. |
