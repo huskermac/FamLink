@@ -79,24 +79,30 @@ the requester's family memberships (those come from `calendar/upcoming`; never r
 - Query: `days` (default 30, clamped 1–90) — same window semantics as `calendar/upcoming`
   (`startAt >= now && startAt <= now + days`), so the client merge is coherent.
 - Response: `{ events: [{ id, title, startAt, endAt, locationName, eventType }], generatedAt }` —
-  **allowlist only. No `familyGroupId`, no family name, no roster, no inviter.** Sorted `startAt` asc.
+  **allowlist only. No `familyGroupId`, no family name, no roster, no inviter.** Sorted `startAt` asc,
+  tie-break by `id` (stable merge ordering on the client — council MINOR).
 - Auth: standard `requireAuth` + `requirePerson`. REVOKED grants never match.
 
 ### 3.2 `myRsvp` on `ForeignInvitedEventDTO`
 
 Add the requester's own RSVP status — `myRsvp: "YES" | "NO" | "MAYBE" | null` — to the foreign DTO
-(`toForeignInvitedEventDTO` gains the requester's RSVP row as input). Strictly the viewer's own data;
-isolation-safe. This also fixes web deferred-item #2 (foreign RSVP button can't reflect current status);
-web UI adoption is a later slice.
+(`toForeignInvitedEventDTO` gains the requester's RSVP row as input). **Lookup is strictly by the
+requester's `personId` on this event** (council MINOR) — never by email/contact matching. Strictly the
+viewer's own data; isolation-safe. This also fixes web deferred-item #2 (foreign RSVP button can't
+reflect current status); web UI adoption is a later slice.
 
 ## 4. Mobile participant slice (PR 1)
 
 ### 4.1 Client layer (`hooks/`)
 
 - **Types:** add `ForeignInvitedEventDTO` (flat: `id, title, description, startAt, endAt, locationName,
-  locationAddress, locationMapUrl, eventType, participants[], tasks[], myRsvp`). `useEvent(eventId)`
-  returns `EventDetail | ForeignInvitedEventDTO`; discriminator `isForeignEvent(data)` = response lacks
-  the `event` wrapper (`"event" in data`), matching web detection.
+  locationAddress, locationMapUrl, eventType, participants[], tasks[], myRsvp`). **`participants[]` is
+  exactly the shipped API contract — `Array<{ displayName, rsvpStatus }>`, attendees only (people with
+  an RSVP or active grant on this event): no `personId`, no family identifiers, never the host family
+  roster** (`toForeignInvitedEventDTO`, `apps/api/src/lib/eventAccess.ts`). The mobile type must not be
+  widened. `useEvent(eventId)` returns `EventDetail | ForeignInvitedEventDTO`; discriminator
+  `isForeignEvent(data) === !("event" in data)` — the **own-event** shape has the `event` wrapper;
+  foreign is the flat shape (council round-1 caught the original wording inverting this).
 - **`useParticipatingEvents(days)`** → §3.1. The events list merges this with `useEvents` client-side.
 - **Items mutations:** `useAddItem` (POST `/items`), `usePatchItem` (PATCH `/items/:itemId`),
   `useDeleteItem` (DELETE `/items/:itemId`). **Claim = `usePatchItem` with
@@ -122,6 +128,10 @@ web UI adoption is a later slice.
     RSVP + photos unchanged.
   - **Failure state:** 403/404 on a previously-visible foreign event → generic **"This event is no
     longer available"** (no family detail), replacing the bare "Event not found" for that path.
+    **Stale-cache suppression (council):** on a 403/404 the screen must render the failure state even
+    if react-query still holds previously-fetched data for that key — the error is authoritative;
+    remove/invalidate the cached entry so a revoked participant cannot keep reading a cached foreign
+    DTO.
 
 ## 5. Mobile organizer slice (PR 2)
 
@@ -136,22 +146,30 @@ Three sections, porting the web invite page:
    plain participants; the API 403s non-admin `famlinkUser` invites, so the control is hidden not
    disabled — same rule as web).
 3. **External guest** — name + email/phone → `{ kind: "guest", guestName, guestEmail | guestPhone }`.
-   Delivery is server-side (web spec §3.4, live). UI reports **"invitation sent"** on creation; never
-   asserts delivery success.
+   Delivery is server-side (web spec §3.4, live). UI copy is **neutral — "Invitations created"** (council
+   MINOR): never asserts delivery success, which also stays honest while guest *email* is sandbox-blocked.
 
 One **Send** builds the tagged `invitees[]`; per-row results (e.g. "already invited" skips) surface in a
 summary line. Client fns mirror `apps/web/lib/api/events.ts` signatures (`useSendInvitations`,
-`useInviteeSuggestions`).
+`useInviteeSuggestions`). **Non-admin experience (council MINOR): copy web's shipped behavior exactly** —
+the plan must verify it in the web invite page code (what a non-admin can select and what gets sent),
+not re-derive it from the web spec's wording. All mutation buttons follow the existing
+disabled-while-`isPending` pattern (double-tap protection on flaky networks), and tests assert it.
 
 ### 5.2 Participant management (`OwnEventDetail`, extend)
 
-**Participants section** fed by `GET /:eventId/participants` (owning members + event-admins only; 403 for
-foreign participants): display name + role badge, REVOKED muted (history). **Event-admins only** get
-per-row **Revoke** (confirm via `Alert.alert`, matching the photo-delete pattern) and **role toggle**
-(participant ⇄ event-admin) via existing endpoints. Non-admin members see the list read-only. `canAdmin`
-is derived client-side **exactly the way the web invite page derives it** (family-admin membership role /
-event creator, from data the client already has) — the plan must copy web's derivation, not invent one;
-no new endpoint.
+**Participants section** fed by `GET /:eventId/participants` — **owning members ONLY** (the API 403s
+every cross-family participant, deliberately **including a cross-family EVENT_ADMIN**; see
+`events.ts` route comment — they use the foreign DTO's attendee list instead). This section therefore
+renders only inside `OwnEventDetail` for owning members. Display name + role badge, REVOKED muted
+(history). Admin-gated rows get **Revoke** (confirm via `Alert.alert`, matching the photo-delete
+pattern) and **role toggle** (participant ⇄ event-admin) via existing endpoints; non-admin members see
+the list read-only. Client-side admin gating (council round-2): use **family membership roles only** —
+`useMyFamilies` (`GET /persons/me/families`, returns `roles: string[]`) with the web invite page's exact
+predicate (`roles.some(r => r === "ADMIN" || r === "ORGANIZER")`, `invite/page.tsx:34`) — matching what
+web actually ships, **not** the server's broader `resolveEventAccess.canAdmin` (which also grants
+creator / event-admin). Client gating is cosmetic; the server stays authoritative either way. No new
+endpoint.
 
 ## 6. Isolation invariants (mobile obligations)
 
@@ -167,16 +185,22 @@ no new endpoint.
 
 - **API (vitest + supertest, PR 1):** `/participating` returns only ACTIVE cross-family grants (never
   own-family events, never REVOKED, respects `days` clamp); response body is allowlist-only; `myRsvp`
-  reflects the requester's RSVP and leaks nothing else.
+  reflects the requester's RSVP and leaks nothing else. **Multi-family membership case (council MAJOR):**
+  a requester in families A and B, holding a participant grant on an event owned by B, must NOT see that
+  event from `/participating` — it arrives via B's `calendar/upcoming`; the dedupe excludes ALL of the
+  requester's family memberships, not just the "current" family.
 - **Mobile hooks (jest):** `useParticipatingEvents` merge + error isolation; items mutations hit correct
   endpoints/methods (regression-locks the PUT→PATCH claim fix); invitation payload building (tagged
   kinds + role).
-- **Mobile screens (jest + @testing-library/react-native):** list badges foreign rows and survives one
-  query failing; detail branches on shape; foreign viewer shows no owner affordances and highlights
-  `myRsvp`; invite screen hides the role toggle for non-admins; participants section shows actions only
-  for admins; generic failure state renders on 403/404.
+- **Mobile screens (jest + @testing-library/react-native):** list badges foreign rows (assert accessible
+  text, not visual styling — council NIT) and survives one query failing; detail branches on shape;
+  foreign viewer shows no owner affordances and highlights `myRsvp`; failure state renders on 403/404
+  **including when cached data exists for the key** (stale-cache suppression); invite screen hides the
+  role toggle for non-admins; participants section shows actions only for admins; mutation buttons
+  disabled while pending.
 - **CI:** new `mobile` job — `lint` + `tsc --noEmit` + `jest` — added in **PR 1** (no coverage
-  threshold). Existing API/web jobs unchanged.
+  threshold). Existing API/web jobs unchanged. The job runs the **whole mobile jest suite**, so PR 2's
+  organizer tests are enforced by the same job with no further CI change (council MAJOR-5).
 - Per-task and final verification per agent rules: full API + web + mobile suites, repo-root
   `type-check`, repo-root `lint` (the eslint-only-error lesson).
 
@@ -199,6 +223,24 @@ no new endpoint.
 
 ## 10. Open items for Steve
 
-None — all brainstorm questions were resolved in session (§1). Pre-existing environment note: guest
-*email* delivery remains sandbox-blocked (`resend.dev`) until the domain decision; SMS delivery is live.
-This affects the invite screen's external-guest email path in production identically to web today.
+No design questions open — all brainstorm questions were resolved in session (§1). Pre-existing
+environment note (not a design item): guest *email* delivery remains sandbox-blocked (`resend.dev`)
+until the domain decision; SMS delivery is live. This affects the invite screen's external-guest email
+path in production identically to web today.
+
+## 11. Council review (Codex, 2026-07-06)
+
+Round 1: 1 BLOCKER, 5 MAJORs, 5 MINORs, 2 NITs. The BLOCKER (participants[] as a roster leak) was
+**downgraded with code evidence**: the shipped `toForeignInvitedEventDTO` contract is
+`Array<{ displayName, rsvpStatus }>` attendees-only with no `personId` — previously council-approved in
+W3a-API; the finding became a spec-clarity fix (§4.1 now restates the contract as non-widenable). All
+5 MAJORs folded in: discriminator wording fixed (was inverted), `canAdmin` source made concrete and
+verified to exist on mobile (`useMyFamilies.roles`), multi-family dedupe test added, stale-cache
+suppression on 403/404 required, CI whole-suite note for PR 2. MINORs adopted (myRsvp personId-scoped
+lookup, sort tie-breaker, non-admin UX copied from shipped web code, neutral "Invitations created" copy,
+disabled-while-pending + tests). NITs adopted (accessible-text badge assertions, §10 wording).
+
+Round 2: 0 BLOCKERs, 2 MAJORs (both §5.2 wording accuracy), 0 MINOR/NIT — **converged**. Both verified
+against code and fixed: (1) client `canAdmin` gating now = family roles only (what web actually ships),
+explicitly NOT the server's broader creator/event-admin predicate; (2) `/participants` correctly stated
+as owning-members-ONLY (403 even for cross-family EVENT_ADMIN, per the route's isolation comment).
