@@ -65,7 +65,7 @@ found the mobile client is not merely missing the feature — it is **broken and
 - Web adoption of `myRsvp` / `/participating` (endpoints are built for both, web UI adoption is a later
   slice).
 
-## 3. API changes (2, additive, no migrations)
+## 3. API changes (3, additive, no migrations)
 
 GitNexus impact (2026-07-06): `toForeignInvitedEventDTO` and `resolveEventAccess` upstream = **LOW**
 (consumed only by `routes/events.ts`). Web clients tolerate additive JSON fields.
@@ -91,6 +91,24 @@ requester's `personId` on this event** (council MINOR) — never by email/contac
 viewer's own data; isolation-safe. This also fixes web deferred-item #2 (foreign RSVP button can't
 reflect current status); web UI adoption is a later slice.
 
+### 3.3 `POST /api/v1/events/:eventId/items/:itemId/claim` (new — planning discovery 2026-07-06)
+
+**Spec correction:** the original §4.1 assumed claim = `PATCH /items/:itemId` with `assignedToPersonId`.
+Code inspection during planning found that is impossible: `PatchItemSchema` has no `assignedToPersonId`,
+and `authorizeItemMutation` restricts PATCH/DELETE to **admin-or-creator** — a member can never claim
+another member's item via PATCH. The web never implemented claiming at all; claiming existed only on
+mobile via the broken `PUT /potluck`. So claim gets its own small additive endpoint:
+
+- Gate: `resolveEventAccess.canContribute` (owning member OR active participant — foreign participants
+  may claim, consistent with W3a task contribution).
+- Only when `item.status === "UNCLAIMED"` → otherwise **409**.
+- Effect: `assignedToPersonId = requester.id`, `status = "CLAIMED"`.
+- Response: `foreignItemShape` for foreign participants, `serializeEventItem` for members (the existing
+  dual-shape pattern of the items routes).
+- No unclaim this cycle (YAGNI — mobile only ever had claim).
+
+§4.1's "claim = PATCH assign" is superseded by this endpoint; `useClaimItem` POSTs here.
+
 ## 4. Mobile participant slice (PR 1)
 
 ### 4.1 Client layer (`hooks/`)
@@ -104,9 +122,10 @@ reflect current status); web UI adoption is a later slice.
   `isForeignEvent(data) === !("event" in data)` — the **own-event** shape has the `event` wrapper;
   foreign is the flat shape (council round-1 caught the original wording inverting this).
 - **`useParticipatingEvents(days)`** → §3.1. The events list merges this with `useEvents` client-side.
-- **Items mutations:** `useAddItem` (POST `/items`), `usePatchItem` (PATCH `/items/:itemId`),
-  `useDeleteItem` (DELETE `/items/:itemId`). **Claim = `usePatchItem` with
-  `{ assignedToPersonId: me }`.** `useClaimItem` and the `/potluck` PUT are **deleted**.
+- **Items mutations:** `useAddItem` (POST `/items`), `useDeleteItem` (DELETE `/items/:itemId`), and
+  `useClaimItem` rewritten to **POST `/items/:itemId/claim`** (§3.3 — supersedes the original "PATCH
+  assign" wording, which code inspection proved impossible). The `/potluck` PUT client path is
+  **deleted**. No `usePatchItem` this cycle (nothing in the participant slice edits item fields — YAGNI).
 - Existing react-query invalidation pattern throughout (mutations invalidate `["event", eventId]` /
   `["events", ...]`).
 
