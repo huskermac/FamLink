@@ -280,6 +280,51 @@ eventsRouter.get("/participation/preview", async (req, res) => {
   });
 });
 
+// NaN fails z.number()'s type check and Infinity fails .int()
+// (Number.isInteger(Infinity) === false), so non-finite input 400s here;
+// the clamp below handles range.
+const ParticipatingQuerySchema = z.object({ days: z.coerce.number().int().optional() });
+
+eventsRouter.get("/participating", async (req, res) => {
+  const q = ParticipatingQuerySchema.safeParse(req.query);
+  if (!q.success) { res.status(400).json({ error: "Invalid query", details: q.error.flatten() }); return; }
+  const days = Math.min(90, Math.max(1, q.data.days ?? 30));
+  const requester = personed(req).person;
+  const now = new Date();
+  const windowEnd = new Date(now.getTime() + days * 86_400_000);
+
+  // Dedupe against ALL of the requester's family memberships (including
+  // suspended): membership events arrive via calendar/upcoming, and
+  // suspension must not open a side door through this route.
+  const memberships = await db.familyMember.findMany({
+    where: { personId: requester.id },
+    select: { familyGroupId: true }
+  });
+  const grants = await db.eventParticipant.findMany({
+    where: { personId: requester.id, status: "ACTIVE" },
+    select: { eventId: true }
+  });
+  const events = await db.event.findMany({
+    where: {
+      id: { in: grants.map((g) => g.eventId) },
+      familyGroupId: { notIn: memberships.map((m) => m.familyGroupId) },
+      startAt: { gte: now, lte: windowEnd }
+    },
+    orderBy: [{ startAt: "asc" }, { id: "asc" }]
+  });
+  res.json({
+    events: events.map((e) => ({
+      id: e.id,
+      title: e.title,
+      startAt: e.startAt.toISOString(),
+      endAt: e.endAt?.toISOString() ?? null,
+      locationName: e.locationName,
+      eventType: e.eventType
+    })),
+    generatedAt: new Date().toISOString()
+  });
+});
+
 eventsRouter.get("/:eventId", async (req, res) => {
   const p = eventIdParam.safeParse(req.params);
   if (!p.success) {
