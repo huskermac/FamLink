@@ -14,9 +14,13 @@ jest.mock("../../hooks/useEvents", () => ({
   useAddItem: jest.fn(() => ({ mutate: mockMutate, isPending: false })),
   useDeleteItem: jest.fn(() => ({ mutate: mockMutate, isPending: false })),
   useClaimItem: jest.fn(() => ({ mutate: mockMutate, isPending: false })),
+  useParticipants: jest.fn(() => ({ data: { participants: [] } })),
+  useRevokeParticipant: jest.fn(() => ({ mutate: jest.fn(), isPending: false })),
+  useSetParticipantRole: jest.fn(() => ({ mutate: jest.fn(), isPending: false })),
 }));
 jest.mock("../../hooks/useFamily", () => ({
   useMyPerson: jest.fn(() => ({ data: { id: "me1" } })),
+  useIsFamilyAdmin: jest.fn(() => false),
 }));
 jest.mock("../../hooks/usePhotos", () => ({
   useEventPhotos: jest.fn(() => ({ data: [] })),
