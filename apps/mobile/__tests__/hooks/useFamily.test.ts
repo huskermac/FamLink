@@ -2,7 +2,7 @@ import { renderHook, waitFor } from "@testing-library/react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import React from "react";
-import { useMembers, useMyFamilies, useMyPerson, usePerson, usePersonRelationships } from "../../hooks/useFamily";
+import { useMembers, useMyFamilies, useMyPerson, usePerson, usePersonRelationships, useIsFamilyAdmin } from "../../hooks/useFamily";
 
 jest.mock("../../lib/api", () => ({
   useApiFetch: jest.fn(),
@@ -80,5 +80,26 @@ describe("usePersonRelationships", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(mockFetch).toHaveBeenCalledWith("/api/v1/persons/p1/relationships");
     expect(result.current.data?.[0].type).toBe("SPOUSE");
+  });
+});
+
+describe("useIsFamilyAdmin", () => {
+  function mockFamilies(memberships: Array<{ id: string; roles: string[] }>) {
+    const mockFetch = jest.fn().mockResolvedValue({
+      memberships: memberships.map((m) => ({ familyGroup: { id: m.id, name: "F" }, roles: m.roles, joinedAt: "" })),
+    });
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+  }
+  it("true when the membership for the family has ADMIN or ORGANIZER", async () => {
+    mockFamilies([{ id: "famA", roles: ["ADMIN"] }]);
+    const { result } = renderHook(() => useIsFamilyAdmin("famA"), { wrapper });
+    await waitFor(() => expect(result.current).toBe(true));
+  });
+  it("false for a non-admin membership, and false for null family", async () => {
+    mockFamilies([{ id: "famA", roles: ["MEMBER"] }]);
+    const { result: r1 } = renderHook(() => useIsFamilyAdmin("famA"), { wrapper });
+    await waitFor(() => expect(r1.current).toBe(false));
+    const { result: r2 } = renderHook(() => useIsFamilyAdmin(null), { wrapper });
+    expect(r2.current).toBe(false);
   });
 });

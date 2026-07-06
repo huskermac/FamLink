@@ -2,7 +2,7 @@ import { renderHook, waitFor, act } from "@testing-library/react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import type { ReactNode } from "react";
-import { useEvents, useEvent, useRsvp, useClaimItem, useAddItem, useDeleteItem, useParticipatingEvents, isForeignEvent } from "../../hooks/useEvents";
+import { useEvents, useEvent, useRsvp, useClaimItem, useAddItem, useDeleteItem, useParticipatingEvents, isForeignEvent, useInviteeSuggestions, useSendInvitations, useParticipants, useRevokeParticipant, useSetParticipantRole } from "../../hooks/useEvents";
 import type { EventDetailResponse } from "../../hooks/useEvents";
 
 jest.mock("../../lib/api", () => ({ useApiFetch: jest.fn() }));
@@ -126,4 +126,56 @@ describe("isForeignEvent", () => {
   };
   it("detects the flat foreign shape", () => { expect(isForeignEvent(foreign)).toBe(true); });
   it("detects the wrapped own shape", () => { expect(isForeignEvent(own)).toBe(false); });
+});
+
+describe("organizer hooks", () => {
+  it("useInviteeSuggestions GETs the suggestions endpoint", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ suggestions: [] });
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useInviteeSuggestions("e1"), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/events/e1/invitee-suggestions");
+  });
+
+  it("useSendInvitations POSTs the tagged invitees array", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ invitations: [] });
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useSendInvitations("e1"), { wrapper });
+    const invitees = [{ kind: "person", personId: "p1" }, { kind: "famlinkUser", personId: "p2", role: "EVENT_ADMIN" }];
+    await act(async () => { result.current.mutate(invitees as never); });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/v1/events/e1/invitations",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ invitees }) })
+    );
+  });
+
+  it("useParticipants GETs the participants endpoint", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ participants: [] });
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useParticipants("e1"), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/events/e1/participants");
+  });
+
+  it("useRevokeParticipant POSTs the revoke endpoint", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ revoked: true });
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useRevokeParticipant("e1"), { wrapper });
+    await act(async () => { result.current.mutate("p9"); });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/v1/events/e1/participants/p9/revoke",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("useSetParticipantRole PUTs the role endpoint with the role body", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ updated: true });
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useSetParticipantRole("e1"), { wrapper });
+    await act(async () => { result.current.mutate({ personId: "p9", role: "EVENT_ADMIN" }); });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/v1/events/e1/participants/p9/role",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ role: "EVENT_ADMIN" }) })
+    );
+  });
 });
