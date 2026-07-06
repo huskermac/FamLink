@@ -51,7 +51,7 @@ export default function EventDetail(): ReactElement {
 
   function handleClaim(item: SerializedEventItem) {
     if (!myPersonId || claimMutation.isPending) return;
-    claimMutation.mutate({ itemId: item.id, personId: myPersonId, currentItems: eventItems });
+    claimMutation.mutate(item.id);
   }
 
   async function handleAddPhoto() {

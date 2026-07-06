@@ -139,27 +139,39 @@ export function useRsvp(eventId: string) {
   });
 }
 
+export function useAddItem(eventId: string) {
+  const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; quantity?: string }) =>
+      apiFetch<SerializedEventItem>(`/api/v1/events/${eventId}/items`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+    },
+  });
+}
+
+export function useDeleteItem(eventId: string) {
+  const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: string) =>
+      apiFetch(`/api/v1/events/${eventId}/items/${itemId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+    },
+  });
+}
+
 export function useClaimItem(eventId: string) {
   const apiFetch = useApiFetch();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      itemId,
-      personId,
-      currentItems,
-    }: {
-      itemId: string;
-      personId: string;
-      currentItems: SerializedEventItem[];
-    }) => {
-      const updated = currentItems.map((item) =>
-        item.id === itemId ? { ...item, assignedToPersonId: personId } : item
-      );
-      return apiFetch(`/api/v1/events/${eventId}/potluck`, {
-        method: "PUT",
-        body: JSON.stringify(updated),
-      });
-    },
+    mutationFn: (itemId: string) =>
+      apiFetch(`/api/v1/events/${eventId}/items/${itemId}/claim`, { method: "POST" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
     },

@@ -2,7 +2,7 @@ import { renderHook, waitFor, act } from "@testing-library/react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import type { ReactNode } from "react";
-import { useEvents, useEvent, useRsvp, useClaimItem, useParticipatingEvents, isForeignEvent } from "../../hooks/useEvents";
+import { useEvents, useEvent, useRsvp, useClaimItem, useAddItem, useDeleteItem, useParticipatingEvents, isForeignEvent } from "../../hooks/useEvents";
 import type { EventDetailResponse } from "../../hooks/useEvents";
 
 jest.mock("../../lib/api", () => ({ useApiFetch: jest.fn() }));
@@ -65,25 +65,37 @@ describe("useRsvp", () => {
   });
 });
 
-describe("useClaimItem", () => {
-  it("PUTs the full items list with updated assignedToPersonId", async () => {
-    const currentItems = [
-      { id: "i1", eventId: "e1", createdByPersonId: "p0", assignedToPersonId: null, name: "Salad", quantity: null, notes: null, isChecklistItem: false, status: "UNCLAIMED" as const, visibility: "ALL", createdAt: "", updatedAt: "" },
-      { id: "i2", eventId: "e1", createdByPersonId: "p0", assignedToPersonId: null, name: "Drinks", quantity: null, notes: null, isChecklistItem: false, status: "UNCLAIMED" as const, visibility: "ALL", createdAt: "", updatedAt: "" },
-    ];
-    const mockFetch = jest.fn().mockResolvedValue(currentItems);
+describe("items mutations", () => {
+  it("useAddItem POSTs /items with name and quantity", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ id: "i9", name: "Napkins" });
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useAddItem("e1"), { wrapper });
+    await act(async () => { result.current.mutate({ name: "Napkins", quantity: "2 packs" }); });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/v1/events/e1/items",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Napkins", quantity: "2 packs" }) })
+    );
+  });
+
+  it("useDeleteItem DELETEs /items/:itemId", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({});
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useDeleteItem("e1"), { wrapper });
+    await act(async () => { result.current.mutate("i1"); });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/v1/events/e1/items/i1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("useClaimItem POSTs /items/:itemId/claim (regression: never the potluck PUT)", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ id: "i1", status: "CLAIMED" });
     (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
     const { result } = renderHook(() => useClaimItem("e1"), { wrapper });
-    await act(async () => {
-      result.current.mutate({ itemId: "i1", personId: "p1", currentItems });
-    });
-    const expectedItems = [
-      { ...currentItems[0], assignedToPersonId: "p1" },
-      currentItems[1],
-    ];
+    await act(async () => { result.current.mutate("i1"); });
     expect(mockFetch).toHaveBeenCalledWith(
-      "/api/v1/events/e1/potluck",
-      expect.objectContaining({ method: "PUT", body: JSON.stringify(expectedItems) })
+      "/api/v1/events/e1/items/i1/claim",
+      expect.objectContaining({ method: "POST" })
     );
   });
 });
