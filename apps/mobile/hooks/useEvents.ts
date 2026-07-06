@@ -42,6 +42,67 @@ export interface EventDetail {
   eventItems: SerializedEventItem[];
 }
 
+export interface ForeignParticipantEntry {
+  displayName: string;
+  rsvpStatus: string | null;
+}
+
+export interface ForeignTask {
+  id: string;
+  name: string;
+  quantity: string | null;
+  notes: string | null;
+  status: "UNCLAIMED" | "CLAIMED" | "PROVIDED" | "CANCELLED";
+  isOwn: boolean;
+}
+
+/**
+ * Isolation-safe cross-family event shape (spec §4.1). participants[] is
+ * attendees-only { displayName, rsvpStatus } — NEVER widen with personId
+ * or family identifiers.
+ */
+export interface ForeignInvitedEventDTO {
+  id: string;
+  title: string;
+  description: string | null;
+  startAt: string;
+  endAt: string | null;
+  locationName: string | null;
+  locationAddress: string | null;
+  locationMapUrl: string | null;
+  eventType: string;
+  participants: ForeignParticipantEntry[];
+  tasks: ForeignTask[];
+  myRsvp: "YES" | "NO" | "MAYBE" | null;
+}
+
+export type EventDetailResponse = EventDetail | ForeignInvitedEventDTO;
+
+/** The own-event shape has the `event` wrapper; the foreign DTO is flat. */
+export function isForeignEvent(d: EventDetailResponse): d is ForeignInvitedEventDTO {
+  return !("event" in d);
+}
+
+export interface ParticipatingEventSummary {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt: string | null;
+  locationName: string | null;
+  eventType: string;
+}
+
+export function useParticipatingEvents(days = 30) {
+  const apiFetch = useApiFetch();
+  return useQuery({
+    queryKey: ["participating-events", days],
+    queryFn: () =>
+      apiFetch<{ events: ParticipatingEventSummary[]; generatedAt: string }>(
+        `/api/v1/events/participating?days=${days}`
+      ),
+  });
+}
+
 export function useEvents(familyId: string | null) {
   const apiFetch = useApiFetch();
   return useQuery({
@@ -58,7 +119,8 @@ export function useEvent(eventId: string) {
   const apiFetch = useApiFetch();
   return useQuery({
     queryKey: ["event", eventId],
-    queryFn: () => apiFetch<EventDetail>(`/api/v1/events/${eventId}`),
+    queryFn: () => apiFetch<EventDetailResponse>(`/api/v1/events/${eventId}`),
+    retry: false,
   });
 }
 
@@ -77,27 +139,39 @@ export function useRsvp(eventId: string) {
   });
 }
 
+export function useAddItem(eventId: string) {
+  const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; quantity?: string }) =>
+      apiFetch<SerializedEventItem>(`/api/v1/events/${eventId}/items`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+    },
+  });
+}
+
+export function useDeleteItem(eventId: string) {
+  const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: string) =>
+      apiFetch(`/api/v1/events/${eventId}/items/${itemId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+    },
+  });
+}
+
 export function useClaimItem(eventId: string) {
   const apiFetch = useApiFetch();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      itemId,
-      personId,
-      currentItems,
-    }: {
-      itemId: string;
-      personId: string;
-      currentItems: SerializedEventItem[];
-    }) => {
-      const updated = currentItems.map((item) =>
-        item.id === itemId ? { ...item, assignedToPersonId: personId } : item
-      );
-      return apiFetch(`/api/v1/events/${eventId}/potluck`, {
-        method: "PUT",
-        body: JSON.stringify(updated),
-      });
-    },
+    mutationFn: (itemId: string) =>
+      apiFetch(`/api/v1/events/${eventId}/items/${itemId}/claim`, { method: "POST" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
     },

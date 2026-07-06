@@ -2,7 +2,8 @@ import { renderHook, waitFor, act } from "@testing-library/react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import type { ReactNode } from "react";
-import { useEvents, useEvent, useRsvp, useClaimItem } from "../../hooks/useEvents";
+import { useEvents, useEvent, useRsvp, useClaimItem, useAddItem, useDeleteItem, useParticipatingEvents, isForeignEvent } from "../../hooks/useEvents";
+import type { EventDetailResponse } from "../../hooks/useEvents";
 
 jest.mock("../../lib/api", () => ({ useApiFetch: jest.fn() }));
 import { useApiFetch } from "../../lib/api";
@@ -64,25 +65,65 @@ describe("useRsvp", () => {
   });
 });
 
-describe("useClaimItem", () => {
-  it("PUTs the full items list with updated assignedToPersonId", async () => {
-    const currentItems = [
-      { id: "i1", eventId: "e1", createdByPersonId: "p0", assignedToPersonId: null, name: "Salad", quantity: null, notes: null, isChecklistItem: false, status: "UNCLAIMED" as const, visibility: "ALL", createdAt: "", updatedAt: "" },
-      { id: "i2", eventId: "e1", createdByPersonId: "p0", assignedToPersonId: null, name: "Drinks", quantity: null, notes: null, isChecklistItem: false, status: "UNCLAIMED" as const, visibility: "ALL", createdAt: "", updatedAt: "" },
-    ];
-    const mockFetch = jest.fn().mockResolvedValue(currentItems);
+describe("items mutations", () => {
+  it("useAddItem POSTs /items with name and quantity", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ id: "i9", name: "Napkins" });
     (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
-    const { result } = renderHook(() => useClaimItem("e1"), { wrapper });
-    await act(async () => {
-      result.current.mutate({ itemId: "i1", personId: "p1", currentItems });
-    });
-    const expectedItems = [
-      { ...currentItems[0], assignedToPersonId: "p1" },
-      currentItems[1],
-    ];
+    const { result } = renderHook(() => useAddItem("e1"), { wrapper });
+    await act(async () => { result.current.mutate({ name: "Napkins", quantity: "2 packs" }); });
     expect(mockFetch).toHaveBeenCalledWith(
-      "/api/v1/events/e1/potluck",
-      expect.objectContaining({ method: "PUT", body: JSON.stringify(expectedItems) })
+      "/api/v1/events/e1/items",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Napkins", quantity: "2 packs" }) })
     );
   });
+
+  it("useDeleteItem DELETEs /items/:itemId", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({});
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useDeleteItem("e1"), { wrapper });
+    await act(async () => { result.current.mutate("i1"); });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/v1/events/e1/items/i1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("useClaimItem POSTs /items/:itemId/claim (regression: never the potluck PUT)", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ id: "i1", status: "CLAIMED" });
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useClaimItem("e1"), { wrapper });
+    await act(async () => { result.current.mutate("i1"); });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/v1/events/e1/items/i1/claim",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+});
+
+describe("useParticipatingEvents", () => {
+  it("fetches /api/v1/events/participating with the days window", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({
+      events: [{ id: "f1", title: "Foreign BBQ", startAt: "2026-07-10T18:00:00.000Z", endAt: null, locationName: null, eventType: "GATHERING" }],
+      generatedAt: ""
+    });
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useParticipatingEvents(30), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/events/participating?days=30");
+    expect(result.current.data?.events[0].title).toBe("Foreign BBQ");
+  });
+});
+
+describe("isForeignEvent", () => {
+  const foreign: EventDetailResponse = {
+    id: "e1", title: "T", description: null, startAt: "", endAt: null,
+    locationName: null, locationAddress: null, locationMapUrl: null,
+    eventType: "GATHERING", participants: [], tasks: [], myRsvp: null
+  };
+  const own: EventDetailResponse = {
+    event: { ...mockEvent, familyGroupId: "fam1", createdByPersonId: "p0", description: null, locationAddress: null, locationMapUrl: null, visibility: "FAMILY", isRecurring: false, birthdayPersonId: null, createdAt: "", updatedAt: "" },
+    invitations: 0, rsvps: { YES: 0, NO: 0, MAYBE: 0, PENDING: 0 }, eventItems: []
+  };
+  it("detects the flat foreign shape", () => { expect(isForeignEvent(foreign)).toBe(true); });
+  it("detects the wrapped own shape", () => { expect(isForeignEvent(own)).toBe(false); });
 });

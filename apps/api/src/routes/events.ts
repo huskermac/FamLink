@@ -280,6 +280,51 @@ eventsRouter.get("/participation/preview", async (req, res) => {
   });
 });
 
+// NaN fails z.number()'s type check and Infinity fails .int()
+// (Number.isInteger(Infinity) === false), so non-finite input 400s here;
+// the clamp below handles range.
+const ParticipatingQuerySchema = z.object({ days: z.coerce.number().int().optional() });
+
+eventsRouter.get("/participating", async (req, res) => {
+  const q = ParticipatingQuerySchema.safeParse(req.query);
+  if (!q.success) { res.status(400).json({ error: "Invalid query", details: q.error.flatten() }); return; }
+  const days = Math.min(90, Math.max(1, q.data.days ?? 30));
+  const requester = personed(req).person;
+  const now = new Date();
+  const windowEnd = new Date(now.getTime() + days * 86_400_000);
+
+  // Dedupe against ALL of the requester's family memberships (including
+  // suspended): membership events arrive via calendar/upcoming, and
+  // suspension must not open a side door through this route.
+  const memberships = await db.familyMember.findMany({
+    where: { personId: requester.id },
+    select: { familyGroupId: true }
+  });
+  const grants = await db.eventParticipant.findMany({
+    where: { personId: requester.id, status: "ACTIVE" },
+    select: { eventId: true }
+  });
+  const events = await db.event.findMany({
+    where: {
+      id: { in: grants.map((g) => g.eventId) },
+      familyGroupId: { notIn: memberships.map((m) => m.familyGroupId) },
+      startAt: { gte: now, lte: windowEnd }
+    },
+    orderBy: [{ startAt: "asc" }, { id: "asc" }]
+  });
+  res.json({
+    events: events.map((e) => ({
+      id: e.id,
+      title: e.title,
+      startAt: e.startAt.toISOString(),
+      endAt: e.endAt?.toISOString() ?? null,
+      locationName: e.locationName,
+      eventType: e.eventType
+    })),
+    generatedAt: new Date().toISOString()
+  });
+});
+
 eventsRouter.get("/:eventId", async (req, res) => {
   const p = eventIdParam.safeParse(req.params);
   if (!p.success) {
@@ -392,7 +437,7 @@ eventsRouter.get("/:eventId", async (req, res) => {
         // Per-item visibility filtering for foreign participants is not implemented;
         // all event tasks are shared-surface in W3a.
         const foreignTasks = items.map((p) => foreignItemShape(p, requester.id));
-        res.json(toForeignInvitedEventDTO(event, participantList, foreignTasks));
+        res.json(toForeignInvitedEventDTO(event, participantList, foreignTasks, rsvpByPerson.get(requester.id) ?? null));
         return;
       }
     }
@@ -1100,6 +1145,29 @@ eventsRouter.delete("/:eventId/items/:itemId", async (req, res) => {
   if (r.error === "forbidden") { res.status(403).json({ error: "You can only delete your own contribution" }); return; }
   await db.eventItem.delete({ where: { id: req.params.itemId } });
   res.status(204).end();
+});
+
+eventsRouter.post("/:eventId/items/:itemId/claim", async (req, res) => {
+  const requester = personed(req).person;
+  const access = await resolveEventAccess(req.params.eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  if (!access.canContribute) { res.status(403).json({ error: "Not authorized to contribute to this event" }); return; }
+  // Atomic conditional claim: the status guard lives in the WHERE so two
+  // concurrent claims can't both win (count === 0 means missing OR already
+  // claimed — disambiguate after).
+  const claimed = await db.eventItem.updateMany({
+    where: { id: req.params.itemId, eventId: req.params.eventId, status: "UNCLAIMED" },
+    data: { assignedToPersonId: requester.id, status: "CLAIMED" }
+  });
+  if (claimed.count === 0) {
+    const exists = await db.eventItem.findFirst({ where: { id: req.params.itemId, eventId: req.params.eventId } });
+    if (!exists) { res.status(404).json({ error: "Item not found" }); return; }
+    res.status(409).json({ error: "Item already claimed" });
+    return;
+  }
+  const updated = await db.eventItem.findFirstOrThrow({ where: { id: req.params.itemId, eventId: req.params.eventId } });
+  const isForeign = !access.isOwningMember && access.eventRole !== null;
+  res.json(isForeign ? foreignItemShape(updated, requester.id) : serializeEventItem(updated));
 });
 
 eventsRouter.post("/:eventId/potluck", async (req, res) => {

@@ -1333,6 +1333,31 @@ describe("events routes (P1-08)", () => {
       expect(res.body.invitations).toBeDefined();
       expect(res.body.rsvps).toBeDefined();
     });
+
+    it("foreign DTO includes the requester's own RSVP as myRsvp (personId-scoped)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const participant = await seedSecondPerson();
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "MyRsvp Event" });
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: participant.id, role: "PARTICIPANT", status: "ACTIVE" }
+      });
+      // the admin's RSVP must NOT bleed into the participant's myRsvp
+      await db.rSVP.create({ data: { eventId: event.id, personId: admin.id, status: "NO" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const before = await request(app)
+        .get(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(before.status).toBe(200);
+      expect(before.body.myRsvp).toBeNull();
+
+      await db.rSVP.create({ data: { eventId: event.id, personId: participant.id, status: "YES" } });
+      const after = await request(app)
+        .get(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(after.body.myRsvp).toBe("YES");
+    });
   });
 
   // ── Socket.io emit integration (P2-04) ──────────────────────────────────
@@ -1502,6 +1527,171 @@ describe("events routes (P1-08)", () => {
       expect(mine.isOwn).toBe(true);
       expect(theirs.isOwn).toBe(false);
       expect(mine).not.toHaveProperty("createdByPersonId"); // still no person ids
+    });
+  });
+
+  // ── W3a-UI-mobile Task 1: POST /:eventId/items/:itemId/claim ─────────────
+  describe("POST /api/v1/events/:eventId/items/:itemId/claim", () => {
+    it("member claims an UNCLAIMED item: assigns self and sets CLAIMED", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+      const item = await db.eventItem.create({
+        data: { eventId: event.id, createdByPersonId: admin.id, name: "Salad" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/items/${item.id}/claim`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.assignedToPersonId).toBe(admin.id);
+      expect(res.body.status).toBe("CLAIMED");
+    });
+
+    it("cross-family ACTIVE participant claims: 200 with foreign shape (no person ids)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const participant = await seedSecondPerson();
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: participant.id, role: "PARTICIPANT", status: "ACTIVE" }
+      });
+      const item = await db.eventItem.create({
+        data: { eventId: event.id, createdByPersonId: admin.id, name: "Cups" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/items/${item.id}/claim`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("CLAIMED");
+      expect(res.body.isOwn).toBe(false);
+      // foreign shape must not leak person ids
+      expect(res.body.assignedToPersonId).toBeUndefined();
+      expect(res.body.createdByPersonId).toBeUndefined();
+      // but the DB row is really assigned to the participant
+      const updated = await db.eventItem.findUnique({ where: { id: item.id } });
+      expect(updated?.assignedToPersonId).toBe(participant.id);
+    });
+
+    it("409 when the item is not UNCLAIMED", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+      const item = await db.eventItem.create({
+        data: { eventId: event.id, createdByPersonId: admin.id, name: "Taken", status: "CLAIMED", assignedToPersonId: admin.id }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/events/${event.id}/items/${item.id}/claim`)
+        .set("Authorization", "Bearer mock");
+      expect(res.status).toBe(409);
+    });
+
+    it("403 for a non-member non-participant; 404 for a missing item", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const event = await seedTestEvent(familyGroup.id, admin.id);
+      const item = await db.eventItem.create({
+        data: { eventId: event.id, createdByPersonId: admin.id, name: "Nope" }
+      });
+      await seedSecondPerson(); // authenticated but unrelated
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const forbidden = await request(app)
+        .post(`/api/v1/events/${event.id}/items/${item.id}/claim`)
+        .set("Authorization", "Bearer mock");
+      // resolveEventAccess reports not_found for a non-viewable event (isolation)
+      expect([403, 404]).toContain(forbidden.status);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const missing = await request(app)
+        .post(`/api/v1/events/${event.id}/items/nonexistent/claim`)
+        .set("Authorization", "Bearer mock");
+      expect(missing.status).toBe(404);
+    });
+  });
+
+  // ── W3a-UI-mobile Task 3: GET /events/participating ──────────────────────
+  describe("GET /api/v1/events/participating", () => {
+    it("returns allowlisted summaries for ACTIVE cross-family grants only", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const me = await seedSecondPerson();
+      const activeEvent = await seedTestEvent(familyGroup.id, admin.id, { title: "Foreign Active" });
+      const revokedEvent = await seedTestEvent(familyGroup.id, admin.id, { title: "Foreign Revoked" });
+      await db.eventParticipant.create({
+        data: { eventId: activeEvent.id, personId: me.id, role: "PARTICIPANT", status: "ACTIVE" }
+      });
+      await db.eventParticipant.create({
+        data: { eventId: revokedEvent.id, personId: me.id, role: "PARTICIPANT", status: "REVOKED" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .get("/api/v1/events/participating")
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.events).toHaveLength(1);
+      const e = res.body.events[0];
+      expect(e.id).toBe(activeEvent.id);
+      expect(e.title).toBe("Foreign Active");
+      // allowlist only — nothing else
+      expect(Object.keys(e).sort()).toEqual(["endAt", "eventType", "id", "locationName", "startAt", "title"]);
+      // dates serialize as ISO strings, never raw Date objects
+      expect(typeof e.startAt).toBe("string");
+      expect(new Date(e.startAt).toISOString()).toBe(e.startAt);
+      expect(typeof res.body.generatedAt).toBe("string");
+    });
+
+    it("multi-family dedupe: excludes events in ANY of the requester's own families", async () => {
+      // me is a member of family B; an event in B where I also hold a grant must NOT appear
+      const admin = await seedTestPerson();
+      const { familyGroup: familyB } = await seedTestFamily(admin.id);
+      const me = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyB.id, personId: me.id, roles: [], permissions: [] }
+      });
+      const eventInB = await seedTestEvent(familyB.id, admin.id, { title: "Own-family event" });
+      await db.eventParticipant.create({
+        data: { eventId: eventInB.id, personId: me.id, role: "PARTICIPANT", status: "ACTIVE" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .get("/api/v1/events/participating")
+        .set("Authorization", "Bearer mock");
+      expect(res.status).toBe(200);
+      expect(res.body.events).toHaveLength(0);
+    });
+
+    it("respects the days window (clamped 1-90)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const me = await seedSecondPerson();
+      const soon = await seedTestEvent(familyGroup.id, admin.id, {
+        title: "Soon", startAt: new Date(Date.now() + 2 * 86_400_000)
+      });
+      const far = await seedTestEvent(familyGroup.id, admin.id, {
+        title: "Far", startAt: new Date(Date.now() + 60 * 86_400_000)
+      });
+      for (const ev of [soon, far]) {
+        await db.eventParticipant.create({
+          data: { eventId: ev.id, personId: me.id, role: "PARTICIPANT", status: "ACTIVE" }
+        });
+      }
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const res = await request(app)
+        .get("/api/v1/events/participating?days=7")
+        .set("Authorization", "Bearer mock");
+      expect(res.body.events.map((e: { title: string }) => e.title)).toEqual(["Soon"]);
     });
   });
 });

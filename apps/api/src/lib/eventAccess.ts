@@ -6,7 +6,8 @@ import { canViewEvent } from "./eventVisibility";
 export function toForeignInvitedEventDTO(
   event: Event,
   participants: Array<{ displayName: string; rsvpStatus: string | null }>,
-  tasks: Array<Record<string, unknown>>
+  tasks: Array<Record<string, unknown>>,
+  myRsvp: string | null
 ) {
   return {
     id: event.id,
@@ -19,7 +20,8 @@ export function toForeignInvitedEventDTO(
     locationMapUrl: event.locationMapUrl,
     eventType: event.eventType,
     participants,
-    tasks
+    tasks,
+    myRsvp
   };
 }
 

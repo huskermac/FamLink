@@ -4,6 +4,6 @@
     "jsx": "react-native",
     "types": ["node"]
   },
-  "include": ["app/**/*.ts", "app/**/*.tsx", "nativewind-env.d.ts"]
+  "include": ["app/**/*.ts", "app/**/*.tsx", "components/**/*.ts", "components/**/*.tsx", "hooks/**/*.ts", "lib/**/*.ts", "providers/**/*.tsx", "nativewind-env.d.ts"]
 }
 
