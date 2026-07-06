@@ -50,3 +50,6 @@ packages/db/apps/
 
 # Per-machine local Claude settings — local-only, never share
 .claude/settings.local.json
+
+# Hermes skill-manager cache (duplicate of deployed skills under .claude/.agents)
+.hermes/
