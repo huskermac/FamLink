@@ -51,6 +51,13 @@ export function useMyFamilies() {
   });
 }
 
+export function useIsFamilyAdmin(familyGroupId: string | null): boolean {
+  const families = useMyFamilies();
+  if (!familyGroupId) return false;
+  const membership = families.data?.memberships.find((m) => m.familyGroup.id === familyGroupId);
+  return (membership?.roles ?? []).some((r) => r === "ADMIN" || r === "ORGANIZER");
+}
+
 export function useMembers(familyId: string | null) {
   const apiFetch = useApiFetch();
   return useQuery({

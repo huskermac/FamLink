@@ -5,6 +5,7 @@ export default function EventsStack(): ReactNode {
     <Stack screenOptions={{ headerStyle: { backgroundColor: "#0f172a" }, headerTintColor: "#f8fafc", headerTitleStyle: { color: "#f8fafc" } }}>
       <Stack.Screen name="index" options={{ title: "Events" }} />
       <Stack.Screen name="[eventId]" options={{ title: "Event" }} />
+      <Stack.Screen name="invite/[eventId]" options={{ title: "Invite" }} />
     </Stack>
   );
 }

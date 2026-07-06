@@ -3,9 +3,10 @@ import {
   Image, FlatList, Alert
 } from "react-native";
 import { useState } from "react";
+import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import { useRsvp, useAddItem, useDeleteItem, useClaimItem } from "../../hooks/useEvents";
-import { useMyPerson } from "../../hooks/useFamily";
+import { useRsvp, useAddItem, useDeleteItem, useClaimItem, useParticipants, useRevokeParticipant, useSetParticipantRole } from "../../hooks/useEvents";
+import { useMyPerson, useIsFamilyAdmin } from "../../hooks/useFamily";
 import { useEventPhotos, useUploadEventPhoto, useDeletePhoto } from "../../hooks/usePhotos";
 import type { EventDetail, SerializedEventItem } from "../../hooks/useEvents";
 import type { ReactElement } from "react";
@@ -19,6 +20,7 @@ function formatDateTime(iso: string): string {
 
 export default function OwnEventDetail({ eventId, detail }: { eventId: string; detail: EventDetail }): ReactElement {
   const { event, rsvps, eventItems } = detail;
+  const router = useRouter();
   const myPersonQuery = useMyPerson();
   const myPersonId = myPersonQuery.data?.id ?? null;
   const rsvpMutation = useRsvp(eventId);
@@ -28,6 +30,10 @@ export default function OwnEventDetail({ eventId, detail }: { eventId: string; d
   const photosQuery = useEventPhotos(eventId);
   const uploadPhotoMutation = useUploadEventPhoto(eventId);
   const deletePhotoMutation = useDeletePhoto(eventId);
+  const participantsQuery = useParticipants(eventId);
+  const revokeMutation = useRevokeParticipant(eventId);
+  const setRoleMutation = useSetParticipantRole(eventId);
+  const canAdmin = useIsFamilyAdmin(detail.event.familyGroupId);
   const [newItemName, setNewItemName] = useState("");
 
   async function handleAddPhoto() {
@@ -74,6 +80,13 @@ export default function OwnEventDetail({ eventId, detail }: { eventId: string; d
       {event.description && (
         <Text className="text-slate-300 mb-6">{event.description}</Text>
       )}
+
+      <TouchableOpacity
+        onPress={() => router.push(`/(tabs)/events/invite/${eventId}`)}
+        style={{ alignSelf: "flex-start", backgroundColor: "#1e293b", borderColor: "#334155", borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 24 }}
+      >
+        <Text className="text-indigo-300 text-sm font-medium">+ Invite people</Text>
+      </TouchableOpacity>
 
       {/* RSVP */}
       <View className="mb-8">
@@ -155,6 +168,44 @@ export default function OwnEventDetail({ eventId, detail }: { eventId: string; d
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Participants */}
+      {(participantsQuery.data?.participants.length ?? 0) > 0 && (
+        <View className="mb-8">
+          <Text className="text-slate-400 text-xs uppercase tracking-wider mb-3">Participants</Text>
+          {participantsQuery.data!.participants.map((p) => {
+            const revoked = p.status === "REVOKED";
+            return (
+              <View key={p.personId} className="bg-slate-800 rounded-xl px-4 py-3 mb-2 flex-row items-center justify-between" style={{ opacity: revoked ? 0.5 : 1 }}>
+                <View className="flex-1 mr-3">
+                  <Text className="text-slate-50 font-medium">{p.displayName}</Text>
+                  <Text className="text-slate-500 text-xs">{p.role === "EVENT_ADMIN" ? "Event admin" : "Participant"}{revoked ? " · revoked" : ""}</Text>
+                </View>
+                {canAdmin && !revoked && (
+                  <View className="flex-row items-center">
+                    <TouchableOpacity
+                      onPress={() => setRoleMutation.mutate({ personId: p.personId, role: p.role === "EVENT_ADMIN" ? "PARTICIPANT" : "EVENT_ADMIN" })}
+                      disabled={setRoleMutation.isPending}
+                      style={{ marginRight: 12 }}
+                    >
+                      <Text className="text-indigo-300 text-sm">{p.role === "EVENT_ADMIN" ? "Make participant" : "Make admin"}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => Alert.alert("Revoke participant?", p.displayName, [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Revoke", style: "destructive", onPress: () => revokeMutation.mutate(p.personId) },
+                      ])}
+                      disabled={revokeMutation.isPending}
+                    >
+                      <Text className="text-red-400 text-sm">Revoke</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      )}
 
       {/* Photos */}
       <View>

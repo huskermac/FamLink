@@ -177,3 +177,74 @@ export function useClaimItem(eventId: string) {
     },
   });
 }
+
+export type InviteeEntry =
+  | { kind: "person"; personId: string }
+  | { kind: "famlinkUser"; personId: string; role?: "PARTICIPANT" | "EVENT_ADMIN" }
+  | { kind: "guest"; guestEmail?: string; guestPhone?: string; guestName?: string };
+
+export interface InviteeSuggestion {
+  person: { id: string; displayName: string; avatarUrl: string | null };
+  via: { personId: string; personName: string; relationshipType: string; relationshipState: string };
+  sharedChildren: { id: string; displayName: string }[];
+}
+
+export interface ParticipantRecord {
+  personId: string;
+  displayName: string;
+  role: "PARTICIPANT" | "EVENT_ADMIN";
+  status: "ACTIVE" | "REVOKED";
+}
+
+export function useInviteeSuggestions(eventId: string, opts?: { enabled?: boolean }) {
+  const apiFetch = useApiFetch();
+  return useQuery({
+    queryKey: ["invitee-suggestions", eventId],
+    queryFn: () => apiFetch<{ suggestions: InviteeSuggestion[] }>(`/api/v1/events/${eventId}/invitee-suggestions`),
+    enabled: opts?.enabled ?? true,
+  });
+}
+
+export function useSendInvitations(eventId: string) {
+  const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (invitees: InviteeEntry[]) =>
+      apiFetch(`/api/v1/events/${eventId}/invitations`, { method: "POST", body: JSON.stringify({ invitees }) }),
+    onSuccess: () => {
+      // Invited people drop off the suggestion list and (for members) may appear
+      // as participants — refresh both alongside the event.
+      void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+      void queryClient.invalidateQueries({ queryKey: ["invitee-suggestions", eventId] });
+      void queryClient.invalidateQueries({ queryKey: ["participants", eventId] });
+    },
+  });
+}
+
+export function useParticipants(eventId: string) {
+  const apiFetch = useApiFetch();
+  return useQuery({
+    queryKey: ["participants", eventId],
+    queryFn: () => apiFetch<{ participants: ParticipantRecord[] }>(`/api/v1/events/${eventId}/participants`),
+  });
+}
+
+export function useRevokeParticipant(eventId: string) {
+  const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (personId: string) =>
+      apiFetch(`/api/v1/events/${eventId}/participants/${personId}/revoke`, { method: "POST" }),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["participants", eventId] }); },
+  });
+}
+
+export function useSetParticipantRole(eventId: string) {
+  const apiFetch = useApiFetch();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ personId, role }: { personId: string; role: "PARTICIPANT" | "EVENT_ADMIN" }) =>
+      apiFetch(`/api/v1/events/${eventId}/participants/${personId}/role`, { method: "PUT", body: JSON.stringify({ role }) }),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["participants", eventId] }); },
+  });
+}
