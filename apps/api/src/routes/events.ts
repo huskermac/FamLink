@@ -1165,7 +1165,7 @@ eventsRouter.post("/:eventId/items/:itemId/claim", async (req, res) => {
     res.status(409).json({ error: "Item already claimed" });
     return;
   }
-  const updated = await db.eventItem.findFirstOrThrow({ where: { id: req.params.itemId } });
+  const updated = await db.eventItem.findFirstOrThrow({ where: { id: req.params.itemId, eventId: req.params.eventId } });
   const isForeign = !access.isOwningMember && access.eventRole !== null;
   res.json(isForeign ? foreignItemShape(updated, requester.id) : serializeEventItem(updated));
 });
