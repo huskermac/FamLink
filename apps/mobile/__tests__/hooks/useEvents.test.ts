@@ -2,7 +2,8 @@ import { renderHook, waitFor, act } from "@testing-library/react-native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import type { ReactNode } from "react";
-import { useEvents, useEvent, useRsvp, useClaimItem } from "../../hooks/useEvents";
+import { useEvents, useEvent, useRsvp, useClaimItem, useParticipatingEvents, isForeignEvent } from "../../hooks/useEvents";
+import type { EventDetailResponse } from "../../hooks/useEvents";
 
 jest.mock("../../lib/api", () => ({ useApiFetch: jest.fn() }));
 import { useApiFetch } from "../../lib/api";
@@ -85,4 +86,32 @@ describe("useClaimItem", () => {
       expect.objectContaining({ method: "PUT", body: JSON.stringify(expectedItems) })
     );
   });
+});
+
+describe("useParticipatingEvents", () => {
+  it("fetches /api/v1/events/participating with the days window", async () => {
+    const mockFetch = jest.fn().mockResolvedValue({
+      events: [{ id: "f1", title: "Foreign BBQ", startAt: "2026-07-10T18:00:00.000Z", endAt: null, locationName: null, eventType: "GATHERING" }],
+      generatedAt: ""
+    });
+    (useApiFetch as jest.Mock).mockReturnValue(mockFetch);
+    const { result } = renderHook(() => useParticipatingEvents(30), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockFetch).toHaveBeenCalledWith("/api/v1/events/participating?days=30");
+    expect(result.current.data?.events[0].title).toBe("Foreign BBQ");
+  });
+});
+
+describe("isForeignEvent", () => {
+  const foreign: EventDetailResponse = {
+    id: "e1", title: "T", description: null, startAt: "", endAt: null,
+    locationName: null, locationAddress: null, locationMapUrl: null,
+    eventType: "GATHERING", participants: [], tasks: [], myRsvp: null
+  };
+  const own: EventDetailResponse = {
+    event: { ...mockEvent, familyGroupId: "fam1", createdByPersonId: "p0", description: null, locationAddress: null, locationMapUrl: null, visibility: "FAMILY", isRecurring: false, birthdayPersonId: null, createdAt: "", updatedAt: "" },
+    invitations: 0, rsvps: { YES: 0, NO: 0, MAYBE: 0, PENDING: 0 }, eventItems: []
+  };
+  it("detects the flat foreign shape", () => { expect(isForeignEvent(foreign)).toBe(true); });
+  it("detects the wrapped own shape", () => { expect(isForeignEvent(own)).toBe(false); });
 });

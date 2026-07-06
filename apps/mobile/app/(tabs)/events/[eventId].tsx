@@ -7,7 +7,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useEvent, useRsvp, useClaimItem } from "../../../hooks/useEvents";
 import { useMyPerson } from "../../../hooks/useFamily";
 import { useEventPhotos, useUploadEventPhoto, useDeletePhoto } from "../../../hooks/usePhotos";
-import type { SerializedEventItem } from "../../../hooks/useEvents";
+import type { EventDetail, SerializedEventItem } from "../../../hooks/useEvents";
 import type { ReactElement } from "react";
 
 function formatDateTime(iso: string): string {
@@ -44,7 +44,10 @@ export default function EventDetail(): ReactElement {
     );
   }
 
-  const { event, rsvps, eventItems } = eventQuery.data;
+  // TODO(Task 7): eventQuery.data is EventDetail | ForeignInvitedEventDTO.
+  // This screen doesn't yet branch on isForeignEvent(); Task 7 reworks it
+  // to render the foreign shape. Cast here only to keep tsc green.
+  const { event, rsvps, eventItems } = eventQuery.data as EventDetail;
 
   function handleClaim(item: SerializedEventItem) {
     if (!myPersonId || claimMutation.isPending) return;
