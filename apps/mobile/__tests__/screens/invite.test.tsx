@@ -67,4 +67,16 @@ describe("InviteScreen", () => {
     expect(screen.queryByText("Make event admin")).toBeNull();
     (useIsFamilyAdmin as jest.Mock).mockReturnValue(true);
   });
+
+  it("guards a foreign/unmanageable event: shows unavailable + does not fetch suggestions", () => {
+    const { useEvent, useInviteeSuggestions } = require("../../hooks/useEvents");
+    // foreign DTO = flat shape, no `event` wrapper → isForeignEvent(detail) === true → familyGroupId null
+    (useEvent as jest.Mock).mockReturnValueOnce({
+      data: { id: "e1", title: "Foreign", description: null, startAt: "", endAt: null, locationName: null, locationAddress: null, locationMapUrl: null, eventType: "GATHERING", participants: [], tasks: [], myRsvp: null },
+      isLoading: false,
+    });
+    render(<InviteScreen />);
+    expect(screen.getByText("This event can’t be managed here.")).toBeTruthy();
+    expect(useInviteeSuggestions).toHaveBeenCalledWith("e1", { enabled: false });
+  });
 });
