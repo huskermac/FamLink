@@ -3,6 +3,7 @@ import {
   Image, FlatList, Alert
 } from "react-native";
 import { useState } from "react";
+import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { useRsvp, useAddItem, useDeleteItem, useClaimItem } from "../../hooks/useEvents";
 import { useMyPerson } from "../../hooks/useFamily";
@@ -19,6 +20,7 @@ function formatDateTime(iso: string): string {
 
 export default function OwnEventDetail({ eventId, detail }: { eventId: string; detail: EventDetail }): ReactElement {
   const { event, rsvps, eventItems } = detail;
+  const router = useRouter();
   const myPersonQuery = useMyPerson();
   const myPersonId = myPersonQuery.data?.id ?? null;
   const rsvpMutation = useRsvp(eventId);
@@ -74,6 +76,13 @@ export default function OwnEventDetail({ eventId, detail }: { eventId: string; d
       {event.description && (
         <Text className="text-slate-300 mb-6">{event.description}</Text>
       )}
+
+      <TouchableOpacity
+        onPress={() => router.push(`/(tabs)/events/invite/${eventId}`)}
+        style={{ alignSelf: "flex-start", backgroundColor: "#1e293b", borderColor: "#334155", borderWidth: 1, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 24 }}
+      >
+        <Text className="text-indigo-300 text-sm font-medium">+ Invite people</Text>
+      </TouchableOpacity>
 
       {/* RSVP */}
       <View className="mb-8">

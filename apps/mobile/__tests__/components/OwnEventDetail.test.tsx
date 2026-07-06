@@ -4,6 +4,7 @@ import OwnEventDetail from "../../components/events/OwnEventDetail";
 import type { EventDetail } from "../../hooks/useEvents";
 
 const mockMutate = jest.fn();
+jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn() }) }));
 jest.mock("@clerk/clerk-expo", () => ({
   useAuth: () => ({ getToken: jest.fn().mockResolvedValue("test-token") }),
 }));
