@@ -13,13 +13,61 @@
 - **Isolation invariants (spec §6):** foreign surfaces render ONLY `ForeignInvitedEventDTO` fields; discovery responses are allowlist-only (`id, title, startAt, endAt, locationName, eventType` — NO `familyGroupId`, family name, roster, or inviter); failure states are generic ("This event is no longer available"); the "Guest" badge never names a family.
 - **`participants[]` contract is non-widenable:** `Array<{ displayName: string; rsvpStatus: string | null }>` — no `personId`.
 - **Route ordering:** any literal path on `eventsRouter` (e.g. `/participating`) MUST be registered BEFORE the `/:eventId` route (line ~283 of `apps/api/src/routes/events.ts`), or Express captures the literal as an eventId. `/participation/preview` at line ~240 is the existing precedent.
-- **Verification per task:** run the commands shown; final task runs full API + web + mobile suites, repo-root `npm run type-check`, repo-root `npm run lint` (eslint errors fail CI — never skip lint).
+- **Verification per task (MANDATORY before every commit, in addition to the task's own test steps):** run `npm run lint --workspace=@famlink/api` for API tasks / `npm run lint --workspace=famlink-mobile` for mobile tasks (0 errors; pre-existing warnings OK) AND the workspace `type-check`. An eslint-only error once broke CI (PR #6) — never commit on tests alone. The final task additionally runs full API + web + mobile suites and repo-root `npm run type-check` + `npm run lint`.
 - **Commit format:** `feat: P3-03 <description>` / `fix:` / `chore:` / `ci:` as appropriate.
 - **Copy rules:** foreign failure state text is exactly "This event is no longer available"; the foreign badge text is exactly "Guest".
 - Windows dev machine: invoke test commands via `npm.cmd` if plain `npm` fails in your shell.
 - Do not modify `apps/web/**` in this PR.
+- **GitNexus (repo rule, applies to EVERY task):** before modifying an existing function/route, run `impact({target: "<symbolName>", direction: "upstream"})` and surface HIGH/CRITICAL to the user before proceeding; before each task's commit, run `detect_changes()` and confirm the affected scope matches the task's files.
 
 **Working state note:** commit after every task; the workspace must type-check at every commit.
+
+---
+
+### Task 0: Mobile toolchain coverage fix (tsconfig include + lint scope)
+
+Discovered at plan review: `apps/mobile/tsconfig.json` includes ONLY `app/**` and the lint script is `eslint app` — so `hooks/`, `lib/`, `providers/`, and the new `components/` were never type-checked or linted. Every later task's verification depends on this being fixed first.
+
+**Files:**
+- Modify: `apps/mobile/tsconfig.json`
+- Modify: `apps/mobile/package.json` (widen `lint`, add `type-check`)
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: meaningful `npm run type-check --workspace=famlink-mobile` and `npm run lint --workspace=famlink-mobile` used by every later task and Task 9's CI job.
+
+- [ ] **Step 1: Expand tsconfig include** — replace the `include` line in `apps/mobile/tsconfig.json` with:
+
+```json
+  "include": ["app/**/*.ts", "app/**/*.tsx", "components/**/*.ts", "components/**/*.tsx", "hooks/**/*.ts", "lib/**/*.ts", "providers/**/*.tsx", "nativewind-env.d.ts"]
+```
+
+(`__tests__/` deliberately stays out of `tsc` — jest-expo transpiles tests; adding them needs jest types wiring and is not this cycle's scope.)
+
+- [ ] **Step 2: Widen lint + add type-check script** — in `apps/mobile/package.json` `scripts`:
+
+```json
+    "lint": "eslint app components hooks lib providers",
+    "type-check": "tsc --noEmit",
+```
+
+(`components/` does not exist yet — if this eslint version errors on a missing directory, create it with a `.gitkeep`, or add `components` to the lint script in Task 7 instead; note which you did.)
+
+- [ ] **Step 3: Run both and fix what surfaces**
+
+Run: `npm run type-check --workspace=famlink-mobile` and `npm run lint --workspace=famlink-mobile`
+Expected: newly-covered `hooks/`, `lib/`, `providers/` may surface pre-existing errors since they were NEVER checked. Fix small mechanical ones (unused imports, missing types) in this task. If anything structural surfaces (wrong types that need design decisions), STOP and report rather than improvising.
+
+- [ ] **Step 4: Run the mobile test suite** — `npm test --workspace=famlink-mobile` → PASS (no behavior change).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/mobile/tsconfig.json apps/mobile/package.json
+git commit -m "fix: P3-03 mobile tsconfig/lint actually cover hooks, lib, providers, components"
+```
+
+(Include any surfaced-error fixes in the same commit.)
 
 ---
 
@@ -139,13 +187,20 @@ eventsRouter.post("/:eventId/items/:itemId/claim", async (req, res) => {
   const access = await resolveEventAccess(req.params.eventId, requester.id);
   if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
   if (!access.canContribute) { res.status(403).json({ error: "Not authorized to contribute to this event" }); return; }
-  const item = await db.eventItem.findFirst({ where: { id: req.params.itemId, eventId: req.params.eventId } });
-  if (!item) { res.status(404).json({ error: "Item not found" }); return; }
-  if (item.status !== "UNCLAIMED") { res.status(409).json({ error: "Item already claimed" }); return; }
-  const updated = await db.eventItem.update({
-    where: { id: item.id },
+  // Atomic conditional claim: the status guard lives in the WHERE so two
+  // concurrent claims can't both win (count === 0 means missing OR already
+  // claimed — disambiguate after).
+  const claimed = await db.eventItem.updateMany({
+    where: { id: req.params.itemId, eventId: req.params.eventId, status: "UNCLAIMED" },
     data: { assignedToPersonId: requester.id, status: "CLAIMED" }
   });
+  if (claimed.count === 0) {
+    const exists = await db.eventItem.findFirst({ where: { id: req.params.itemId, eventId: req.params.eventId } });
+    if (!exists) { res.status(404).json({ error: "Item not found" }); return; }
+    res.status(409).json({ error: "Item already claimed" });
+    return;
+  }
+  const updated = await db.eventItem.findFirstOrThrow({ where: { id: req.params.itemId } });
   const isForeign = !access.isOwningMember && access.eventRole !== null;
   res.json(isForeign ? foreignItemShape(updated, requester.id) : serializeEventItem(updated));
 });
@@ -300,6 +355,10 @@ describe("GET /api/v1/events/participating", () => {
     expect(e.title).toBe("Foreign Active");
     // allowlist only — nothing else
     expect(Object.keys(e).sort()).toEqual(["endAt", "eventType", "id", "locationName", "startAt", "title"]);
+    // dates serialize as ISO strings, never raw Date objects
+    expect(typeof e.startAt).toBe("string");
+    expect(new Date(e.startAt).toISOString()).toBe(e.startAt);
+    expect(typeof res.body.generatedAt).toBe("string");
   });
 
   it("multi-family dedupe: excludes events in ANY of the requester's own families", async () => {
@@ -356,6 +415,9 @@ Expected: FAIL — the literal path currently falls through to `/:eventId` and 4
 - [ ] **Step 3: Implement** — insert between the `/participation/preview` handler and `eventsRouter.get("/:eventId", ...)`:
 
 ```ts
+// NaN fails z.number()'s type check and Infinity fails .int()
+// (Number.isInteger(Infinity) === false), so non-finite input 400s here;
+// the clamp below handles range.
 const ParticipatingQuerySchema = z.object({ days: z.coerce.number().int().optional() });
 
 eventsRouter.get("/participating", async (req, res) => {
@@ -758,7 +820,11 @@ describe("EventsIndex discovery merge", () => {
 Run: `npm test --workspace=famlink-mobile -- __tests__/screens/events-index.test.tsx`
 Expected: FAIL — `useParticipatingEvents` not used by the screen / no "Guest" badge.
 
-- [ ] **Step 3: Implement** — rework `apps/mobile/app/(tabs)/events/index.tsx`:
+- [ ] **Step 3: Implement** — rework `apps/mobile/app/(tabs)/events/index.tsx`. The code below is a
+**complete, intentional replacement** of the whole file: it preserves every existing behavior (loading
+spinner, error state, empty state, birthday tag, separators, card navigation) and adds the merge +
+badge. Read the current file first and confirm it matches this structure before replacing; if it has
+drifted, port the additions instead of pasting blindly:
 
 ```tsx
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator } from "react-native";
@@ -959,7 +1025,16 @@ describe("OwnEventDetail items", () => {
 Run: `npm test --workspace=famlink-mobile -- __tests__/components/OwnEventDetail.test.tsx`
 Expected: FAIL — component doesn't exist.
 
-- [ ] **Step 3: Implement.** Create `apps/mobile/components/events/OwnEventDetail.tsx` by MOVING the body of today's `[eventId].tsx` into it with these changes (keep the photos section and RSVP row exactly as they are today):
+- [ ] **Step 3: Implement.** **FIRST read the current `apps/mobile/app/(tabs)/events/[eventId].tsx` in full** — this task MOVES its body. Create `apps/mobile/components/events/OwnEventDetail.tsx` by moving that body. Move checklist (tick each against the live file; all move VERBATIM except the items section):
+  - [ ] `formatDateTime` helper → moved unchanged
+  - [ ] Event header block (title / date / location / description JSX) → moved unchanged
+  - [ ] RSVP section (the `{/* RSVP */}` block incl. counts line) → moved unchanged
+  - [ ] `handleAddPhoto` function → moved unchanged
+  - [ ] Photos section (the `{/* Photos */}` block: add-photo button, grid, long-press delete) → moved unchanged
+  - [ ] Items section → REPLACED with the JSX given below (claim by id, Remove on own items, add form)
+  - [ ] Hook wiring at the top → per the skeleton below (props `{ eventId, detail }` instead of `useLocalSearchParams`/`useEvent`)
+
+Skeleton with the changed parts:
 
 ```tsx
 import {
@@ -1406,20 +1481,15 @@ Wire the route branch in `[eventId].tsx` — replace the Task 7 placeholder fore
 
 (add `import ForeignEventDetail from "../../../components/events/ForeignEventDetail";`)
 
-And add cache removal on authoritative error (in the route component, before the early returns):
-
-```tsx
-  const queryClient = useQueryClient();
-  const errMsg = eventQuery.error instanceof Error ? eventQuery.error.message : "";
-  const isGone = /^API (403|404)/.test(errMsg);
-  useEffect(() => {
-    if (eventQuery.isError && isGone) {
-      queryClient.removeQueries({ queryKey: ["event", eventId] });
-    }
-  }, [eventQuery.isError, isGone, eventId, queryClient]);
-```
-
-(imports: `useEffect` from `react`, `useQueryClient` from `@tanstack/react-query`; hooks must run before the conditional returns.)
+**Stale-cache suppression mechanism (council round-1 correction):** do NOT evict the query cache from
+inside the mounted route — `removeQueries` on an actively-observed query resets it to pending and
+refetches, and with a persistent 403 that becomes an error→evict→refetch loop. The authoritative
+mechanism is the **isError-first render** already in the route (Task 7): on any error the failure state
+renders and cached `data` is never read, plus `retry: false` (Task 4) prevents retry storms. A revoked
+participant can never see cached foreign data because every render path checks `isError` before `data`.
+No eviction code is added. (This supersedes the spec §4.2 "remove/invalidate the cached entry" wording —
+the render guard achieves the required outcome without the loop hazard; noted for the whole-branch
+review.)
 
 - [ ] **Step 4: Run tests**
 
@@ -1435,23 +1505,18 @@ git commit -m "feat: P3-03 mobile foreign event viewer with RSVP, tasks, stale-c
 
 ---
 
-### Task 9: CI — mobile job + mobile `type-check` script
+### Task 9: CI — mobile job
 
 **Files:**
-- Modify: `apps/mobile/package.json` (add `type-check` script)
 - Modify: `.github/workflows/ci.yml` (add `mobile` job; update the stale comment)
 
 **Interfaces:**
-- Consumes: nothing from other tasks (but must land after them so the suite it runs is green).
+- Consumes: Task 0's `lint`/`type-check` scripts (already in `apps/mobile/package.json`).
 - Produces: CI enforcement for the whole mobile suite — PR 2 inherits it with no further CI change.
 
-- [ ] **Step 1: Add the script** — in `apps/mobile/package.json` `scripts`, after `"lint"`:
+- [ ] **Step 1: Confirm the scripts exist** — `apps/mobile/package.json` must already contain `"type-check": "tsc --noEmit"` and the widened `"lint"` from Task 0. If not, STOP — Task 0 was skipped.
 
-```json
-    "type-check": "tsc --noEmit",
-```
-
-- [ ] **Step 2: Verify all three commands pass locally** (this is the "failing test" equivalent — if type-check fails on pre-existing errors, STOP and report; do not fix unrelated type errors silently)
+- [ ] **Step 2: Verify all three commands pass locally** (if any fail, STOP and report; earlier tasks left them green)
 
 Run from repo root:
 ```bash
@@ -1508,7 +1573,7 @@ Expected: parses cleanly.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/mobile/package.json .github/workflows/ci.yml
+git add .github/workflows/ci.yml
 git commit -m "ci: P3-03 run mobile lint/type-check/jest in CI"
 ```
 
@@ -1529,8 +1594,10 @@ git commit -m "ci: P3-03 run mobile lint/type-check/jest in CI"
 
 ---
 
-## Self-Review (completed at write time)
+## Self-Review (completed at write time; council round-1 fixes folded in)
 
-- **Spec coverage:** §3.1→Task 3, §3.2→Task 2, §3.3→Task 1, §4.1→Tasks 4–5, §4.2→Tasks 6–8, §6 invariants→embedded in Tasks 3/4/8 tests, §7 API/hooks/screens tests→Tasks 1–8, §7 CI→Task 9, verification→Task 10. PR 2 sections (§5) intentionally not covered here.
+- **Spec coverage:** §3.1→Task 3, §3.2→Task 2, §3.3→Task 1, §4.1→Tasks 4–5, §4.2→Tasks 6–8, §6 invariants→embedded in Tasks 3/4/8 tests, §7 API/hooks/screens tests→Tasks 1–8, §7 CI→Tasks 0+9, verification→Task 10. PR 2 sections (§5) intentionally not covered here.
+- **Council round 1 (Codex):** 4 BLOCKERs fixed (atomic conditional claim via `updateMany` status-guard; Task 0 added — mobile tsconfig/lint previously covered only `app/**`; GitNexus per-task impact/detect_changes in Global Constraints), 4 MAJORs addressed (removeQueries dropped for the isError-first render guard — eviction of an observed query refetch-loops; Task 6 replacement marked complete/intentional; Task 7 requires reading the live file first; stale-cache test locks the render guard, which IS the mechanism). MINORs: serialization assertions added; NaN/Infinity zod behavior documented; glyph copy kept deliberately (matches the existing own-event screen's "✓ Yes / ✗ No / ? Maybe").
+- **Council round 2 (Codex):** converged — round-1 fixes confirmed resolved; 1 process BLOCKER fixed (per-task lint+type-check now MANDATORY before every commit, in Global Constraints — the PR #6 eslint-only-CI-failure rule); 1 MINOR fixed (Task 7's verbatim-move instruction converted to an explicit move checklist). No design findings; review closed per the two-round convergence rule.
 - **Placeholder scan:** Task 7 Step 3 includes two comment-guided regions ("keep today's handleAddPhoto + photos rendering verbatim", "copy today's items map") — acceptable because the source content exists verbatim in the current `[eventId].tsx` the implementer is editing, and the full replacement items JSX is given.
 - **Type consistency:** `useClaimItem.mutate(itemId: string)` used identically in Tasks 5/7/8; `ForeignTask.isOwn` matches API `foreignItemShape`; `myRsvp` field name identical in Tasks 2/4/8; `useParticipatingEvents` response `{ events, generatedAt }` matches Task 3's route.

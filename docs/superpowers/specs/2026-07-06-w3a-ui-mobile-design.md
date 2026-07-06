@@ -147,10 +147,11 @@ mobile via the broken `PUT /potluck`. So claim gets its own small additive endpo
     RSVP + photos unchanged.
   - **Failure state:** 403/404 on a previously-visible foreign event → generic **"This event is no
     longer available"** (no family detail), replacing the bare "Event not found" for that path.
-    **Stale-cache suppression (council):** on a 403/404 the screen must render the failure state even
-    if react-query still holds previously-fetched data for that key — the error is authoritative;
-    remove/invalidate the cached entry so a revoked participant cannot keep reading a cached foreign
-    DTO.
+    **Stale-cache suppression (council; mechanism corrected at plan review):** on a 403/404 the screen
+    must render the failure state even if react-query still holds previously-fetched data for that key —
+    every render path checks `isError` BEFORE reading `data`, and `useEvent` sets `retry: false`. Do
+    NOT evict the actively-observed query (`removeQueries` on a mounted query refetch-loops against a
+    persistent 403); the render guard is the authoritative mechanism.
 
 ## 5. Mobile organizer slice (PR 2)
 
