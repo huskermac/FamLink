@@ -131,8 +131,6 @@ Alternatives if W3b isn't the priority: **W4** (Pro Organizer beta) or **W1** (H
 
 ## GitNexus Freshness
 
-Re-analyzed 2026-07-06 against merged `main` HEAD (`11b69a9`, i.e. W3a-UI-mobile PR 1 merge `d1abca7` + this checkpoint): **2,650 nodes / 4,216 edges / 102 clusters / 108 flows** — fresh, resumes against current graph.
-
-**Index-hygiene caveat:** the analyzer warns the flat/primary slot is labeled as owned by the long-deleted `p3-03-w3a-ui-web` branch, but `gitnexus clean --branch p3-03-w3a-ui-web` reports "no indexed branch named p3-03-w3a-ui-web" (phantom label that `clean` won't remove by that name). The indexed **content is current for `main`** regardless; if a default-slot query looks stale, pass `--branch main` explicitly. Worth a proper `gitnexus clean` + fresh full re-index when convenient.
+Re-analyzed 2026-07-06 against merged `main` HEAD (`7b59c18`, i.e. W3a-UI-mobile PR 2 merge `ac2f155` + this checkpoint): **2,679 nodes / 4,277 edges / 103 clusters / 109 flows** — fresh, resumes against current graph. The prior `p3-03-w3a-ui-web` phantom-slot warning **no longer appears** on analyze (resolved) — `main` is the primary slot again.
 
 Prior note — up-to-date after the 2026-06-29 CIF Plan A production checkpoint. `npx gitnexus analyze` ran after the checkpoint commits: 3,081-3,082 doc-sensitive nodes / 4,255 edges / 98-99 clusters / 89 flows. The one-node variance came from generated adapter metadata text only; execution-flow coverage is unchanged.
