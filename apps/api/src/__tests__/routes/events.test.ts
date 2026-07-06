@@ -1333,6 +1333,31 @@ describe("events routes (P1-08)", () => {
       expect(res.body.invitations).toBeDefined();
       expect(res.body.rsvps).toBeDefined();
     });
+
+    it("foreign DTO includes the requester's own RSVP as myRsvp (personId-scoped)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const participant = await seedSecondPerson();
+      const event = await seedTestEvent(familyGroup.id, admin.id, { title: "MyRsvp Event" });
+      await db.eventParticipant.create({
+        data: { eventId: event.id, personId: participant.id, role: "PARTICIPANT", status: "ACTIVE" }
+      });
+      // the admin's RSVP must NOT bleed into the participant's myRsvp
+      await db.rSVP.create({ data: { eventId: event.id, personId: admin.id, status: "NO" } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      const before = await request(app)
+        .get(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(before.status).toBe(200);
+      expect(before.body.myRsvp).toBeNull();
+
+      await db.rSVP.create({ data: { eventId: event.id, personId: participant.id, status: "YES" } });
+      const after = await request(app)
+        .get(`/api/v1/events/${event.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(after.body.myRsvp).toBe("YES");
+    });
   });
 
   // ── Socket.io emit integration (P2-04) ──────────────────────────────────

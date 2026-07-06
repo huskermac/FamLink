@@ -392,7 +392,7 @@ eventsRouter.get("/:eventId", async (req, res) => {
         // Per-item visibility filtering for foreign participants is not implemented;
         // all event tasks are shared-surface in W3a.
         const foreignTasks = items.map((p) => foreignItemShape(p, requester.id));
-        res.json(toForeignInvitedEventDTO(event, participantList, foreignTasks));
+        res.json(toForeignInvitedEventDTO(event, participantList, foreignTasks, rsvpByPerson.get(requester.id) ?? null));
         return;
       }
     }
