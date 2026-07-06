@@ -16,7 +16,7 @@
 - **Participants endpoint is owning-members-ONLY:** `GET /:eventId/participants` 403s every cross-family participant (even EVENT_ADMIN). The Participants section therefore lives only in `OwnEventDetail`. REVOKED rows shown muted (history). Revoke/role actions are admin-gated per the rule above.
 - **Isolation:** nothing here renders another family's identifiers; suggestions/participants show display names only. The invite screen is reachable only from `OwnEventDetail` (own events).
 - **Verification per task (MANDATORY before every commit):** `npm run type-check --workspace=famlink-mobile` (clean) AND `npm run lint --workspace=famlink-mobile` (0 errors; pre-existing warnings OK — lint now covers `components/`) AND the task's jest tests. An eslint-only error broke CI once (PR #6) — never commit on tests alone.
-- **GitNexus (repo rule):** this PR is mobile-only and touches no exported API symbol, so no `impact()` is required; still run `mcp__gitnexus__detect_changes` before each commit and confirm scope is confined to mobile files.
+- **GitNexus (repo rule):** before a task EDITS an existing symbol, run `mcp__gitnexus__impact({target: "<symbol>", direction: "upstream"})` and note the blast radius — specifically `OwnEventDetail` (edited in Tasks 2 and 3); surface HIGH/CRITICAL to the controller before proceeding. Adding new hooks/a new screen file creates symbols rather than editing them, so impact there is optional. Run `mcp__gitnexus__detect_changes` before each commit and confirm scope is confined to mobile files. (If the index still carries the phantom `p3-03-w3a-ui-web` primary-slot label, pass `--branch main`.)
 - Commit format `feat: P3-03 <description>`. Windows dev machine — use `npm.cmd` if `npm` fails. Do NOT modify the API or `apps/web/**`. Mobile already runs in CI (added in PR 1) — no CI change needed.
 
 **Reference — API contracts (already shipped, do not change):**
@@ -159,11 +159,12 @@ export interface ParticipantRecord {
   status: "ACTIVE" | "REVOKED";
 }
 
-export function useInviteeSuggestions(eventId: string) {
+export function useInviteeSuggestions(eventId: string, opts?: { enabled?: boolean }) {
   const apiFetch = useApiFetch();
   return useQuery({
     queryKey: ["invitee-suggestions", eventId],
     queryFn: () => apiFetch<{ suggestions: InviteeSuggestion[] }>(`/api/v1/events/${eventId}/invitee-suggestions`),
+    enabled: opts?.enabled ?? true,
   });
 }
 
@@ -173,7 +174,13 @@ export function useSendInvitations(eventId: string) {
   return useMutation({
     mutationFn: (invitees: InviteeEntry[]) =>
       apiFetch(`/api/v1/events/${eventId}/invitations`, { method: "POST", body: JSON.stringify({ invitees }) }),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["event", eventId] }); },
+    onSuccess: () => {
+      // Invited people drop off the suggestion list and (for members) may appear
+      // as participants — refresh both alongside the event.
+      void queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+      void queryClient.invalidateQueries({ queryKey: ["invitee-suggestions", eventId] });
+      void queryClient.invalidateQueries({ queryKey: ["participants", eventId] });
+    },
   });
 }
 
@@ -236,8 +243,8 @@ git commit -m "feat: P3-03 mobile organizer hooks (invite/suggestions/participan
 **Files:**
 - Create: `apps/mobile/app/(tabs)/events/invite/[eventId].tsx`
 - Modify: `apps/mobile/app/(tabs)/events/_layout.tsx` (register the invite screen)
-- Modify: `apps/mobile/components/events/OwnEventDetail.tsx` (add the Invite button)
-- Test: `apps/mobile/__tests__/screens/invite.test.tsx`
+- Modify: `apps/mobile/components/events/OwnEventDetail.tsx` (add the Invite button + `useRouter`)
+- Test: `apps/mobile/__tests__/screens/invite.test.tsx` (new); `apps/mobile/__tests__/components/OwnEventDetail.test.tsx` (add `expo-router` mock)
 
 **Interfaces:**
 - Consumes: Task 1's `useInviteeSuggestions`, `useSendInvitations`, `InviteeEntry`, `InviteeSuggestion`; `useMembers` (`useFamily.ts`, returns `{ members: { person: { id, firstName, lastName, preferredName }, roles }[] }`), `useEvent`, `isForeignEvent`, `useIsFamilyAdmin`.
@@ -288,11 +295,23 @@ describe("InviteScreen", () => {
     fireEvent.changeText(screen.getByPlaceholderText("Name"), "Guest Gary");
     fireEvent.changeText(screen.getByPlaceholderText("Email address"), "gary@example.com");
     fireEvent.press(screen.getByText("Send invitations"));
-    expect(mockSend).toHaveBeenCalledWith([
-      { kind: "person", personId: "m1" },
-      { kind: "famlinkUser", personId: "s1", role: "EVENT_ADMIN" },
-      { kind: "guest", guestName: "Guest Gary", guestEmail: "gary@example.com", guestPhone: undefined },
-    ]);
+    // mutate is called as mutate(invitees, { onSuccess }) — assert the array arg,
+    // tolerate the options object as the 2nd arg.
+    expect(mockSend).toHaveBeenCalledWith(
+      [
+        { kind: "person", personId: "m1" },
+        { kind: "famlinkUser", personId: "s1", role: "EVENT_ADMIN" },
+        { kind: "guest", guestName: "Guest Gary", guestEmail: "gary@example.com", guestPhone: undefined },
+      ],
+      expect.objectContaining({ onSuccess: expect.any(Function) })
+    );
+  });
+
+  it("shows the admin toggle only after a suggestion is selected", () => {
+    render(<InviteScreen />);
+    expect(screen.queryByText("Make event admin")).toBeNull(); // hidden before selection
+    fireEvent.press(screen.getByText("Dana Cross"));
+    expect(screen.getByText("Make event admin")).toBeTruthy(); // shown after selection (admin viewer)
   });
 
   it("hides the admin toggle for a non-admin viewer", () => {
@@ -329,7 +348,9 @@ export default function InviteScreen(): ReactElement {
   const familyGroupId = detail && !isForeignEvent(detail) ? detail.event.familyGroupId : null;
 
   const membersQuery = useMembers(familyGroupId);
-  const suggestionsQuery = useInviteeSuggestions(eventId);
+  // Only fetch suggestions for a manageable own-family event — a foreign/missing
+  // event (familyGroupId null) must not fire the request (council round-2).
+  const suggestionsQuery = useInviteeSuggestions(eventId, { enabled: !!familyGroupId });
   const canAdmin = useIsFamilyAdmin(familyGroupId);
   const sendMutation = useSendInvitations(eventId);
 
@@ -361,6 +382,16 @@ export default function InviteScreen(): ReactElement {
 
   if (eventQuery.isLoading) {
     return <View className="flex-1 bg-slate-950 items-center justify-center"><ActivityIndicator color="#6366f1" /></View>;
+  }
+  // Guard: inviting is only for an own-family event. A foreign/missing event yields
+  // familyGroupId === null — never render the invite form for it (the server would 403
+  // a famlinkUser invite anyway, but don't present the UI in the first place).
+  if (!familyGroupId) {
+    return (
+      <View className="flex-1 bg-slate-950 items-center justify-center px-6">
+        <Text className="text-slate-400 text-center">This event can’t be managed here.</Text>
+      </View>
+    );
   }
 
   const members = membersQuery.data?.members ?? [];
@@ -427,7 +458,7 @@ export default function InviteScreen(): ReactElement {
         <TextInput className="bg-slate-800 text-slate-50 rounded-xl px-4 py-3" placeholder="Phone (optional)" placeholderTextColor="#64748b" keyboardType="phone-pad" value={externalPhone} onChangeText={setExternalPhone} />
       </View>
 
-      {sendMutation.isSuccess && <Text className="text-green-400 text-sm mb-3">Invitations created.</Text>}
+      {sendMutation.isSuccess && <Text className="text-green-400 text-sm mb-3">Invitations created</Text>}
 
       <TouchableOpacity
         onPress={handleSend}
@@ -452,16 +483,30 @@ Add the **Invite button** to `apps/mobile/components/events/OwnEventDetail.tsx`.
       </TouchableOpacity>
 ```
 
+**Register the route** in `apps/mobile/app/(tabs)/events/_layout.tsx` — add this line inside `<Stack>` right after the `<Stack.Screen name="[eventId]" ... />` line:
+
+```tsx
+      <Stack.Screen name="invite/[eventId]" options={{ title: "Invite" }} />
+```
+
+**Fix the existing OwnEventDetail test** — `OwnEventDetail` now calls `useRouter()`, which will throw in `apps/mobile/__tests__/components/OwnEventDetail.test.tsx` if that file doesn't already mock `expo-router`. Read that test; if it lacks an `expo-router` mock, add one at the top:
+
+```tsx
+jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn() }) }));
+```
+
+(Task 3 adds the remaining `useParticipants`/`useIsFamilyAdmin` mocks to that same file; adding only the `expo-router` mock here keeps Task 2's suite green.)
+
 - [ ] **Step 4: Run tests + checks**
 
-Run: `npm test --workspace=famlink-mobile -- __tests__/screens/invite.test.tsx` → PASS (3).
+Run: `npm test --workspace=famlink-mobile -- __tests__/screens/invite.test.tsx` → PASS (4).
 Run: full mobile suite `npm test --workspace=famlink-mobile` → PASS.
 Run: `npm run type-check --workspace=famlink-mobile` + `npm run lint --workspace=famlink-mobile` → clean / 0 errors.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add "apps/mobile/app/(tabs)/events/invite/[eventId].tsx" "apps/mobile/app/(tabs)/events/_layout.tsx" apps/mobile/components/events/OwnEventDetail.tsx apps/mobile/__tests__/screens/invite.test.tsx
+git add "apps/mobile/app/(tabs)/events/invite/[eventId].tsx" "apps/mobile/app/(tabs)/events/_layout.tsx" apps/mobile/components/events/OwnEventDetail.tsx apps/mobile/__tests__/screens/invite.test.tsx apps/mobile/__tests__/components/OwnEventDetail.test.tsx
 git commit -m "feat: P3-03 mobile invite screen + Invite button on own-event detail"
 ```
 
@@ -482,8 +527,16 @@ git commit -m "feat: P3-03 mobile invite screen + Invite button on own-event det
 ```tsx
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react-native";
+import { Alert } from "react-native";
 import OwnEventDetail from "../../components/events/OwnEventDetail";
 import type { EventDetail } from "../../hooks/useEvents";
+
+// Revoke is behind a native confirm dialog. Auto-invoke the destructive button so
+// pressing "Revoke" exercises the mutation (mirrors PR-1's Alert-backed delete tests).
+jest.spyOn(Alert, "alert").mockImplementation((_t, _m, buttons) => {
+  const destructive = (buttons ?? []).find((b) => b.style === "destructive");
+  destructive?.onPress?.();
+});
 
 const mockRevoke = jest.fn();
 const mockSetRole = jest.fn();
@@ -526,10 +579,16 @@ describe("OwnEventDetail participants", () => {
     expect(screen.getByText("Revoked Two")).toBeTruthy();
   });
 
-  it("admin can revoke an active participant", () => {
+  it("admin can revoke an active participant (through the confirm dialog)", () => {
     render(<OwnEventDetail eventId="e1" detail={detail} />);
     fireEvent.press(screen.getByText("Revoke"));   // only the ACTIVE row has a Revoke action
     expect(mockRevoke).toHaveBeenCalledWith("p1");
+  });
+
+  it("admin can toggle an active participant's role", () => {
+    render(<OwnEventDetail eventId="e1" detail={detail} />);
+    fireEvent.press(screen.getByText("Make admin")); // p1 is PARTICIPANT → promote
+    expect(mockSetRole).toHaveBeenCalledWith({ personId: "p1", role: "EVENT_ADMIN" });
   });
 
   it("hides revoke/role actions for a non-admin viewer", () => {
@@ -543,7 +602,7 @@ describe("OwnEventDetail participants", () => {
 });
 ```
 
-Note: the existing `OwnEventDetail.test.tsx` mocks `useParticipants`/`useIsFamilyAdmin` implicitly via `jest.requireActual` — after Task 3, `OwnEventDetail` calls those hooks, so **update the existing `OwnEventDetail.test.tsx`** to add `useParticipants: jest.fn(() => ({ data: { participants: [] } }))` to its `useEvents` mock and `useIsFamilyAdmin: jest.fn(() => false)` to its `useFamily` mock, so the existing tests still render. Do this in Step 3.
+Note: after Task 3, `OwnEventDetail` calls `useParticipants`, `useRevokeParticipant`, `useSetParticipantRole`, and `useIsFamilyAdmin` unconditionally. The existing `OwnEventDetail.test.tsx` spreads the real `useEvents` module via `jest.requireActual`, so any hook it does NOT override runs for real (calling `useMutation`/`useApiFetch` with no provider → throws). **Update the existing `OwnEventDetail.test.tsx`** in Step 3 to add ALL of these to its mocks: `useParticipants: jest.fn(() => ({ data: { participants: [] } }))`, `useRevokeParticipant: jest.fn(() => ({ mutate: jest.fn(), isPending: false }))`, `useSetParticipantRole: jest.fn(() => ({ mutate: jest.fn(), isPending: false }))` (in the `useEvents` mock) and `useIsFamilyAdmin: jest.fn(() => false)` (in the `useFamily` mock). Empty participants + non-admin means the section renders nothing, so its existing cases are unaffected.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -603,7 +662,7 @@ Render a Participants section (place it after the items section, before Photos):
       )}
 ```
 
-Then update the existing `apps/mobile/__tests__/components/OwnEventDetail.test.tsx` per the Step-1 note (add `useParticipants` + `useIsFamilyAdmin` to its mocks) so its existing cases keep rendering.
+Then update the existing `apps/mobile/__tests__/components/OwnEventDetail.test.tsx` per the Step-1 note (add `useParticipants`, `useRevokeParticipant`, `useSetParticipantRole` to its `useEvents` mock and `useIsFamilyAdmin` to its `useFamily` mock) so its existing cases keep rendering. (The `expo-router` mock was already added in Task 2.)
 
 - [ ] **Step 4: Run tests + checks**
 
@@ -640,4 +699,10 @@ git commit -m "feat: P3-03 mobile participant management (list + admin revoke/ro
 - **Spec coverage (§5):** §5.1 invite screen (members → Task 2; suggestions + admin-gated role toggle → Task 2; external guest + neutral "Invitations created" copy → Task 2; `useSendInvitations` tagged array → Task 1) ; §5.2 participant management (list incl. REVOKED muted → Task 3; admin revoke/role → Task 3; owning-member-only endpoint → Task 3 renders only in `OwnEventDetail`; `canAdmin` = family roles via `useIsFamilyAdmin` → Task 1). §6 isolation carried (display names only; invite reachable only from own-event detail). §7 CI already covers mobile (PR 1) — no change.
 - **Placeholder scan:** no TBD/TODO; every code step has complete code; the two OwnEventDetail edits (Invite button in Task 2, Participants section in Task 3) are separated by task and both show full JSX.
 - **Type consistency:** `InviteeEntry`/`InviteeSuggestion`/`ParticipantRecord` defined in Task 1 and consumed with identical shapes in Tasks 2–3; `useIsFamilyAdmin(familyGroupId)` signature identical across Task 1 definition and Task 2/3 use; hook names (`useSendInvitations`, `useParticipants`, `useRevokeParticipant`, `useSetParticipantRole`, `useInviteeSuggestions`) identical throughout; the mutation arg shapes in tests match the implementations (`mutate(personId)`, `mutate({personId, role})`, `mutate(invitees)`).
-- **Known cross-task edit:** `OwnEventDetail` is modified in both Task 2 (Invite button + `useRouter`) and Task 3 (Participants section + participant hooks). Task 3 also updates the existing `OwnEventDetail.test.tsx` mocks so its cases keep rendering once the component calls the new hooks — called out explicitly in Task 3 Steps 1 & 3.
+- **Known cross-task edit:** `OwnEventDetail` is modified in both Task 2 (Invite button + `useRouter`) and Task 3 (Participants section + participant hooks). Both tasks update the existing `OwnEventDetail.test.tsx` mocks so its cases keep rendering: Task 2 adds the `expo-router` mock, Task 3 adds the `useParticipants`/`useIsFamilyAdmin` mocks — called out explicitly in each.
+
+## Council review (Codex, 2026-07-06)
+
+Round 1: 2 BLOCKERs, 7 MAJORs, MINORs/NITs. Fixed: (BLOCKER) GitNexus rule — Global Constraints now require `impact()` on `OwnEventDetail` before its edits, not an exception; (BLOCKER) Task-3 revoke test — the revoke is behind `Alert.alert`, so the test now mocks `Alert.alert` to auto-invoke the destructive callback (mirrors PR-1's delete tests); (MAJOR) `_layout.tsx` Stack.Screen registration made an explicit Task-2 step; (MAJOR) invite screen now guards `familyGroupId === null` (foreign/missing event → "can't be managed here"); (MAJOR) invite test asserts `mutate(invitees, {onSuccess})` with the options arg; (MAJOR) Task 2 adds the `expo-router` mock to the existing `OwnEventDetail.test.tsx`; (MAJOR) `useSendInvitations` now also invalidates `invitee-suggestions` + `participants`; (MINOR) added toggle-appears-only-after-selection and role-toggle tests. Adjudicated as not-a-defect: `useMembers(null)` is supported (`enabled: familyId !== null`, verified); the `mutate`-in-`act` test pattern is the established repo pattern (PR-1's suites pass with it); the non-admin `famlinkUser` → 403 behavior is intentional **web parity** (spec §5.1 "copy web's shipped behavior") — pre-existing, not introduced here; non-ASCII `·`/`…` match existing mobile files' charset.
+
+Round 2: 0 BLOCKERs, 2 MAJORs — **converged**. Both fixed: (1) the existing `OwnEventDetail.test.tsx` must mock ALL four participant hooks (`useParticipants`/`useRevokeParticipant`/`useSetParticipantRole`/`useIsFamilyAdmin`), else `jest.requireActual` runs the real mutation hooks with no provider — Task 3 note expanded; (2) `useInviteeSuggestions` now takes an `enabled` option and the invite screen gates it on `!!familyGroupId`, so a foreign/missing event never fires the suggestions request (guard was render-only before). Plus a cosmetic test-count fix (invite suite is 4, not 3). Findings strictly downgraded round-1→round-2, so the review is closed per the two-round convergence rule.
