@@ -126,6 +126,8 @@ Earlier 2026-06-24/25 stream:
 
 ## GitNexus Freshness
 
-Re-analyzed at the end of the 2026-06-30 W3a-UI-web session (branch `p3-03-w3a-ui-web` HEAD `07510ae`) so the next session resumes against a fresh graph.
+Re-analyzed 2026-07-06 against merged `main` HEAD (`11b69a9`, i.e. W3a-UI-mobile PR 1 merge `d1abca7` + this checkpoint): **2,650 nodes / 4,216 edges / 102 clusters / 108 flows** — fresh, resumes against current graph.
+
+**Index-hygiene caveat:** the analyzer warns the flat/primary slot is labeled as owned by the long-deleted `p3-03-w3a-ui-web` branch, but `gitnexus clean --branch p3-03-w3a-ui-web` reports "no indexed branch named p3-03-w3a-ui-web" (phantom label that `clean` won't remove by that name). The indexed **content is current for `main`** regardless; if a default-slot query looks stale, pass `--branch main` explicitly. Worth a proper `gitnexus clean` + fresh full re-index when convenient.
 
 Prior note — up-to-date after the 2026-06-29 CIF Plan A production checkpoint. `npx gitnexus analyze` ran after the checkpoint commits: 3,081-3,082 doc-sensitive nodes / 4,255 edges / 98-99 clusters / 89 flows. The one-node variance came from generated adapter metadata text only; execution-flow coverage is unchanged.
