@@ -8,7 +8,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "eslint app hooks lib providers",
+    "lint": "eslint app components hooks lib providers",
     "type-check": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
