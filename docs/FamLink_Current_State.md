@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Last updated | 2026-07-02 |
+| Last updated | 2026-07-06 |
 | Branch | `main` (docs-only checkpoint on top of `17d6b54`). |
 | Checkpoint | **PRODUCTION BILLING IS LIVE (2026-07-02):** Stripe account activated, live products/prices, `rk_live_` restricted key, live webhook endpoint, prod `PricingTier` on live monthly prices, smoke-tested with a real checkout (BASE/TRIALING, webhook 200s). Also: R2 token now bucket-scoped (old revoked), `NODE_ENV=production` in prod. See 2026-07-02 entry below + `docs/FamLink_Secrets_Runbook.md` audit log. **Next: W3a-UI-mobile.** |
 | Local verification | PASS: full API suite **415/415**, full web suite **169/169** (coverage gate green at **87.29%** lines, threshold 80), repo-root `type-check` clean, `lint` 0 errors (34 pre-existing warnings), `git diff --check` clean. `turbo test --filter=@famlink/api --filter=famlink-web -- --coverage` → 4/4 tasks successful |
@@ -35,6 +35,8 @@
 7. **W1** - Household to Family M2M reframe (migration-heavy).
 
 ## Work Completed Since Last Shared-State Update
+
+2026-07-06 **Railway Agent chat exposure — all six secrets rotated (ops, no app code changes).** Closed the 2026-07-02 exposure (full April `.env` paste in Railway's AI-agent chat). Rotated + verified, old values confirmed dead: `RESEND_API_KEY` (two new keys prod/dev, old deleted), `TWILIO_AUTH_TOKEN` (secondary-token promotion, old primary deleted), `CLERK_SECRET_KEY` (Clerk "+ Add new key" on the dev instance; updated Infisical/Railway/**Vercel**/local; old deleted — zero-downtime), `CLERK_WEBHOOK_SECRET` (new webhook endpoint for a fresh `whsec_`, old endpoint deleted), `GUEST_TOKEN_SECRET` (app-generated 64-char, invalidated 1 outstanding test RSVP link only), `FIREBASE_PRIVATE_KEY` (new service-account key dated today, old April key deleted). All validated status-only (no secret values in transcript): Resend/Twilio/Clerk-secret → 200, Firebase → real Google OAuth token issued, Clerk webhook route → 400 on bad sig, prod health + Vercel web → 200. Audit log: `docs/FamLink_Secrets_Runbook.md`. **Residual pending Steve:** delete the Railway agent conversation; optional Clerk end-to-end confirms (web login + webhook test event). Also this session: committed the untracked Stripe skills + `skills-lock.json` and gitignored `.hermes/` (commit `c9a0a56`).
 
 2026-07-02 **Key-hygiene + Stripe live cutover session (ops, no code changes):**
 - **Cloudflare R2 token rotated to bucket-scoped** (`famlink-photos-scoped-2026-07`, Object R/W on `famlink-photos` only). Set in Infisical `dev`+`prod` via clipboard flow (values never in transcript), Railway prod updated, verified with a real S3 put/get/list/delete round-trip, old April token revoked. Local `.env` still holds the dead old values — clean up eventually (only `npm run dev:infisical` matters).
@@ -102,7 +104,7 @@ Earlier 2026-06-24/25 stream:
 
 1. W3a-UI-web spec section 8 UI choices defaulted (per-suggestion admin toggle; elevation notice copy; decline UX). Confirm or change later; no hard blocker.
 2. ~~Prod Stripe is in test mode~~ — **DONE 2026-07-02, production billing live** (see Work Completed).
-3. **Railway Agent chat secret exposure (found 2026-07-02):** the Railway project's AI-agent chat history contains a full April 2026 `.env` paste. Presumed-live exposed values: `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET`, `GUEST_TOKEN_SECRET`, `RESEND_API_KEY`, `TWILIO_AUTH_TOKEN`, `FIREBASE_PRIVATE_KEY` (the old Postgres password in the same paste is already dead). **Steve to decide: rotate all six (recommended, runbook procedure) + delete the Railway agent conversation if the UI allows.**
+3. ~~**Railway Agent chat secret exposure (found 2026-07-02)**~~ — **RESOLVED 2026-07-06:** all six exposed secrets rotated + verified, old values confirmed dead (see `docs/FamLink_Secrets_Runbook.md` audit log). **Residual pending Steve:** delete the Railway agent conversation itself so the stale paste is gone. Also two optional end-to-end confirmations for the Clerk rotation: a real web login (Vercel new secret key) and a Clerk webhook test event (new signing secret).
 4. **Prod auth is on a Clerk TEST instance** (`pk_test_`/`sk_test_`, `moral-marlin-29.clerk.accounts.dev`). Moving to a Clerk production instance requires a real domain.
 5. **Guest email delivery blocked on domain:** `RESEND_FROM_DOMAIN=resend.dev` (sandbox — only delivers to the account owner). Needs a real domain verified in Resend; ties into the parked naming decision (same blocker as the Clerk prod instance). SMS delivery is already fully configured.
 
