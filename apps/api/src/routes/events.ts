@@ -1102,6 +1102,29 @@ eventsRouter.delete("/:eventId/items/:itemId", async (req, res) => {
   res.status(204).end();
 });
 
+eventsRouter.post("/:eventId/items/:itemId/claim", async (req, res) => {
+  const requester = personed(req).person;
+  const access = await resolveEventAccess(req.params.eventId, requester.id);
+  if ("error" in access) { res.status(404).json({ error: "Event not found" }); return; }
+  if (!access.canContribute) { res.status(403).json({ error: "Not authorized to contribute to this event" }); return; }
+  // Atomic conditional claim: the status guard lives in the WHERE so two
+  // concurrent claims can't both win (count === 0 means missing OR already
+  // claimed — disambiguate after).
+  const claimed = await db.eventItem.updateMany({
+    where: { id: req.params.itemId, eventId: req.params.eventId, status: "UNCLAIMED" },
+    data: { assignedToPersonId: requester.id, status: "CLAIMED" }
+  });
+  if (claimed.count === 0) {
+    const exists = await db.eventItem.findFirst({ where: { id: req.params.itemId, eventId: req.params.eventId } });
+    if (!exists) { res.status(404).json({ error: "Item not found" }); return; }
+    res.status(409).json({ error: "Item already claimed" });
+    return;
+  }
+  const updated = await db.eventItem.findFirstOrThrow({ where: { id: req.params.itemId } });
+  const isForeign = !access.isOwningMember && access.eventRole !== null;
+  res.json(isForeign ? foreignItemShape(updated, requester.id) : serializeEventItem(updated));
+});
+
 eventsRouter.post("/:eventId/potluck", async (req, res) => {
   const p = eventIdParam.safeParse(req.params);
   if (!p.success) {
