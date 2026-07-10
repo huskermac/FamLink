@@ -81,8 +81,8 @@ model SmsConsent {
 
 ## 4. Inbound webhook
 
-`POST /webhooks/twilio/sms` — third webhook alongside Clerk (`routes/webhooks.ts`) and Stripe
-(`routes/billing.ts`). Twilio posts `application/x-www-form-urlencoded` with `From`, `To`, `Body`,
+`POST /api/v1/webhooks/twilio/sms` (full path per repo convention — Clerk is `/api/v1/webhooks/clerk`) —
+third webhook alongside Clerk (`routes/webhooks.ts`) and Stripe (`routes/billing.ts`). Twilio posts `application/x-www-form-urlencoded` with `From`, `To`, `Body`,
 `MessageSid`.
 
 - **Signature verification first.** `X-Twilio-Signature` is HMAC-SHA1 over the exact public URL + sorted
@@ -105,7 +105,7 @@ model SmsConsent {
 |---|---|---|
 | STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT | `optedOutAt = now()`; all PENDING `EventInvitation`s linked (via `linkedPersonId`) to Persons with this `phoneNormalized` → `status = DECLINED` | **None** — Twilio's built-in opt-out handling auto-confirms; ours would double-text |
 | START, UNSTOP | Clear `optedOutAt`, set `optedInAt` | Short re-subscribe confirmation |
-| HELP | none | Help text: what FamLink is + "Reply Y to RSVP, N to decline, STOP to opt out" |
+| HELP | none | Help text: what FamLink is + "Reply Y to RSVP, N to decline, STOP to opt out" — **always replies, even while suppressed** (CTIA requires HELP to keep working after STOP) |
 | Y, YES | RSVP flow (§6); if suppressed, also clears suppression (mirrors Twilio, which treats YES as re-opt-in) | Confirmation incl. event title, or "This event has ended" |
 | N, NO | Decline flow (§6) | Confirmation |
 | anything else | none | Guidance reply **only if** the number has a PENDING invitation; otherwise silent (no auto-responding to strangers/wrong numbers) |
@@ -115,10 +115,16 @@ STOP from an unknown number is still recorded — it must be honored if that num
 ## 6. Y/N resolution + phone verification
 
 Resolution chain (existing plumbing only): `From` (E.164) → Person(s) by `phoneNormalized` (several
-possible — uniqueness is verified-only) → PENDING `EventInvitation`s by `linkedPersonId` → **most
-recently sent** (`sentAt` desc, fallback `createdAt`) — the message being replied to. `linkedPersonId`
-is always set on guest invitations since CIF Plan A (PR #4); pre-CIF rows without it are out of scope
-(prod predates none that matter — 12 persons, checked 2026-06-25).
+possible — uniqueness is verified-only) → `EventInvitation`s by `linkedPersonId` → **most recently sent**
+(`sentAt` desc, fallback `createdAt`) — the message being replied to. `linkedPersonId` is always set on
+guest invitations since CIF Plan A (PR #4); pre-CIF rows without it are out of scope (prod predates none
+that matter — 12 persons, checked 2026-06-25).
+
+**Amendment (2026-07-10, council round 1):** resolution is over the most recent invitation **regardless
+of status**, not PENDING-only. Two reasons: (1) idempotency — a Twilio retry of the same message must
+re-write the same row, never fall through to the next-most-recent PENDING invitation; (2) it lets a guest
+change their answer (N then Y), matching the web token page, which allows re-RSVP until the deadline.
+"No invitation at all" (not "no pending invitation") is the silent case.
 
 - **Y/YES** → invitation `status = ACCEPTED`; **N/NO** → `DECLINED`. Same field and same event-ended
   deadline check as `POST /guest/invitation/:token/rsvp`, so SMS and web-link RSVPs are semantically
@@ -132,11 +138,14 @@ is always set on guest invitations since CIF Plan A (PR #4); pre-CIF rows withou
 
 ## 7. Outbound gate + compliance footer
 
-- **Gate:** `sendSms` (GitNexus-confirmed single choke point — direct callers `sendGuestInvitation` and
-  `NotificationService.send`, fanning out to guest invites, reminders, digests; HIGH-risk rating
-  reviewed and accepted in-session because gating *all* SMS is the TCPA requirement) normalizes `to`,
-  looks up `SmsConsent`, and on suppression **skips the send**, returns failure with reason
-  `sms_suppressed`, and logs. All four SMS flows inherit the gate with zero per-caller changes.
+- **Gate:** `sendSms` (direct callers `sendGuestInvitation` and `NotificationService.send`, fanning out
+  to guest invites, reminders, digests; HIGH-risk fanout reviewed and accepted in-session because gating
+  *all* SMS is the TCPA requirement) normalizes `to`, looks up `SmsConsent`, and on suppression **skips
+  the send**, returns failure with reason `sms_suppressed`, and logs. All live SMS flows inherit the gate
+  with zero per-caller changes. **Amendment (2026-07-10, found in planning):** there is a second,
+  currently-dormant Twilio send site — `InvitationService.sendEventInvitations` (no route calls it; only
+  its own tests). It gets the same `isPhoneSuppressed` check **and the same compliance footer + 320
+  budget in its SMS builder** so reviving it can never send non-compliant SMS or bypass consent.
 - **Footer (guest invitation SMS only):** `Reply Y to RSVP, N to decline. Txt STOP to opt out, HELP for
   help.` Appended in `invitationService`'s SMS builder such that the footer and RSVP link are never
   truncated (the event-title portion truncates instead). Guest invites become ~2 SMS segments — accepted
@@ -149,7 +158,9 @@ is always set on guest invitations since CIF Plan A (PR #4); pre-CIF rows withou
 - Webhook replies never contain family name, roster, or ids — only the event title the guest was already
   texted (same isolation-safe copy rule as `buildGuestInvitationMessage`).
 - Signature verification precedes all processing; the route is unauthenticated but not unverified.
-- No secret values in logs; `MessageSid` + normalized phone only.
+- No secret values or message bodies in logs; structured logs may carry `MessageSid`, normalized phone,
+  and internal record ids (invitationId, personId) — audit value without PII/secrets (wording amended
+  2026-07-10, council round 2).
 - Rate limiting: the route is Twilio-only by signature; no additional per-IP limiter needed (bad
   signatures 400 cheaply).
 
@@ -172,7 +183,7 @@ gate (untouched web code, but the gate runs regardless).
 
 ## 10. Ops (Steve, at deploy)
 
-1. Point the Twilio number's inbound message webhook at the prod URL (`/webhooks/twilio/sms`).
+1. Point the Twilio number's inbound message webhook at the prod URL (`/api/v1/webhooks/twilio/sms`).
 2. Keep Twilio's default opt-out handling **ON** (carrier-level backstop under the DB gate).
 3. Set the public base URL env var in Railway prod (needed for signature validation) if not present.
 4. `docs/FamLink_Secrets_Runbook.md` addendum: rotating `TWILIO_AUTH_TOKEN` now also invalidates inbound
