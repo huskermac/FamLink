@@ -1,6 +1,7 @@
 import twilio from "twilio";
 import { Resend } from "resend";
 import { env } from "./env";
+import { isPhoneSuppressed } from "./smsConsent";
 
 export type InvitationRecipient = {
   personId: string;
@@ -140,6 +141,10 @@ export class InvitationService {
       }
 
       if (recipient.phone && recipient.isGuest) {
+        if (await isPhoneSuppressed(recipient.phone)) {
+          errors.push(`sms ${recipient.personId}: suppressed (STOP)`);
+          continue;
+        }
         if (!recipient.guestToken) {
           errors.push(`sms ${recipient.personId}: missing guestToken for guest`);
           continue;

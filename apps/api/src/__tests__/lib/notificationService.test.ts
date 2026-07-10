@@ -1,5 +1,10 @@
 import { NotificationService, truncateNotificationSmsBody } from "../../lib/notificationService";
 
+const mockIsPhoneSuppressed = vi.fn();
+vi.mock("../../lib/smsConsent", () => ({
+  isPhoneSuppressed: (...args: unknown[]) => mockIsPhoneSuppressed(...args)
+}));
+
 const mockEmailSend = vi.fn();
 vi.mock("resend", () => ({
   Resend: vi.fn().mockImplementation(function () {
@@ -64,6 +69,8 @@ describe("notificationService", () => {
     mockRsvpFindMany.mockReset();
     mockFamilyFindUnique.mockReset();
     mockFamilyMemberFindMany.mockReset();
+    mockIsPhoneSuppressed.mockReset();
+    mockIsPhoneSuppressed.mockResolvedValue(false);
   });
 
   it("truncateNotificationSmsBody caps at 160 characters", () => {
@@ -192,5 +199,28 @@ describe("notificationService", () => {
     );
     expect(mockPersonFind).toHaveBeenCalled();
     expect(mockEmailSend.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("sendGuestInvitation skips SMS (no Twilio call) when the number is suppressed", async () => {
+    mockIsPhoneSuppressed.mockResolvedValue(true);
+    const svc = new NotificationService();
+    await svc.sendGuestInvitation({
+      invitationId: "inv1",
+      email: null,
+      phone: "+15550001111",
+      message: { subject: "s", body: "b" }
+    });
+    expect(mockSmsCreate).not.toHaveBeenCalled();
+  });
+
+  it("send() SMS channel reports success:false when suppressed", async () => {
+    mockPersonFind.mockResolvedValue({ id: "p1", userId: null, email: null, phone: "+15550001111", fcmToken: null });
+    mockPrefFind.mockResolvedValue([]);
+    mockIsPhoneSuppressed.mockResolvedValue(true);
+    const svc = new NotificationService();
+    const results = await svc.send({ type: "EVENT_INVITE", recipientPersonId: "p1", title: "t", body: "b" });
+    const sms = results.find((r) => r.channel === "SMS");
+    expect(sms?.success).toBe(false);
+    expect(mockSmsCreate).not.toHaveBeenCalled();
   });
 });

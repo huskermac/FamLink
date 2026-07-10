@@ -5,6 +5,8 @@ import { db } from "@famlink/db";
 import { RSVPStatus } from "@famlink/shared";
 import { env } from "./env";
 import { generateBirthdayEvents } from "./birthdayGenerator";
+import { isPhoneSuppressed } from "./smsConsent";
+import { normalizePhone } from "./contact";
 
 export type NotificationPayload = {
   type:
@@ -122,8 +124,12 @@ export class NotificationService {
     return true;
   }
 
-  private async sendSms(to: string, body: string): Promise<boolean> {
-    const text = truncateNotificationSmsBody(body);
+  private async sendSms(to: string, body: string, opts: { truncate?: boolean } = {}): Promise<boolean> {
+    if (await isPhoneSuppressed(to)) {
+      console.info(JSON.stringify({ event: "sms_suppressed", to: normalizePhone(to) }));
+      return false;
+    }
+    const text = opts.truncate === false ? body : truncateNotificationSmsBody(body);
     await this.twilioClient.messages.create({
       from: env.TWILIO_PHONE_NUMBER,
       to,
@@ -223,7 +229,11 @@ export class NotificationService {
             continue;
           }
           const ok = await this.sendSms(to, payload.body);
-          results.push({ channel: "SMS", success: ok });
+          results.push({
+            channel: "SMS",
+            success: ok,
+            ...(ok ? {} : { error: "sms suppressed or send failed" })
+          });
         } else {
           const token = person.fcmToken;
           if (!token) {

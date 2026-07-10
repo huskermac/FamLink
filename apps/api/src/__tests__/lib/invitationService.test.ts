@@ -1,6 +1,11 @@
 import type { EventInvitationPayload, InvitationRecipient } from "../../lib/invitationService";
 import { buildEventInviteSmsBody, InvitationService } from "../../lib/invitationService";
 
+const mockIsPhoneSuppressed = vi.fn();
+vi.mock("../../lib/smsConsent", () => ({
+  isPhoneSuppressed: (...args: unknown[]) => mockIsPhoneSuppressed(...args)
+}));
+
 const mockEmailSend = vi.fn();
 vi.mock("resend", () => ({
   Resend: vi.fn().mockImplementation(function () {
@@ -26,6 +31,8 @@ describe("invitationService", () => {
   beforeEach(() => {
     mockEmailSend.mockReset();
     mockSmsCreate.mockReset();
+    mockIsPhoneSuppressed.mockReset();
+    mockIsPhoneSuppressed.mockResolvedValue(false);
   });
 
   it("buildEventInviteSmsBody is at most 160 characters", () => {
@@ -131,5 +138,19 @@ describe("invitationService", () => {
     const body = mockSmsCreate.mock.calls[0][0].body as string;
     expect(body.length).toBeLessThanOrEqual(160);
     expect(body).toContain("/rsvp?token=");
+  });
+
+  it("sendEventInvitations skips SMS for a suppressed guest and records an error string", async () => {
+    mockIsPhoneSuppressed.mockResolvedValue(true);
+    const svc = new InvitationService();
+    const result = await svc.sendEventInvitations({
+      eventId: "e1",
+      event: { title: "T", startAt: new Date().toISOString(), locationName: null },
+      familyName: "F",
+      inviterName: "I",
+      recipients: [{ personId: "p1", firstName: "G", email: null, phone: "+15550001111", guestToken: "tok", isGuest: true }]
+    });
+    expect(result.smsSent).toBe(0);
+    expect(result.errors.some((e) => e.includes("suppressed"))).toBe(true);
   });
 });
