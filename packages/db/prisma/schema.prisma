@@ -380,3 +380,12 @@ model FamilySubscription {
   familyGroup FamilyGroup  @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
   pricingTier PricingTier  @relation(fields: [tierKey], references: [tierKey])
 }
+
+model SmsConsent {
+  id              String    @id @default(cuid())
+  phoneNormalized String    @unique
+  optedOutAt      DateTime?
+  optedInAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
