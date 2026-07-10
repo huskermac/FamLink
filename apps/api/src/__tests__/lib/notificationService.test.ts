@@ -1,4 +1,10 @@
-import { NotificationService, truncateNotificationSmsBody } from "../../lib/notificationService";
+import {
+  NotificationService,
+  truncateNotificationSmsBody,
+  buildGuestInvitationMessage,
+  GUEST_SMS_FOOTER,
+  MAX_GUEST_INVITE_SMS
+} from "../../lib/notificationService";
 
 const mockIsPhoneSuppressed = vi.fn();
 vi.mock("../../lib/smsConsent", () => ({
@@ -208,9 +214,42 @@ describe("notificationService", () => {
       invitationId: "inv1",
       email: null,
       phone: "+15550001111",
-      message: { subject: "s", body: "b" }
+      message: { subject: "s", body: "b", smsBody: "b" }
     });
     expect(mockSmsCreate).not.toHaveBeenCalled();
+  });
+
+  it("guest SMS body ends with the compliance footer and contains the RSVP link", () => {
+    const m = buildGuestInvitationMessage({
+      eventTitle: "BBQ",
+      startAt: new Date("2026-08-01T18:00:00Z"),
+      rsvpUrl: "https://app.example.com/rsvp/tok123"
+    });
+    expect(m.smsBody.endsWith(GUEST_SMS_FOOTER)).toBe(true);
+    expect(m.smsBody).toContain("https://app.example.com/rsvp/tok123");
+  });
+
+  it("long titles truncate but the link and footer survive, within the 320-char budget", () => {
+    const m = buildGuestInvitationMessage({
+      eventTitle: "x".repeat(500),
+      startAt: new Date("2026-08-01T18:00:00Z"),
+      rsvpUrl: "https://app.example.com/rsvp/tok123"
+    });
+    expect(m.smsBody.length).toBeLessThanOrEqual(MAX_GUEST_INVITE_SMS);
+    expect(m.smsBody).toContain("https://app.example.com/rsvp/tok123");
+    expect(m.smsBody.endsWith(GUEST_SMS_FOOTER)).toBe(true);
+    expect(m.smsBody).toContain("…");
+  });
+
+  it("sendGuestInvitation sends the un-truncated smsBody to Twilio", async () => {
+    const m = buildGuestInvitationMessage({
+      eventTitle: "Reunion",
+      startAt: new Date("2026-08-01T18:00:00Z"),
+      rsvpUrl: "https://app.example.com/rsvp/tok123"
+    });
+    const svc = new NotificationService();
+    await svc.sendGuestInvitation({ invitationId: "i1", email: null, phone: "+15550002222", message: m });
+    expect(mockSmsCreate).toHaveBeenCalledWith(expect.objectContaining({ body: m.smsBody }));
   });
 
   it("send() SMS channel reports success:false when suppressed", async () => {

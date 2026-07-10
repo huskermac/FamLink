@@ -2,6 +2,7 @@ import twilio from "twilio";
 import { Resend } from "resend";
 import { env } from "./env";
 import { isPhoneSuppressed } from "./smsConsent";
+import { GUEST_SMS_FOOTER, MAX_GUEST_INVITE_SMS } from "./notificationService";
 
 export type InvitationRecipient = {
   personId: string;
@@ -23,8 +24,6 @@ export type EventInvitationPayload = {
   inviterName: string;
   recipients: InvitationRecipient[];
 };
-
-const MAX_SMS = 160;
 
 function escapeHtml(s: string): string {
   return s
@@ -51,7 +50,7 @@ function formatEventDateTimeUtc(iso: string): string {
   });
 }
 
-/** Exported for unit tests — SMS body for guests, max 160 chars; truncates title if needed. */
+/** Exported for unit tests — SMS body for guests, max 320 chars; truncates title if needed (link + footer never truncate). */
 export function buildEventInviteSmsBody(
   recipient: InvitationRecipient,
   payload: EventInvitationPayload
@@ -61,16 +60,15 @@ export function buildEventInviteSmsBody(
   const web = env.WEB_APP_URL.replace(/\/$/, "");
   const rsvpUrl = `${web}/rsvp?token=${encodeURIComponent(token)}`;
   const prefix = `${payload.inviterName} invited you to `;
-  const suffix = ` on ${dateStr}. RSVP: ${rsvpUrl}`;
-  const budget = MAX_SMS - prefix.length - suffix.length;
+  const suffix = ` on ${dateStr}. RSVP: ${rsvpUrl}\n${GUEST_SMS_FOOTER}`;
+  const budget = MAX_GUEST_INVITE_SMS - prefix.length - suffix.length;
   let title = payload.event.title;
   if (budget < 1) {
     title = "…";
   } else if (title.length > budget) {
     title = title.slice(0, Math.max(0, budget - 1)) + "…";
   }
-  const body = `${prefix}${title}${suffix}`;
-  return body.length > MAX_SMS ? body.slice(0, MAX_SMS) : body;
+  return `${prefix}${title}${suffix}`;
 }
 
 function buildEventInviteEmailHtml(recipient: InvitationRecipient, payload: EventInvitationPayload): string {

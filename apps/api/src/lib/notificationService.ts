@@ -58,9 +58,14 @@ export function truncateNotificationSmsBody(body: string): string {
   return t.length <= MAX_NOTIFICATION_SMS ? t : t.slice(0, MAX_NOTIFICATION_SMS);
 }
 
+export const GUEST_SMS_FOOTER = "Reply Y to RSVP, N to decline. Txt STOP to opt out, HELP for help.";
+/** 2 SMS segments — accepted cost so the RSVP link + compliance footer never truncate (spec §7). */
+export const MAX_GUEST_INVITE_SMS = 320;
+
 export interface GuestInvitationMessage {
   subject: string;
   body: string;
+  smsBody: string;
 }
 
 /**
@@ -73,9 +78,19 @@ export function buildGuestInvitationMessage(opts: {
   rsvpUrl: string;
 }): GuestInvitationMessage {
   const when = opts.startAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  const prefix = "You're invited to ";
+  const suffix = ` on ${when}. RSVP here: ${opts.rsvpUrl}\n${GUEST_SMS_FOOTER}`;
+  const budget = MAX_GUEST_INVITE_SMS - prefix.length - suffix.length;
+  let title = opts.eventTitle;
+  if (budget < 1) {
+    title = "…";
+  } else if (title.length > budget) {
+    title = title.slice(0, Math.max(0, budget - 1)) + "…";
+  }
   return {
     subject: `You're invited: ${opts.eventTitle}`,
-    body: `You're invited to ${opts.eventTitle} on ${when}. RSVP here: ${opts.rsvpUrl}`
+    body: `You're invited to ${opts.eventTitle} on ${when}. RSVP here: ${opts.rsvpUrl}`,
+    smsBody: `${prefix}${title}${suffix}`
   };
 }
 
@@ -163,7 +178,7 @@ export class NotificationService {
       let success = false;
       let error: string | undefined;
       try {
-        success = await this.sendSms(opts.phone, opts.message.body);
+        success = await this.sendSms(opts.phone, opts.message.smsBody, { truncate: false });
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
       }

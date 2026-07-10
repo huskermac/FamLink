@@ -1,5 +1,6 @@
 import type { EventInvitationPayload, InvitationRecipient } from "../../lib/invitationService";
 import { buildEventInviteSmsBody, InvitationService } from "../../lib/invitationService";
+import { GUEST_SMS_FOOTER, MAX_GUEST_INVITE_SMS } from "../../lib/notificationService";
 
 const mockIsPhoneSuppressed = vi.fn();
 vi.mock("../../lib/smsConsent", () => ({
@@ -35,7 +36,7 @@ describe("invitationService", () => {
     mockIsPhoneSuppressed.mockResolvedValue(false);
   });
 
-  it("buildEventInviteSmsBody is at most 160 characters", () => {
+  it("buildEventInviteSmsBody is at most 320 characters (footer + link never truncate)", () => {
     const payload: EventInvitationPayload = {
       eventId: "e1",
       event: {
@@ -56,7 +57,18 @@ describe("invitationService", () => {
       isGuest: true
     };
     const body = buildEventInviteSmsBody(recipient, payload);
-    expect(body.length).toBeLessThanOrEqual(160);
+    expect(body.length).toBeLessThanOrEqual(MAX_GUEST_INVITE_SMS);
+    expect(body.endsWith(GUEST_SMS_FOOTER)).toBe(true);
+  });
+
+  it("buildEventInviteSmsBody keeps the link and footer within the 320 budget for long titles", () => {
+    const body = buildEventInviteSmsBody(
+      { personId: "p1", firstName: "G", email: null, phone: "+15550001111", guestToken: "tok", isGuest: true },
+      { eventId: "e1", event: { title: "x".repeat(500), startAt: new Date().toISOString(), locationName: null }, familyName: "F", inviterName: "I", recipients: [] }
+    );
+    expect(body.length).toBeLessThanOrEqual(MAX_GUEST_INVITE_SMS);
+    expect(body).toContain("/rsvp?token=tok");
+    expect(body.endsWith(GUEST_SMS_FOOTER)).toBe(true);
   });
 
   it("sendEventInvitations continues after one email failure (partial success)", async () => {
@@ -136,8 +148,9 @@ describe("invitationService", () => {
 
     expect(mockSmsCreate).toHaveBeenCalledTimes(1);
     const body = mockSmsCreate.mock.calls[0][0].body as string;
-    expect(body.length).toBeLessThanOrEqual(160);
+    expect(body.length).toBeLessThanOrEqual(MAX_GUEST_INVITE_SMS);
     expect(body).toContain("/rsvp?token=");
+    expect(body.endsWith(GUEST_SMS_FOOTER)).toBe(true);
   });
 
   it("sendEventInvitations skips SMS for a suppressed guest and records an error string", async () => {
