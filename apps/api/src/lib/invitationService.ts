@@ -2,7 +2,7 @@ import twilio from "twilio";
 import { Resend } from "resend";
 import { env } from "./env";
 import { isPhoneSuppressed } from "./smsConsent";
-import { GUEST_SMS_FOOTER, MAX_GUEST_INVITE_SMS } from "./notificationService";
+import { buildBudgetedSmsBody, GUEST_SMS_FOOTER, MAX_GUEST_INVITE_SMS } from "./notificationService";
 
 export type InvitationRecipient = {
   personId: string;
@@ -61,14 +61,7 @@ export function buildEventInviteSmsBody(
   const rsvpUrl = `${web}/rsvp?token=${encodeURIComponent(token)}`;
   const prefix = `${payload.inviterName} invited you to `;
   const suffix = ` on ${dateStr}. RSVP: ${rsvpUrl}\n${GUEST_SMS_FOOTER}`;
-  const budget = MAX_GUEST_INVITE_SMS - prefix.length - suffix.length;
-  let title = payload.event.title;
-  if (budget < 1) {
-    title = "…";
-  } else if (title.length > budget) {
-    title = title.slice(0, Math.max(0, budget - 1)) + "…";
-  }
-  return `${prefix}${title}${suffix}`;
+  return buildBudgetedSmsBody({ prefix, title: payload.event.title, suffix, max: MAX_GUEST_INVITE_SMS });
 }
 
 function buildEventInviteEmailHtml(recipient: InvitationRecipient, payload: EventInvitationPayload): string {

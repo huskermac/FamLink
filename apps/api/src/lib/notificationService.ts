@@ -59,13 +59,43 @@ export function truncateNotificationSmsBody(body: string): string {
 }
 
 export const GUEST_SMS_FOOTER = "Reply Y to RSVP, N to decline. Txt STOP to opt out, HELP for help.";
-/** 2 SMS segments — accepted cost so the RSVP link + compliance footer never truncate (spec §7). */
+/**
+ * 320 GSM-7 chars concatenate into 3 segments max (153 chars/segment with UDH
+ * overhead) — accepted cost so the RSVP link + compliance footer never
+ * truncate (spec §7).
+ */
 export const MAX_GUEST_INVITE_SMS = 320;
+
+/** ASCII-only (GSM-7-safe) truncation marker — avoids forcing UCS-2 encoding (67-char segments). */
+const TRUNCATION_MARKER = "...";
 
 export interface GuestInvitationMessage {
   subject: string;
   body: string;
   smsBody: string;
+}
+
+/**
+ * Shared prefix/title/suffix budgeting for guest-invite SMS bodies: the
+ * title is truncated (with a GSM-7-safe "..." marker) so `prefix + title +
+ * suffix` never exceeds `max`, guaranteeing the RSVP link + compliance
+ * footer in `suffix` survive intact.
+ */
+export function buildBudgetedSmsBody(opts: {
+  prefix: string;
+  title: string;
+  suffix: string;
+  max: number;
+}): string {
+  const { prefix, title: fullTitle, suffix, max } = opts;
+  const budget = max - prefix.length - suffix.length;
+  let title = fullTitle;
+  if (budget < 1) {
+    title = TRUNCATION_MARKER;
+  } else if (title.length > budget) {
+    title = title.slice(0, Math.max(0, budget - TRUNCATION_MARKER.length)) + TRUNCATION_MARKER;
+  }
+  return `${prefix}${title}${suffix}`;
 }
 
 /**
@@ -80,17 +110,10 @@ export function buildGuestInvitationMessage(opts: {
   const when = opts.startAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
   const prefix = "You're invited to ";
   const suffix = ` on ${when}. RSVP here: ${opts.rsvpUrl}\n${GUEST_SMS_FOOTER}`;
-  const budget = MAX_GUEST_INVITE_SMS - prefix.length - suffix.length;
-  let title = opts.eventTitle;
-  if (budget < 1) {
-    title = "…";
-  } else if (title.length > budget) {
-    title = title.slice(0, Math.max(0, budget - 1)) + "…";
-  }
   return {
     subject: `You're invited: ${opts.eventTitle}`,
     body: `You're invited to ${opts.eventTitle} on ${when}. RSVP here: ${opts.rsvpUrl}`,
-    smsBody: `${prefix}${title}${suffix}`
+    smsBody: buildBudgetedSmsBody({ prefix, title: opts.eventTitle, suffix, max: MAX_GUEST_INVITE_SMS })
   };
 }
 

@@ -238,7 +238,7 @@ describe("notificationService", () => {
     expect(m.smsBody.length).toBeLessThanOrEqual(MAX_GUEST_INVITE_SMS);
     expect(m.smsBody).toContain("https://app.example.com/rsvp/tok123");
     expect(m.smsBody.endsWith(GUEST_SMS_FOOTER)).toBe(true);
-    expect(m.smsBody).toContain("…");
+    expect(m.smsBody).toContain("...");
   });
 
   it("sendGuestInvitation sends the un-truncated smsBody to Twilio", async () => {
