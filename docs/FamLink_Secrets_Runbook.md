@@ -51,6 +51,11 @@ Applies to every SECRET-typed row below unless a row says otherwise.
 | `TWILIO_AUTH_TOKEN` | SECRET | `apps/api` (SMS) | Twilio console (source) + Railway "FamLink API" service + local `.env` |
 | `TWILIO_PHONE_NUMBER` | not secret | `apps/api` | record only |
 
+> **Inbound-webhook note (W3b, 2026-07):** the auth token now also validates inbound SMS webhook
+> signatures (`POST /api/v1/webhooks/twilio/sms`). Rotate via secondary-token promotion (as done
+> 2026-07-06) so in-flight inbound requests keep validating; after promotion, old-token signatures
+> fail with 400 (Twilio retries with the new signature automatically since Twilio signs per-request).
+
 ### Firebase (push notifications)
 
 | Variable | Type | Consumed by | Stored in |
