@@ -112,6 +112,15 @@ third webhook alongside Clerk (`routes/webhooks.ts`) and Stripe (`routes/billing
 
 STOP from an unknown number is still recorded — it must be honored if that number is ever invited later.
 
+**Amendment (2026-07-14, final whole-branch review):** every invitation query in the inbound handler
+(Y/N resolution, the STOP decline sweep, and the UNKNOWN-guidance PENDING check) is scoped to **guest
+invitations only** (`guestPhone IS NOT NULL`). `linkedPersonId` alone also matches W3a cross-family
+*participation* invites (species `famlinkUser`, delivered in-app, never sets `guestPhone`); without the
+scoping, a texted "Y" could flip a participation invite to ACCEPTED without its `EventParticipant` grant
+(soft-locking it), and STOP could decline pending in-app participation invites. SMS replies only ever
+resolve invitations that were deliverable by SMS. Side effect: an email-only guest invite also survives
+STOP — correct, since STOP is an SMS-channel opt-out and that invite was never texted.
+
 ## 6. Y/N resolution + phone verification
 
 Resolution chain (existing plumbing only): `From` (E.164) → Person(s) by `phoneNormalized` (several

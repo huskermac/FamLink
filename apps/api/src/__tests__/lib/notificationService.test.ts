@@ -1,4 +1,15 @@
-import { NotificationService, truncateNotificationSmsBody } from "../../lib/notificationService";
+import {
+  NotificationService,
+  truncateNotificationSmsBody,
+  buildGuestInvitationMessage,
+  GUEST_SMS_FOOTER,
+  MAX_GUEST_INVITE_SMS
+} from "../../lib/notificationService";
+
+const mockIsPhoneSuppressed = vi.fn();
+vi.mock("../../lib/smsConsent", () => ({
+  isPhoneSuppressed: (...args: unknown[]) => mockIsPhoneSuppressed(...args)
+}));
 
 const mockEmailSend = vi.fn();
 vi.mock("resend", () => ({
@@ -64,6 +75,8 @@ describe("notificationService", () => {
     mockRsvpFindMany.mockReset();
     mockFamilyFindUnique.mockReset();
     mockFamilyMemberFindMany.mockReset();
+    mockIsPhoneSuppressed.mockReset();
+    mockIsPhoneSuppressed.mockResolvedValue(false);
   });
 
   it("truncateNotificationSmsBody caps at 160 characters", () => {
@@ -192,5 +205,61 @@ describe("notificationService", () => {
     );
     expect(mockPersonFind).toHaveBeenCalled();
     expect(mockEmailSend.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("sendGuestInvitation skips SMS (no Twilio call) when the number is suppressed", async () => {
+    mockIsPhoneSuppressed.mockResolvedValue(true);
+    const svc = new NotificationService();
+    await svc.sendGuestInvitation({
+      invitationId: "inv1",
+      email: null,
+      phone: "+15550001111",
+      message: { subject: "s", body: "b", smsBody: "b" }
+    });
+    expect(mockSmsCreate).not.toHaveBeenCalled();
+  });
+
+  it("guest SMS body ends with the compliance footer and contains the RSVP link", () => {
+    const m = buildGuestInvitationMessage({
+      eventTitle: "BBQ",
+      startAt: new Date("2026-08-01T18:00:00Z"),
+      rsvpUrl: "https://app.example.com/rsvp/tok123"
+    });
+    expect(m.smsBody.endsWith(GUEST_SMS_FOOTER)).toBe(true);
+    expect(m.smsBody).toContain("https://app.example.com/rsvp/tok123");
+  });
+
+  it("long titles truncate but the link and footer survive, within the 320-char budget", () => {
+    const m = buildGuestInvitationMessage({
+      eventTitle: "x".repeat(500),
+      startAt: new Date("2026-08-01T18:00:00Z"),
+      rsvpUrl: "https://app.example.com/rsvp/tok123"
+    });
+    expect(m.smsBody.length).toBeLessThanOrEqual(MAX_GUEST_INVITE_SMS);
+    expect(m.smsBody).toContain("https://app.example.com/rsvp/tok123");
+    expect(m.smsBody.endsWith(GUEST_SMS_FOOTER)).toBe(true);
+    expect(m.smsBody).toContain("...");
+  });
+
+  it("sendGuestInvitation sends the un-truncated smsBody to Twilio", async () => {
+    const m = buildGuestInvitationMessage({
+      eventTitle: "Reunion",
+      startAt: new Date("2026-08-01T18:00:00Z"),
+      rsvpUrl: "https://app.example.com/rsvp/tok123"
+    });
+    const svc = new NotificationService();
+    await svc.sendGuestInvitation({ invitationId: "i1", email: null, phone: "+15550002222", message: m });
+    expect(mockSmsCreate).toHaveBeenCalledWith(expect.objectContaining({ body: m.smsBody }));
+  });
+
+  it("send() SMS channel reports success:false when suppressed", async () => {
+    mockPersonFind.mockResolvedValue({ id: "p1", userId: null, email: null, phone: "+15550001111", fcmToken: null });
+    mockPrefFind.mockResolvedValue([]);
+    mockIsPhoneSuppressed.mockResolvedValue(true);
+    const svc = new NotificationService();
+    const results = await svc.send({ type: "EVENT_INVITE", recipientPersonId: "p1", title: "t", body: "b" });
+    const sms = results.find((r) => r.channel === "SMS");
+    expect(sms?.success).toBe(false);
+    expect(mockSmsCreate).not.toHaveBeenCalled();
   });
 });

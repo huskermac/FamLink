@@ -3,6 +3,7 @@ import { z } from "zod";
 import { RSVPStatus } from "@famlink/shared";
 import { db } from "@famlink/db";
 import type { GuestTokenPayload } from "../lib/guestToken";
+import { rsvpClosed } from "../lib/rsvpWindow";
 import type { GuestRequest } from "../middleware/guestAuth";
 import { requireGuestToken } from "../middleware/guestAuth";
 import { guestRateLimiter } from "../middleware/rateLimit";
@@ -215,8 +216,7 @@ guestRouter.post("/invitation/:token/rsvp", async (req, res) => {
     return;
   }
 
-  const deadline = invitation.event.endAt ?? invitation.event.startAt;
-  if (new Date() > deadline) {
+  if (rsvpClosed(invitation.event)) {
     res.status(400).json({ error: "This event has ended — RSVP is no longer available" });
     return;
   }

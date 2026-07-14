@@ -20,6 +20,8 @@ const envSchema = z.object({
   PORT: z.string().default("3001"),
   NODE_ENV: z.string().default("development"),
   WEB_APP_URL: z.string().url(),
+  /** Public https base URL of THIS API (Railway) — used to reconstruct the exact URL Twilio signed. */
+  API_PUBLIC_URL: z.string().url().default("http://localhost:3001"),
   REDIS_URL: z.string().min(1),
   ANTHROPIC_API_KEY: z.string().min(1),
   OPENAI_API_KEY: z.string().min(1),

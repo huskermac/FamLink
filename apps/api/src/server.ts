@@ -9,6 +9,7 @@ import { router } from "./routes";
 import { healthRouter } from "./routes/health";
 import { webhooksRouter } from "./routes/webhooks";
 import { billingWebhookRouter } from "./routes/billing";
+import { twilioSmsRouter } from "./routes/twilioSms";
 import { initializeSocketServer } from "./lib/socketServer";
 import { startBillingCron } from "./jobs/billingEnforcement";
 
@@ -30,6 +31,11 @@ export function createApp(): express.Application {
     "/api/v1/billing/webhook",
     express.raw({ type: "application/json", limit: "10mb" }),
     billingWebhookRouter
+  );
+  app.use(
+    "/api/v1/webhooks/twilio/sms",
+    express.urlencoded({ extended: false }),
+    twilioSmsRouter
   );
   app.use(express.json({ limit: "10mb" }));
   app.use(requestLogger);

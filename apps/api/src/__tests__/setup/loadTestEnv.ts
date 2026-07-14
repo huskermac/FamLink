@@ -40,6 +40,7 @@ setDefault("RESEND_FROM_DOMAIN", "example.com");
 setDefault("TWILIO_ACCOUNT_SID", "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
 setDefault("TWILIO_AUTH_TOKEN", "twilio_test_jest");
 setDefault("TWILIO_PHONE_NUMBER", "+15555551234");
+setDefault("API_PUBLIC_URL", "http://localhost:3001");
 setDefault("GUEST_TOKEN_SECRET", "jest_guest_token_secret_32_chars!!");
 setDefault("FIREBASE_PROJECT_ID", "jest-firebase-project");
 setDefault("FIREBASE_CLIENT_EMAIL", "firebase-adminsdk@jest-firebase-project.iam.gserviceaccount.com");

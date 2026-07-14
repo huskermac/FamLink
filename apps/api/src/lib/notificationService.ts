@@ -5,6 +5,8 @@ import { db } from "@famlink/db";
 import { RSVPStatus } from "@famlink/shared";
 import { env } from "./env";
 import { generateBirthdayEvents } from "./birthdayGenerator";
+import { isPhoneSuppressed } from "./smsConsent";
+import { normalizePhone } from "./contact";
 
 export type NotificationPayload = {
   type:
@@ -56,9 +58,47 @@ export function truncateNotificationSmsBody(body: string): string {
   return t.length <= MAX_NOTIFICATION_SMS ? t : t.slice(0, MAX_NOTIFICATION_SMS);
 }
 
+export const GUEST_SMS_FOOTER = "Reply Y to RSVP, N to decline. Txt STOP to opt out, HELP for help.";
+/**
+ * 320 GSM-7 chars concatenate into 3 segments max (153 chars/segment with UDH
+ * overhead) — accepted cost so the RSVP link + compliance footer never
+ * truncate (spec §7).
+ */
+export const MAX_GUEST_INVITE_SMS = 320;
+
+/** ASCII-only (GSM-7-safe) truncation marker — avoids forcing UCS-2 encoding (67-char segments). */
+const TRUNCATION_MARKER = "...";
+
 export interface GuestInvitationMessage {
   subject: string;
   body: string;
+  smsBody: string;
+}
+
+/**
+ * Shared prefix/title/suffix budgeting for guest-invite SMS bodies: the
+ * title is truncated (with a GSM-7-safe "..." marker) so `prefix + title +
+ * suffix` never exceeds `max`, guaranteeing the RSVP link + compliance
+ * footer in `suffix` survive intact.
+ */
+export function buildBudgetedSmsBody(opts: {
+  prefix: string;
+  title: string;
+  suffix: string;
+  max: number;
+}): string {
+  const { prefix, title: fullTitle, suffix, max } = opts;
+  const budget = max - prefix.length - suffix.length;
+  let title = fullTitle;
+  if (budget < 1) {
+    title = TRUNCATION_MARKER;
+  } else if (title.length > budget) {
+    title = title.slice(0, Math.max(0, budget - TRUNCATION_MARKER.length)) + TRUNCATION_MARKER;
+  }
+  // Defensive clamp: when budget < TRUNCATION_MARKER.length (degenerate branch),
+  // prefix + TRUNCATION_MARKER + suffix can exceed max by 1-3 chars. Never return
+  // more than max, even in that edge case.
+  return `${prefix}${title}${suffix}`.slice(0, max);
 }
 
 /**
@@ -71,9 +111,12 @@ export function buildGuestInvitationMessage(opts: {
   rsvpUrl: string;
 }): GuestInvitationMessage {
   const when = opts.startAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  const prefix = "You're invited to ";
+  const suffix = ` on ${when}. RSVP here: ${opts.rsvpUrl}\n${GUEST_SMS_FOOTER}`;
   return {
     subject: `You're invited: ${opts.eventTitle}`,
-    body: `You're invited to ${opts.eventTitle} on ${when}. RSVP here: ${opts.rsvpUrl}`
+    body: `You're invited to ${opts.eventTitle} on ${when}. RSVP here: ${opts.rsvpUrl}`,
+    smsBody: buildBudgetedSmsBody({ prefix, title: opts.eventTitle, suffix, max: MAX_GUEST_INVITE_SMS })
   };
 }
 
@@ -122,8 +165,12 @@ export class NotificationService {
     return true;
   }
 
-  private async sendSms(to: string, body: string): Promise<boolean> {
-    const text = truncateNotificationSmsBody(body);
+  private async sendSms(to: string, body: string, opts: { truncate?: boolean } = {}): Promise<boolean> {
+    if (await isPhoneSuppressed(to)) {
+      console.info(JSON.stringify({ event: "sms_suppressed", to: normalizePhone(to) }));
+      return false;
+    }
+    const text = opts.truncate === false ? body : truncateNotificationSmsBody(body);
     await this.twilioClient.messages.create({
       from: env.TWILIO_PHONE_NUMBER,
       to,
@@ -157,7 +204,7 @@ export class NotificationService {
       let success = false;
       let error: string | undefined;
       try {
-        success = await this.sendSms(opts.phone, opts.message.body);
+        success = await this.sendSms(opts.phone, opts.message.smsBody, { truncate: false });
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
       }
@@ -223,7 +270,11 @@ export class NotificationService {
             continue;
           }
           const ok = await this.sendSms(to, payload.body);
-          results.push({ channel: "SMS", success: ok });
+          results.push({
+            channel: "SMS",
+            success: ok,
+            ...(ok ? {} : { error: "sms suppressed or send failed" })
+          });
         } else {
           const token = person.fcmToken;
           if (!token) {

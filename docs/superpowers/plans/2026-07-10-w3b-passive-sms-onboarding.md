@@ -325,6 +325,8 @@ git commit -m "feat: P3-03 gate all outbound SMS on SmsConsent suppression"
 
 ### Task 3: Guest invitation SMS — compliance footer + truncation budget
 
+**Amendment 2026-07-14 (Steve-approved, from Task 3 review):** truncation marker is ASCII `...` (U+2026 forces UCS-2 → 5 segments); segment comment corrected (320 GSM-7 chars = 3 concatenated segments); budget logic extracted to a shared `buildBudgetedSmsBody` helper in notificationService.ts used by both builders.
+
 **Files:**
 - Modify: `apps/api/src/lib/notificationService.ts` (`GuestInvitationMessage`, `buildGuestInvitationMessage`, `sendGuestInvitation`)
 - Modify: `apps/api/src/lib/invitationService.ts` (`buildEventInviteSmsBody` — dormant path gets the same footer so reviving it can't send non-compliant SMS)
@@ -360,7 +362,7 @@ it("long titles truncate but the link and footer survive, within the 320-char bu
   expect(m.smsBody.length).toBeLessThanOrEqual(MAX_GUEST_INVITE_SMS);
   expect(m.smsBody).toContain("https://app.example.com/rsvp/tok123");
   expect(m.smsBody.endsWith(GUEST_SMS_FOOTER)).toBe(true);
-  expect(m.smsBody).toContain("…");
+  expect(m.smsBody).toContain("...");
 });
 
 it("sendGuestInvitation sends the un-truncated smsBody to Twilio", async () => {
@@ -549,7 +551,7 @@ describe("parseSmsKeyword", () => {
 Append to the same file:
 
 ```ts
-const PHONE = "+15550003333";
+const PHONE = "+14155550133";
 
 async function makeFixture(opts: { sentAt?: Date; startAt?: Date; status?: string } = {}) {
   const creator = await db.person.create({ data: { firstName: "Org", lastName: "Anizer" } });
@@ -643,8 +645,8 @@ describe("handleInboundSms", () => {
   });
 
   it("STOP from an unknown number is still recorded", async () => {
-    await handleInboundSms("+15559998888", "STOP", "SM_stranger");
-    expect(await isPhoneSuppressed("+15559998888")).toBe(true);
+    await handleInboundSms("+14155550199", "STOP", "SM_stranger");
+    expect(await isPhoneSuppressed("+14155550199")).toBe(true);
   });
 
   it("START clears suppression and confirms", async () => {
@@ -938,7 +940,7 @@ function sign(params: Record<string, string>): string {
 
 describe("POST /api/v1/webhooks/twilio/sms", () => {
   const app = createApp();
-  const base = { MessageSid: "SM123", From: "+15550004444", To: "+15555551234" };
+  const base = { MessageSid: "SM123", From: "+14155550144", To: "+15555551234" };
 
   it("400 when the signature header is missing", async () => {
     const res = await request(app).post("/api/v1/webhooks/twilio/sms").type("form").send({ ...base, Body: "Y" });
@@ -976,7 +978,7 @@ describe("POST /api/v1/webhooks/twilio/sms", () => {
       .send(params);
     expect(res.status).toBe(200);
     expect(res.text).not.toContain("<Message>");
-    const row = await db.smsConsent.findUnique({ where: { phoneNormalized: "+15550004444" } });
+    const row = await db.smsConsent.findUnique({ where: { phoneNormalized: "+14155550144" } });
     expect(row?.optedOutAt).not.toBeNull();
   });
 
