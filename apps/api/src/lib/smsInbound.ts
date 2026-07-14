@@ -41,7 +41,10 @@ async function findPersonIds(phoneNormalized: string): Promise<string[]> {
 async function findLatestInvitation(personIds: string[]) {
   if (personIds.length === 0) return null;
   return db.eventInvitation.findFirst({
-    where: { linkedPersonId: { in: personIds } },
+    // guestPhone is set on exactly the invitations that were deliverable by SMS
+    // (guest invites); famlinkUser cross-family participation invites also set
+    // linkedPersonId but never guestPhone, so this excludes them.
+    where: { linkedPersonId: { in: personIds }, guestPhone: { not: null } },
     orderBy: [{ sentAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
     include: { event: { select: { title: true, startAt: true, endAt: true } } }
   });
@@ -50,7 +53,8 @@ async function findLatestInvitation(personIds: string[]) {
 async function hasPendingInvitation(personIds: string[]): Promise<boolean> {
   if (personIds.length === 0) return false;
   const pending = await db.eventInvitation.findFirst({
-    where: { linkedPersonId: { in: personIds }, status: "PENDING" },
+    // Same species scoping as findLatestInvitation — only SMS-deliverable (guest) invitations.
+    where: { linkedPersonId: { in: personIds }, status: "PENDING", guestPhone: { not: null } },
     select: { id: true }
   });
   return pending !== null;
@@ -87,7 +91,9 @@ export async function handleInboundSms(from: string, body: string, messageSid: s
     const personIds = await findPersonIds(phoneNormalized);
     if (personIds.length > 0) {
       await db.eventInvitation.updateMany({
-        where: { linkedPersonId: { in: personIds }, status: "PENDING" },
+        // guestPhone-only scoping — see findLatestInvitation: STOP must only
+        // decline invitations that were actually deliverable by SMS.
+        where: { linkedPersonId: { in: personIds }, status: "PENDING", guestPhone: { not: null } },
         data: { status: "DECLINED" }
       });
     }

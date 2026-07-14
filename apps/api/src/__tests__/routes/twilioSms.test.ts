@@ -77,4 +77,44 @@ describe("POST /api/v1/webhooks/twilio/sms", () => {
     expect(res.text).toContain("Route BBQ");
     expect((await db.eventInvitation.findUnique({ where: { id: invitation.id } }))?.status).toBe("ACCEPTED");
   });
+
+  it("end-to-end: XML-special characters in the event title are escaped in the TwiML reply", async () => {
+    const creator = await db.person.create({ data: { firstName: "Org", lastName: "Anizer" } });
+    const family = await db.familyGroup.create({ data: { name: "Fam", createdById: creator.id } });
+    const event = await db.event.create({
+      data: {
+        familyGroupId: family.id,
+        createdByPersonId: creator.id,
+        title: 'Q&A <Family> "Night"',
+        startAt: new Date(Date.now() + 86_400_000)
+      }
+    });
+    const guest = await db.person.create({
+      data: { firstName: "Gus", lastName: "Guest", phone: base.From, phoneNormalized: base.From }
+    });
+    const invitation = await db.eventInvitation.create({
+      data: { eventId: event.id, guestPhone: base.From, guestToken: "tok_route_xml", linkedPersonId: guest.id, status: "PENDING", sentAt: new Date() }
+    });
+
+    const params = { ...base, Body: "Y" };
+    const res = await request(app)
+      .post("/api/v1/webhooks/twilio/sms")
+      .set("X-Twilio-Signature", sign(params))
+      .type("form")
+      .send(params);
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("xml");
+    // Well-formedness: exactly one <Message>...</Message> pair, and no unescaped
+    // '<' or bare '&' inside its text content (either would make the XML invalid).
+    const messageMatch = res.text.match(/<Message>([\s\S]*?)<\/Message>/);
+    expect(messageMatch).not.toBeNull();
+    const messageText = messageMatch![1];
+    expect(/<(?!\/?Message>)/.test(messageText)).toBe(false); // no stray unescaped tags
+    expect(/&(?!amp;|lt;|gt;|quot;|apos;|#)/.test(messageText)).toBe(false); // no bare '&'
+    // The specific escapes we expect from the raw title 'Q&A <Family> "Night"'.
+    expect(res.text).toContain("&amp;");
+    expect(res.text).toContain("&lt;");
+    expect(res.text).not.toContain("<Family>"); // raw, unescaped tag would break the XML
+    expect((await db.eventInvitation.findUnique({ where: { id: invitation.id } }))?.status).toBe("ACCEPTED");
+  });
 });

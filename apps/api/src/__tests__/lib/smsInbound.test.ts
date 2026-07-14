@@ -163,4 +163,60 @@ describe("handleInboundSms", () => {
   it("unparseable From is silent", async () => {
     expect(await handleInboundSms("garbage", "Y", "SM_bad")).toBeNull();
   });
+
+  describe("invitation species scoping (guest-only)", () => {
+    async function makeParticipationFixture(personId: string, sentAt: Date) {
+      const creator = await db.person.create({ data: { firstName: "Org2", lastName: "Anizer2" } });
+      const family = await db.familyGroup.create({ data: { name: "Fam2", createdById: creator.id } });
+      const event = await db.event.create({
+        data: {
+          familyGroupId: family.id,
+          createdByPersonId: creator.id,
+          title: "Cross-Family Council",
+          startAt: new Date(Date.now() + 7 * 86_400_000)
+        }
+      });
+      // famlinkUser (cross-family participation) invite: linkedPersonId + sentAt,
+      // NO guestPhone/guestToken absence is fine here since guestToken is required-ish
+      // in schema usage but not enforced at DB level for this test's purposes.
+      const invitation = await db.eventInvitation.create({
+        data: {
+          eventId: event.id,
+          linkedPersonId: personId,
+          role: "PARTICIPANT",
+          invitedById: creator.id,
+          scope: "INDIVIDUAL",
+          status: "PENDING",
+          sentAt
+        }
+      });
+      return { creator, family, event, invitation };
+    }
+
+    it("Y accepts only the GUEST invitation, leaving a newer participation invitation untouched", async () => {
+      const guestFixture = await makeFixture({ sentAt: new Date(Date.now() - 86_400_000) });
+      const participation = await makeParticipationFixture(guestFixture.guest.id, new Date());
+
+      const reply = await handleInboundSms(PHONE, "Y", "SM_species_y");
+
+      expect(reply).toContain("Summer BBQ");
+      const guestInv = await db.eventInvitation.findUnique({ where: { id: guestFixture.invitation.id } });
+      expect(guestInv?.status).toBe("ACCEPTED");
+      const participationInv = await db.eventInvitation.findUnique({ where: { id: participation.invitation.id } });
+      expect(participationInv?.status).toBe("PENDING");
+    });
+
+    it("STOP declines the PENDING guest invitation but leaves the participation invitation PENDING", async () => {
+      const guestFixture = await makeFixture();
+      const participation = await makeParticipationFixture(guestFixture.guest.id, new Date());
+
+      const reply = await handleInboundSms(PHONE, "STOP", "SM_species_stop");
+
+      expect(reply).toBeNull();
+      const guestInv = await db.eventInvitation.findUnique({ where: { id: guestFixture.invitation.id } });
+      expect(guestInv?.status).toBe("DECLINED");
+      const participationInv = await db.eventInvitation.findUnique({ where: { id: participation.invitation.id } });
+      expect(participationInv?.status).toBe("PENDING");
+    });
+  });
 });

@@ -95,7 +95,10 @@ export function buildBudgetedSmsBody(opts: {
   } else if (title.length > budget) {
     title = title.slice(0, Math.max(0, budget - TRUNCATION_MARKER.length)) + TRUNCATION_MARKER;
   }
-  return `${prefix}${title}${suffix}`;
+  // Defensive clamp: when budget < TRUNCATION_MARKER.length (degenerate branch),
+  // prefix + TRUNCATION_MARKER + suffix can exceed max by 1-3 chars. Never return
+  // more than max, even in that edge case.
+  return `${prefix}${title}${suffix}`.slice(0, max);
 }
 
 /**
