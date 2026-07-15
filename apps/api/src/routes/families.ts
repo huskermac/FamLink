@@ -14,6 +14,7 @@ import {
 } from "../lib/personRequiredMessages";
 import { checkSeatExpansion } from "../lib/subscriptionEnforcement";
 import { stripe } from "../lib/stripeClient";
+import { linkedFamilies } from "../lib/householdAccess";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
 export const familiesRouter = Router();
@@ -367,7 +368,6 @@ familiesRouter.post("/:familyId/households", async (req, res) => {
 
   res.status(201).json({
     id: household.id,
-    familyGroupId: household.familyGroupId,
     name: household.name,
     street: household.street,
     city: household.city,
@@ -375,7 +375,8 @@ familiesRouter.post("/:familyId/households", async (req, res) => {
     zip: household.zip,
     country: household.country,
     createdAt: household.createdAt.toISOString(),
-    updatedAt: household.updatedAt.toISOString()
+    updatedAt: household.updatedAt.toISOString(),
+    linkedFamilies: await linkedFamilies(household.id, requester.id)
   });
 });
 
@@ -404,14 +405,18 @@ familiesRouter.get("/:familyId", async (req, res) => {
         include: { person: true },
         orderBy: { joinedAt: "asc" }
       },
-      households: {
+      householdLinks: {
         include: {
-          members: {
-            include: { person: true },
-            orderBy: { joinedAt: "asc" }
+          household: {
+            include: {
+              members: {
+                include: { person: true },
+                orderBy: { joinedAt: "asc" }
+              }
+            }
           }
         },
-        orderBy: { createdAt: "asc" }
+        orderBy: [{ linkedAt: "asc" }, { id: "asc" }] // stable secondary order
       }
     }
   });
@@ -436,10 +441,9 @@ familiesRouter.get("/:familyId", async (req, res) => {
       roles: m.roles,
       joinedAt: m.joinedAt.toISOString()
     })),
-    households: family.households.map((h) => ({
+    households: family.householdLinks.map(({ household: h }) => ({
       household: {
         id: h.id,
-        familyGroupId: h.familyGroupId,
         name: h.name,
         street: h.street,
         city: h.city,

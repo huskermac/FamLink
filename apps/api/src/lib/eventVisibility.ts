@@ -12,9 +12,18 @@
  */
 import { db, type Prisma } from "@famlink/db";
 
-async function householdIdsForPerson(personId: string): Promise<string[]> {
+/**
+ * Household-invite visibility requires the viewer to be an active member of the
+ * event's family (spec §7 invariant 3). A household shared with another family
+ * must not surface this family's events to residents who aren't members here.
+ */
+async function householdIdsForPerson(personId: string, familyGroupId: string): Promise<string[]> {
+  const membership = await db.familyMember.findUnique({
+    where: { familyGroupId_personId: { familyGroupId, personId } }
+  });
+  if (!membership || membership.suspendedAt !== null) return [];
   const rows = await db.householdMember.findMany({
-    where: { personId },
+    where: { personId, household: { families: { some: { familyGroupId } } } },
     select: { householdId: true }
   });
   return rows.map((r) => r.householdId);
@@ -46,14 +55,15 @@ function invitedOrParticipantFilter(
 
 /**
  * Prisma filter for event LIST queries. Combine with the family scope:
- *   where: { familyGroupId, ...(await visibleEventsWhere(personId, isAdmin)) }
+ *   where: { familyGroupId, ...(await visibleEventsWhere(personId, isAdmin, familyGroupId)) }
  */
 export async function visibleEventsWhere(
   personId: string,
-  isAdmin: boolean
+  isAdmin: boolean,
+  familyGroupId: string
 ): Promise<Prisma.EventWhereInput> {
   if (isAdmin) return {};
-  const householdIds = await householdIdsForPerson(personId);
+  const householdIds = await householdIdsForPerson(personId, familyGroupId);
   return {
     OR: [
       { eventVisibility: { not: "PRIVATE" } },
@@ -67,14 +77,14 @@ export async function visibleEventsWhere(
  * as NOT FOUND (full hiding), not as forbidden.
  */
 export async function canViewEvent(
-  event: { id: string; eventVisibility: string; createdByPersonId: string | null },
+  event: { id: string; eventVisibility: string; createdByPersonId: string | null; familyGroupId: string },
   personId: string,
   isAdmin: boolean
 ): Promise<boolean> {
   if (event.eventVisibility !== "PRIVATE") return true;
   if (isAdmin || event.createdByPersonId === personId) return true;
 
-  const householdIds = await householdIdsForPerson(personId);
+  const householdIds = await householdIdsForPerson(personId, event.familyGroupId);
   const hit = await db.event.findFirst({
     where: { id: event.id, OR: invitedOrParticipantFilter(personId, householdIds) },
     select: { id: true }

@@ -267,7 +267,7 @@ export function buildTools(familyGroupId: string, requester: ToolRequester): Too
         where: {
           familyGroupId,
           startAt: { gte: now, lte: end },
-          AND: await visibleEventsWhere(requester.personId, requester.isAdmin)
+          AND: await visibleEventsWhere(requester.personId, requester.isAdmin, familyGroupId)
         },
         include: { rsvps: true },
         orderBy: { startAt: "asc" },
@@ -366,7 +366,9 @@ export function buildTools(familyGroupId: string, requester: ToolRequester): Too
     inputSchema: GetHouseholdMembersSchema as unknown as Tool["inputSchema"],
     execute: async (input): Promise<PersonSummary[]> => {
       const { householdId } = input as GetHouseholdMembersInput;
-      const household = await db.household.findFirst({ where: { id: householdId, familyGroupId } });
+      const household = await db.household.findFirst({
+        where: { id: householdId, families: { some: { familyGroupId } } }
+      });
       if (!household) return [];
 
       const members = await db.householdMember.findMany({

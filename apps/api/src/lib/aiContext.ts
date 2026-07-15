@@ -165,7 +165,7 @@ export async function assembleFamilyContext(
     where: {
       familyGroupId,
       startAt: { gte: now, lte: lookAheadEnd },
-      AND: await visibleEventsWhere(requestingPersonId, hasAdminRole(membership))
+      AND: await visibleEventsWhere(requestingPersonId, hasAdminRole(membership), familyGroupId)
     },
     include: { rsvps: true },
     take: opts.maxEvents,

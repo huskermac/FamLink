@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockFamilyMemberFindMany = vi.fn();
 const mockFamilyMemberFindFirst = vi.fn();
+const mockFamilyMemberFindUnique = vi.fn();
 const mockPersonFindMany = vi.fn();
 const mockEventFindMany = vi.fn();
 const mockEventFindFirst = vi.fn();
@@ -23,7 +24,8 @@ vi.mock("@famlink/db", () => ({
   db: {
     familyMember: {
       findMany: (...args: unknown[]) => mockFamilyMemberFindMany(...args),
-      findFirst: (...args: unknown[]) => mockFamilyMemberFindFirst(...args)
+      findFirst: (...args: unknown[]) => mockFamilyMemberFindFirst(...args),
+      findUnique: (...args: unknown[]) => mockFamilyMemberFindUnique(...args)
     },
     person: {
       findMany: (...args: unknown[]) => mockPersonFindMany(...args)
@@ -124,7 +126,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: person lookups return empty (override per-test where needed)
   mockPersonFindMany.mockResolvedValue([]);
-  // visibleEventsWhere resolves the requester's households for non-admins
+  // visibleEventsWhere resolves the requester's own active membership in the
+  // bound family first (spec §7 invariant 3), then the requester's households
+  mockFamilyMemberFindUnique.mockResolvedValue({
+    familyGroupId: FAM_ID,
+    personId: REQUESTER.personId,
+    suspendedAt: null,
+    roles: []
+  });
   mockHouseholdMemberFindMany.mockResolvedValue([]);
 });
 
@@ -375,8 +384,8 @@ describe("get_rsvp_status", () => {
 // ── get_household_members ─────────────────────────────────────────────────────
 
 describe("get_household_members", () => {
-  it("returns household members when household belongs to family", async () => {
-    mockHouseholdFindFirst.mockResolvedValue({ id: "hh1", familyGroupId: FAM_ID });
+  it("returns household members when household is linked to the family via the join", async () => {
+    mockHouseholdFindFirst.mockResolvedValue({ id: "hh1" });
     mockHouseholdMemberFindMany.mockResolvedValue([{ person: PERSON_ALICE }]);
 
     const result = await get_household_members.execute!(
@@ -386,9 +395,13 @@ describe("get_household_members", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("p_alice");
+    // scoped via HouseholdFamily join, not the transitional Household.familyGroupId FK
+    expect(mockHouseholdFindFirst).toHaveBeenCalledWith({
+      where: { id: "hh1", families: { some: { familyGroupId: FAM_ID } } }
+    });
   });
 
-  it("returns empty array when household is in a different family group", async () => {
+  it("returns empty array when household is NOT linked to the family", async () => {
     mockHouseholdFindFirst.mockResolvedValue(null);
 
     const result = await get_household_members.execute!(
