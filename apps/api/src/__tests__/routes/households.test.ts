@@ -753,5 +753,101 @@ describe("households routes", () => {
         .set("Authorization", "Bearer mock");
       expect(res.status).toBe(404);
     });
+
+    it("Fix 2 (invariant 1): a foreign-family actor's ids are absent but display name + family name are present; an own-family actor's ids are present", async () => {
+      const f = await twoFamilyFixture();
+
+      // UPDATED by adminA (own family, from adminA's viewpoint)
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      await request(app)
+        .put(`/api/v1/households/${f.household.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "Renamed by A" });
+
+      // UNLINKED by adminB (foreign family, from adminA's viewpoint)
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID });
+      await request(app)
+        .post(`/api/v1/households/${f.household.id}/unlink`)
+        .set("Authorization", "Bearer mock")
+        .send({ familyGroupId: f.famB.id });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID }); // adminA views
+      const res = await request(app)
+        .get(`/api/v1/households/${f.household.id}/audit`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      const updated = res.body.entries.find((e: { action: string }) => e.action === "UPDATED");
+      const unlinked = res.body.entries.find((e: { action: string }) => e.action === "UNLINKED");
+
+      // Own-family entry: ids present
+      expect(updated.actorPersonId).toBe(f.adminA.id);
+      expect(updated.actorFamilyGroupId).toBe(f.famA.id);
+      expect(updated.actorDisplayName).toBe("Ada A");
+      expect(updated.actorFamilyName).toBe("Family A");
+
+      // Foreign-family entry: ids absent (not undefined-but-present — actually absent keys)
+      expect(unlinked).not.toHaveProperty("actorPersonId");
+      expect(unlinked).not.toHaveProperty("actorFamilyGroupId");
+      expect(unlinked.actorDisplayName).toBe("Bob B");
+      expect(unlinked.actorFamilyName).toBe("Family B");
+    });
+
+    it("Fix 2: a deleted actor still renders, with a placeholder display name, and does not crash the endpoint", async () => {
+      const f = await twoFamilyFixture();
+      await db.householdMember.create({ data: { householdId: f.household.id, personId: f.memberA.id, role: "RESIDENT" } });
+
+      // memberA self-removes -> RESIDENT_REMOVED audit entry with actorPersonId = memberA.id,
+      // actorFamilyGroupId = famA.id (memberA's own family, from adminA's later viewpoint).
+      mockGetAuth.mockReturnValue({ userId: "user_test_member_a" });
+      const del = await request(app)
+        .delete(`/api/v1/households/${f.household.id}/members/${f.memberA.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(del.status).toBe(204);
+
+      // actorPersonId/actorFamilyGroupId are deliberately logical columns (no FK) — deleting
+      // the Person must not break rendering of the audit entry that references them.
+      await db.person.delete({ where: { id: f.memberA.id } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID }); // adminA, still exists
+      const res = await request(app)
+        .get(`/api/v1/households/${f.household.id}/audit`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      const removed = res.body.entries.find((e: { action: string }) => e.action === "RESIDENT_REMOVED");
+      expect(removed).toBeDefined();
+      expect(removed.actorFamilyGroupId).toBe(f.famA.id); // own family — id still shown
+      expect(removed.actorPersonId).toBe(f.memberA.id); // dangling but still the actor's id
+      expect(removed.actorDisplayName).toBe("Unknown member"); // person no longer resolvable
+      expect(removed.actorFamilyName).toBe("Family A");
+    });
+
+    it("Fix 3/4: entries are ordered newest-first with a stable id tiebreak and capped by take", async () => {
+      const f = await oneFamilyFixture();
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+
+      await request(app)
+        .put(`/api/v1/households/${f.household.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "Rename 1" });
+      await request(app)
+        .put(`/api/v1/households/${f.household.id}`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "Rename 2" });
+
+      const res = await request(app)
+        .get(`/api/v1/households/${f.household.id}/audit`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.entries).toHaveLength(2);
+      // Newest first; when createdAt ties (same transaction timestamp), id desc breaks the tie.
+      const dbEntries = await db.householdAuditEntry.findMany({
+        where: { householdId: f.household.id },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }]
+      });
+      expect(res.body.entries.map((e: { id: string }) => e.id)).toEqual(dbEntries.map((e) => e.id));
+    });
   });
 });

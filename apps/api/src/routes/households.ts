@@ -503,19 +503,59 @@ householdsRouter.get("/:householdId/audit", async (req, res) => {
     return;
   }
 
+  // Secondary { id: "desc" } key (matches linkedFamilies' stable-order convention): rows
+  // written in the same transaction share PostgreSQL's CURRENT_TIMESTAMP, so createdAt alone
+  // ties and orders arbitrarily (e.g. an UNLINKED entry and its cascade RESIDENT_REMOVED rows).
+  // take cap (append-only table, no pagination — YAGNI): household audit entries are generated
+  // only by admin-gated mutations (rename, link/unlink, resident add/remove), realistically a
+  // few dozen per household lifetime; 200 comfortably covers years of activity while bounding
+  // worst-case query cost.
   const entries = await db.householdAuditEntry.findMany({
     where: { householdId },
-    orderBy: { createdAt: "desc" }
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: 200
   });
 
+  // Resolve actor identity for display without leaking foreign ids (spec §7 invariant 1,
+  // Steve-amended 2026-07-15 — see spec §3.3/§7.1 amendment note). actorPersonId/
+  // actorFamilyGroupId are deliberately logical columns (no FK), so an actor's Person or
+  // FamilyGroup row may no longer exist; look them up in bulk and fall back to a placeholder
+  // rather than failing to render the entry.
+  const personIds = [...new Set(entries.map((e) => e.actorPersonId))];
+  const familyIds = [...new Set(entries.map((e) => e.actorFamilyGroupId))];
+  const [actorPersons, actorFamilies, ownMemberships] = await Promise.all([
+    db.person.findMany({
+      where: { id: { in: personIds } },
+      select: { id: true, firstName: true, lastName: true, preferredName: true }
+    }),
+    db.familyGroup.findMany({ where: { id: { in: familyIds } }, select: { id: true, name: true } }),
+    // Which of the referenced actorFamilyGroupIds is the viewer actively a member of (any
+    // role) — ids are disclosed only for those, mirroring linkedFamilies' viewer-scoped
+    // id convention.
+    db.familyMember.findMany({
+      where: { personId: requester.id, suspendedAt: null, familyGroupId: { in: familyIds } },
+      select: { familyGroupId: true }
+    })
+  ]);
+  const personById = new Map(actorPersons.map((p) => [p.id, p]));
+  const familyNameById = new Map(actorFamilies.map((f) => [f.id, f.name]));
+  const ownFamilyIds = new Set(ownMemberships.map((m) => m.familyGroupId));
+
   res.json({
-    entries: entries.map((e) => ({
-      id: e.id,
-      actorPersonId: e.actorPersonId,
-      actorFamilyGroupId: e.actorFamilyGroupId,
-      action: e.action,
-      changes: e.changes,
-      createdAt: e.createdAt.toISOString()
-    }))
+    entries: entries.map((e) => {
+      const person = personById.get(e.actorPersonId);
+      const isOwnFamily = ownFamilyIds.has(e.actorFamilyGroupId);
+      return {
+        id: e.id,
+        ...(isOwnFamily
+          ? { actorPersonId: e.actorPersonId, actorFamilyGroupId: e.actorFamilyGroupId }
+          : {}),
+        actorDisplayName: person ? buildDisplayName(person) : "Unknown member",
+        actorFamilyName: familyNameById.get(e.actorFamilyGroupId) ?? "Unknown family",
+        action: e.action,
+        changes: e.changes,
+        createdAt: e.createdAt.toISOString()
+      };
+    })
   });
 });
