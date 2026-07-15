@@ -433,8 +433,11 @@ familiesRouter.get("/:familyId", async (req, res) => {
   // a household can link to several families, and a resident who is only a member of another
   // linked family must not have their DOB/Clerk id disclosed to this family (spec §7
   // invariant 1). The household-scoped view (GET /households/:id) is where every resident
-  // appears, display-names-only. No-op today: a single-linked household's residents are
-  // necessarily members of that one family.
+  // appears, display-names-only. This filter is NOT a no-op: DELETE /:familyId/members/:personId
+  // hard-deletes the FamilyMember row while the person's HouseholdMember row survives, so a
+  // person removed from the family intentionally drops out of this view immediately and
+  // remains visible (and removable) via GET /households/:id — nothing is stranded (accepted
+  // semantics, Steve, 2026-07-15 final review; see the Fix B regression test).
   const familyMemberPersonIds = new Set(family.members.map((m) => m.personId));
 
   res.json({

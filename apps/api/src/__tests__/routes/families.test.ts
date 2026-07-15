@@ -344,6 +344,42 @@ describe("families & households routes", () => {
       ).toBe(false);
     });
 
+    it("Fix B: a person removed from the family (FamilyMember hard-deleted) drops out of this view but remains visible via GET /households/:id — accepted semantics, nothing stranded", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const member = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+      const household = await db.household.create({
+        data: { name: "Shared Home", country: "US", families: { create: { familyGroupId: familyGroup.id } } }
+      });
+      await db.householdMember.create({ data: { householdId: household.id, personId: member.id } });
+
+      // Remove member from the family via the API — hard-deletes FamilyMember, leaves
+      // HouseholdMember intact (the behavior the corrected comment documents).
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const del = await request(app)
+        .delete(`/api/v1/families/${familyGroup.id}/members/${member.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(del.status).toBe(204);
+
+      const familyRes = await request(app)
+        .get(`/api/v1/families/${familyGroup.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(familyRes.status).toBe(200);
+      expect(familyRes.body.households).toHaveLength(1);
+      const familyViewMemberIds = familyRes.body.households[0].members.map((p: { id: string }) => p.id);
+      expect(familyViewMemberIds).not.toContain(member.id);
+
+      const householdRes = await request(app)
+        .get(`/api/v1/households/${household.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(householdRes.status).toBe(200);
+      const householdViewMemberIds = householdRes.body.members.map((m: { personId: string }) => m.personId);
+      expect(householdViewMemberIds).toContain(member.id);
+    });
+
     it("does NOT return a household that is not linked to this family", async () => {
       const admin = await seedTestPerson();
       const { familyGroup } = await seedTestFamily(admin.id);
