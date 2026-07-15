@@ -14,7 +14,7 @@ import {
 } from "../lib/personRequiredMessages";
 import { checkSeatExpansion } from "../lib/subscriptionEnforcement";
 import { stripe } from "../lib/stripeClient";
-import { linkedFamilies } from "../lib/householdAccess";
+import { linkedFamilies, writeHouseholdAudit } from "../lib/householdAccess";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
 export const familiesRouter = Router();
@@ -359,8 +359,11 @@ familiesRouter.post("/:familyId/households", async (req, res) => {
     await tx.householdFamily.create({
       data: { householdId: h.id, familyGroupId: familyId, linkedByPersonId: requester.id }
     });
-    await tx.householdAuditEntry.create({
-      data: { householdId: h.id, actorPersonId: requester.id, actorFamilyGroupId: familyId, action: "LINKED" }
+    await writeHouseholdAudit(tx, {
+      householdId: h.id,
+      actorPersonId: requester.id,
+      actorFamilyGroupId: familyId,
+      action: "LINKED"
     });
     return h;
   });
@@ -425,6 +428,15 @@ familiesRouter.get("/:familyId", async (req, res) => {
     return;
   }
 
+  // Household residents shown here are scoped to THIS family's own members (matches the
+  // suspension handling of `members` above — unfiltered on suspendedAt): under the M2M model
+  // a household can link to several families, and a resident who is only a member of another
+  // linked family must not have their DOB/Clerk id disclosed to this family (spec §7
+  // invariant 1). The household-scoped view (GET /households/:id) is where every resident
+  // appears, display-names-only. No-op today: a single-linked household's residents are
+  // necessarily members of that one family.
+  const familyMemberPersonIds = new Set(family.members.map((m) => m.personId));
+
   res.json({
     familyGroup: {
       id: family.id,
@@ -452,7 +464,9 @@ familiesRouter.get("/:familyId", async (req, res) => {
         createdAt: h.createdAt.toISOString(),
         updatedAt: h.updatedAt.toISOString()
       },
-      members: h.members.map((hm) => serializePersonBrief(hm.person))
+      members: h.members
+        .filter((hm) => familyMemberPersonIds.has(hm.personId))
+        .map((hm) => serializePersonBrief(hm.person))
     }))
   });
 });

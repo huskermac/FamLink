@@ -290,6 +290,60 @@ describe("families & households routes", () => {
       expect(res.body.households[0].household).not.toHaveProperty("familyGroupId");
     });
 
+    it("household members are scoped to the requesting family — a resident who is only a member of the OTHER linked family is excluded, a resident of THIS family is included (Fix 1, invariant 1)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const ownResident = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: ownResident.id, roles: [], permissions: [] }
+      });
+
+      const otherAdmin = await db.person.create({
+        data: { firstName: "Other", lastName: "Admin", ageGateLevel: "ADULT" }
+      });
+      const otherFamily = await db.familyGroup.create({
+        data: { name: "Other Family", createdById: otherAdmin.id }
+      });
+      const foreignResident = await db.person.create({
+        data: { firstName: "Foreign", lastName: "Resident", ageGateLevel: "ADULT", dateOfBirth: new Date("1990-01-01") }
+      });
+      await db.familyMember.create({
+        data: { familyGroupId: otherFamily.id, personId: foreignResident.id, roles: [], permissions: [] }
+      });
+
+      const household = await db.household.create({
+        data: {
+          name: "Shared Home",
+          country: "US",
+          families: {
+            create: [
+              { familyGroupId: familyGroup.id },
+              { familyGroupId: otherFamily.id }
+            ]
+          }
+        }
+      });
+      await db.householdMember.create({ data: { householdId: household.id, personId: ownResident.id } });
+      await db.householdMember.create({ data: { householdId: household.id, personId: foreignResident.id } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/families/${familyGroup.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.households).toHaveLength(1);
+      const memberIds = res.body.households[0].members.map((p: { id: string }) => p.id);
+      expect(memberIds).toContain(ownResident.id);
+      expect(memberIds).not.toContain(foreignResident.id);
+      // foreignResident's DOB must never reach a viewer from the other linked family
+      expect(
+        (res.body.households[0].members as Array<{ id: string; dateOfBirth: string | null }>).some(
+          (p) => p.dateOfBirth === "1990-01-01"
+        )
+      ).toBe(false);
+    });
+
     it("does NOT return a household that is not linked to this family", async () => {
       const admin = await seedTestPerson();
       const { familyGroup } = await seedTestFamily(admin.id);
