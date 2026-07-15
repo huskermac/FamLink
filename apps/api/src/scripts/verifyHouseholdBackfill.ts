@@ -1,9 +1,10 @@
 import { db } from "@famlink/db";
 
 /**
- * Run IMMEDIATELY after the expand migration, before any new links are created:
- * at that moment the backfill invariant is exactly-one-link-per-household, so
- * BOTH checks must hold (later, multi-links legitimately make totalLinks > households).
+ * Run before PR-2 ships (before any second household link can be created — expand and
+ * contract migrations apply back-to-back in a single `prisma migrate deploy`, so there is no
+ * expand-only moment). Until then the backfill invariant is exactly-one-link-per-household, so
+ * BOTH checks must hold (once multi-links are possible, totalLinks > households legitimately).
  */
 async function main() {
   const households = await db.household.count();
