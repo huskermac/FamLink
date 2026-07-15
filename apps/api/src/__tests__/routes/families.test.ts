@@ -133,6 +133,9 @@ describe("families & households routes", () => {
           country: "US"
         }
       });
+      await db.householdFamily.create({
+        data: { householdId: household.id, familyGroupId: familyGroup.id }
+      });
       const outsider = await seedSecondPerson();
       mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
       const res = await request(app)
