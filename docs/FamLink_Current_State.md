@@ -169,7 +169,9 @@ Earlier 2026-06-24/25 stream:
 
 ## GitNexus Freshness
 
-Re-analyzed 2026-07-14 on merged `main` (`de8ed98`, post-PR-#11): **2,735 nodes / 4,290 edges / 118 clusters / 85 flows** — fresh. Note from the W3b build: the index goes stale **inside a worktree** as soon as uncommitted/new files pile up (`detect_changes` produced line-mapping false positives and missed brand-new files all branch long — documented per-task, harmless once known, but don't trust worktree `detect_changes` symbol lists without a `git diff` cross-check).
+Re-analyzed 2026-07-15 on `main` (`e85e9b4`, the W1 PR-1 checkpoint): **2,782 nodes / 4,419 edges / 104 clusters / 116 flows** — fresh **against `main`**. Note: `main` does NOT yet contain W1 PR-1 (that's PR #12, unmerged), so the index does not know `HouseholdFamily`, `householdAccess.ts`, or any branch symbol. **Re-analyze after PR #12 merges.** Confirmed again this session: `impact`/`detect_changes` return "not found" for symbols added on a feature branch — cross-check with `git diff`/grep and say so, per the W3b note below.
+
+Prior: re-analyzed 2026-07-14 on merged `main` (`de8ed98`, post-PR-#11): **2,735 nodes / 4,290 edges / 118 clusters / 85 flows** — fresh. Note from the W3b build: the index goes stale **inside a worktree** as soon as uncommitted/new files pile up (`detect_changes` produced line-mapping false positives and missed brand-new files all branch long — documented per-task, harmless once known, but don't trust worktree `detect_changes` symbol lists without a `git diff` cross-check).
 
 Prior: re-analyzed 2026-07-06 against `7b59c18` (W3a-UI-mobile complete): 2,679 nodes / 4,277 edges / 103 clusters / 109 flows; the earlier `p3-03-w3a-ui-web` phantom-slot warning no longer appears — `main` is the primary slot again.
 
