@@ -137,16 +137,27 @@ under vitest — this is its prod verification, run after deploy):
 ```ts
 import { db } from "@famlink/db";
 
+/**
+ * Run IMMEDIATELY after the expand migration, before any new links are created:
+ * at that moment the backfill invariant is exactly-one-link-per-household, so
+ * BOTH checks must hold (later, multi-links legitimately make totalLinks > households).
+ */
 async function main() {
   const households = await db.household.count();
   const linked = await db.household.count({ where: { families: { some: {} } } });
   const links = await db.householdFamily.count();
   console.log(JSON.stringify({ households, householdsWithAtLeastOneLink: linked, totalLinks: links }));
+  let failed = false;
   if (linked !== households) {
     const orphans = await db.household.findMany({ where: { families: { none: {} } }, select: { id: true } });
     console.error(`ORPHANS (no link): ${orphans.map((o) => o.id).join(", ")}`);
-    process.exit(1);
+    failed = true;
   }
+  if (links !== households) {
+    console.error(`COUNT MISMATCH: expected exactly one link per household post-backfill (households=${households}, links=${links})`);
+    failed = true;
+  }
+  if (failed) process.exit(1);
 }
 
 main().finally(() => db.$disconnect());
@@ -212,7 +223,7 @@ describe("HouseholdFamily schema", () => {
     });
     const rows = await db.householdAuditEntry.findMany({
       where: { householdId: household.id },
-      orderBy: { createdAt: "desc" }
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }] // stable secondary key — same ordering the audit route uses
     });
     expect(rows.map((r) => r.action)).toEqual(["UPDATED", "LINKED"]);
   });
@@ -227,11 +238,11 @@ Expected: PASS 3/3. (If the test DB predates the migration, the vitest setup app
 
 - [ ] **Step 6: Verify + commit**
 
-`npm run lint && npm run type-check` from repo root — both clean (nothing existing reads the new tables yet; `familyGroupId` still exists so nothing breaks). `mcp__gitnexus__detect_changes()` — expected scope: schema/personIdentity only.
+`npm run lint && npm run type-check` from repo root — both clean (nothing existing reads the new tables yet; `familyGroupId` still exists so nothing breaks). `mcp__gitnexus__detect_changes()` — expected scope: schema, `personIdentity`, `families.ts` household creation, the new verification script, and tests.
 
 ```bash
-git add packages/db/prisma apps/api/src/lib/personIdentity.ts apps/api/src/__tests__
-git commit -m "feat: P3-04 HouseholdFamily M2M join + audit tables, backfill, merge-map entries"
+git add packages/db/prisma apps/api/src/lib/personIdentity.ts apps/api/src/routes/families.ts apps/api/src/scripts/verifyHouseholdBackfill.ts apps/api/src/__tests__
+git commit -m "feat: P3-04 HouseholdFamily M2M join + audit tables, backfill, creation dual-write, merge-map entries"
 ```
 
 ---
@@ -436,7 +447,7 @@ git commit -m "feat: P3-04 householdAccess helpers (any-linked-family viewer/adm
 Behavior changes, exhaustively:
 1. **PUT**: authz `householdAdmin`; wrap update + `writeHouseholdAudit` in `db.$transaction`; `changes` = field-level diff of the fields actually modified (compare loaded row to parsed body, only keys present in the body and different); `action: "UPDATED"`; `actorFamilyGroupId` = the requester's admin membership family among the linked ones (first match). Response drops `familyGroupId`, adds `linkedFamilies`.
 2. **POST /:id/members**: requester rule becomes `householdAdmin`; the "person must be a member of the family" check becomes *person must be an active member of ANY linked family* (`anyLinkedMembership` semantics — implement via `db.familyMember.findFirst({ where: { personId: body.personId, suspendedAt: null, familyGroup: { householdLinks: { some: { householdId } } } } })`). Audit `RESIDENT_ADDED` in the same transaction.
-3. **DELETE /:id/members/:personId**: requester rule: self-removal stays; otherwise `householdAdmin`. Audit `RESIDENT_REMOVED` (skip audit for pure self-removal? No — audit ALL removals; actor = requester).
+3. **DELETE /:id/members/:personId**: requester rule: self-removal stays; otherwise `householdAdmin`. Audit `RESIDENT_REMOVED` for ALL removals, actor = requester. **`actorFamilyGroupId` for self-removal by a plain member:** use the requester's first active membership among the linked families (the `anyLinkedMembership` query — NOT `actorAdminFamily`, which returns null for non-admins and would break self-removal; council round-2 BLOCKER). For admin-performed removals, `actorAdminFamily` as elsewhere.
 4. **NEW GET /:id**: authz `householdViewer`; include `linkedFamilies` + members with `displayName` (use the existing display-name builder the repo uses — grep `buildDisplayName`); members' display names only, no family memberships of residents (invariant 1).
 5. **NEW POST /:id/unlink**: authz = admin **of the family being unlinked** (requester must hold an admin membership in `body.familyGroupId` itself, not just any linked family — check with `activeFamilyMembership(body.familyGroupId, requester.id)` + `hasAdminRole`); count links; if 1 and `!destroy` → `409 LAST_LINK`; if `destroy` → transaction: audit `DESTROYED` then delete household (cascades take `HouseholdMember` + `HouseholdFamily`; `HouseholdAuditEntry` rows persist by design). Otherwise transaction: delete the link + audit `UNLINKED`.
 6. **NEW GET /:id/audit**: authz `householdAdmin`; entries newest-first.
@@ -488,11 +499,14 @@ const changes: Record<string, { from: unknown; to: unknown }> = {};
 for (const key of ["name", "street", "city", "state", "zip", "country"] as const) {
   if (d[key] !== undefined && d[key] !== before[key]) changes[key] = { from: before[key], to: d[key] };
 }
+// No-op guard (council round-2 BLOCKER): if nothing actually changes, skip the update
+// entirely — otherwise Prisma advances updatedAt, an unaudited mutation.
+if (Object.keys(changes).length === 0) {
+  return res.json(/* current row, same response shape */);
+}
 const updated = await db.$transaction(async (tx) => {
   const u = await tx.household.update({ where: { id: householdId }, data: { /* same spread as today */ } });
-  if (Object.keys(changes).length > 0) {
-    await writeHouseholdAudit(tx, { householdId, actorPersonId: requester.id, actorFamilyGroupId, action: "UPDATED", changes });
-  }
+  await writeHouseholdAudit(tx, { householdId, actorPersonId: requester.id, actorFamilyGroupId, action: "UPDATED", changes });
   return u;
 });
 ```
@@ -711,7 +725,7 @@ git commit -m "feat: P3-04 family-scoped household reads/creation via join table
 
 - [ ] **Step 3: Fix compile fallout** — `npm run type-check`; fix every error (test fixtures across the suite that pass `familyGroupId` when creating households must switch to `families: { create: { familyGroupId } }` nested writes or a create-then-link pair — update the Task 1/2/4 fixtures in this plan's own test files the same way).
 
-- [ ] **Step 4: Web types** — in `apps/web/lib/api/family.ts` update the household shapes (drop `familyGroupId`, add `linkedFamilies?: { id: string; name: string }[]`); adjust the family page render if it referenced the field. Run web suite WITH the coverage gate: from `apps/web`: `npx vitest run --coverage` (NOT `npm test --workspace=famlink-web` alone — it skips the gate; workspace name is `famlink-web`).
+- [ ] **Step 4: Web types** — in `apps/web/lib/api/family.ts` update the household shapes (drop `familyGroupId`, add `linkedFamilies?: { id?: string; name: string }[]` — `id` optional: foreign linked families intentionally omit it); adjust the family page render if it referenced the field. Run web suite WITH the coverage gate: from `apps/web`: `npx vitest run --coverage` (NOT `npm test --workspace=famlink-web` alone — it skips the gate; workspace name is `famlink-web`).
 
 - [ ] **Step 5: Full verification**
 
