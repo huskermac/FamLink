@@ -121,6 +121,12 @@ when the viewer is an active member of that entry's `actorFamilyGroupId`; otherw
 the actor's display name and family name only, with the id fields absent (not `undefined`).
 This endpoint had no consumer at the time of the fix, so the shape change is free.
 
+One nuance of the entry being a snapshot, not a live FK (this section, above): `actorFamilyName`
+can name a family that is **no longer linked** to the household at read time (an admin unlinks,
+then a viewer of a still-linked family later reads that historical entry). This is accepted, not
+a defect — invariant 1 permits family **names** across a link, and the audit log is explicitly a
+historical record of who acted, not a live capability grant.
+
 ### 3.4 Unchanged
 
 `FamilyMember` (roles, permissions, `suspendedAt` = suspension mechanism), `HouseholdMember`,
