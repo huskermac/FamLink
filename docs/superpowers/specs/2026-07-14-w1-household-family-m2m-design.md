@@ -146,9 +146,16 @@ appends a `HouseholdAuditEntry` in the same transaction.
 
 ### 6.1 Household routes (reworked, `routes/households.ts`)
 
-- `GET /households/:id` — viewer. Response adds `linkedFamilies: [{id, name}]` (family *names*
-  are consented-visible across a link) and keeps residents.
-- `PATCH /households/:id` — admin of any linked family; audit-logged field diff.
+- `GET /households/:id` — viewer. Response adds `linkedFamilies: [{id?, name}]` — family
+  **names** are consented-visible across a link; the `id` is included **only for families the
+  viewer is an active member of** (invariant 1: no foreign family ids; the only id-consuming
+  operation, unlink, always targets the caller's own family). *(Amended 2026-07-14, council
+  round 1 — the original `{id, name}` contradicted invariant 1.)*
+- `PUT /households/:id` — admin of any linked family; audit-logged field diff. *(Amended
+  2026-07-14: the existing route verb is PUT with partial-update semantics; kept.)*
+- Household **creation** (`POST /families/:familyId/households`) writes the household, its
+  initial `HouseholdFamily` link, and a `LINKED` audit entry in one transaction. *(Amended
+  2026-07-14, council round 1 — creation is a mutation; every mutation is audited.)*
 - `POST /households/:id/unlink` `{familyGroupId, destroy?: boolean}` — admin of **that**
   family. Last link → `409 LAST_LINK` unless `destroy: true` (deletes household +
   `HouseholdMember` rows; `DESTROYED` audit entry written first). Replaces `DELETE`.

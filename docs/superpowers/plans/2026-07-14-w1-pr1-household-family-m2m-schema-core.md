@@ -29,8 +29,10 @@
 - Modify: `packages/db/prisma/schema.prisma` (Household, FamilyGroup, two new models)
 - Create: `packages/db/prisma/migrations/<timestamp>_household_family_m2m_expand/migration.sql` (generated, then hand-edited to add the backfill INSERT)
 - Modify: `apps/api/src/lib/personIdentity.ts` (merge-engine logical-column map)
+- Modify: `apps/api/src/routes/families.ts` (`POST /:familyId/households` ~line 315 — dual-write: keep the FK write AND create the link + `LINKED` audit entry in one transaction, so every household created after this task has a link; council round-1 finding — without this, Task 3's join-based authz would lock out newly created households until Task 4)
+- Create: `apps/api/src/scripts/verifyHouseholdBackfill.ts` (post-deploy verification: counts households vs. `HouseholdFamily` links, prints orphans; read-only, exits non-zero on mismatch — the backfill SQL itself can't run under vitest, this script is its prod verification)
 - Modify: `packages/db/prisma/seed.ts` — IF it creates households (check with `grep -n "household" packages/db/prisma/seed.ts`), add a matching `householdFamily` link per created household
-- Test: `apps/api/src/__tests__/lib/householdFamily.test.ts` (new)
+- Test: `apps/api/src/__tests__/lib/householdFamily.test.ts` (new) + extend `apps/api/src/__tests__/routes/families.test.ts` (creation writes FK + link + LINKED audit)
 
 **Interfaces:**
 - Produces (later tasks rely on): Prisma models `HouseholdFamily` (`householdId`, `familyGroupId`, `linkedAt`, `linkedByPersonId`, unique `[householdId, familyGroupId]`, relations `household`/`familyGroup`) and `HouseholdAuditEntry` (`householdId`, `actorPersonId`, `actorFamilyGroupId`, `action`, `changes Json?`, `createdAt`). `Household.familyGroupId` STILL EXISTS after this task (dropped in Task 5). New relation fields: `Household.families: HouseholdFamily[]`, `FamilyGroup.householdLinks: HouseholdFamily[]`.
@@ -103,6 +105,53 @@ In `apps/api/src/lib/personIdentity.ts`, find the logical/no-FK person-column ma
 
 Read the surrounding code first — mirror how other nullable logical person-columns are registered (e.g. how `AssistantMessage.personId` or `EventPhoto.uploadedById` entries look), including whether they use a dedupe key.
 
+- [ ] **Step 3b: Creation dual-write + LINKED audit (council round-1 finding)**
+
+In `apps/api/src/routes/families.ts` `POST /:familyId/households` (~line 347), wrap creation in
+a transaction that keeps the FK write and adds the link + audit entry:
+
+```ts
+const household = await db.$transaction(async (tx) => {
+  const h = await tx.household.create({
+    data: { familyGroupId, name: d.name, street: d.street, city: d.city, state: d.state, zip: d.zip, country: d.country }
+  });
+  await tx.householdFamily.create({
+    data: { householdId: h.id, familyGroupId, linkedByPersonId: requester.id }
+  });
+  await tx.householdAuditEntry.create({
+    data: { householdId: h.id, actorPersonId: requester.id, actorFamilyGroupId: familyGroupId, action: "LINKED" }
+  });
+  return h;
+});
+```
+
+(Adapt variable names to the handler's actual locals; response shape unchanged in this task.)
+Extend `families.test.ts`: creating a household also creates exactly one `HouseholdFamily` row
+(`linkedByPersonId` = requester) and one `LINKED` audit entry.
+
+- [ ] **Step 3c: Backfill verification script**
+
+Create `apps/api/src/scripts/verifyHouseholdBackfill.ts` (read-only; the backfill SQL can't run
+under vitest — this is its prod verification, run after deploy):
+
+```ts
+import { db } from "@famlink/db";
+
+async function main() {
+  const households = await db.household.count();
+  const linked = await db.household.count({ where: { families: { some: {} } } });
+  const links = await db.householdFamily.count();
+  console.log(JSON.stringify({ households, householdsWithAtLeastOneLink: linked, totalLinks: links }));
+  if (linked !== households) {
+    const orphans = await db.household.findMany({ where: { families: { none: {} } }, select: { id: true } });
+    console.error(`ORPHANS (no link): ${orphans.map((o) => o.id).join(", ")}`);
+    process.exit(1);
+  }
+}
+
+main().finally(() => db.$disconnect());
+```
+
 - [ ] **Step 4: Write the failing test**
 
 `apps/api/src/__tests__/lib/householdFamily.test.ts` (real test DB; mirror the fixture style of `apps/api/src/__tests__/lib/smsConsent.test.ts`, and register any new-table truncation the same way that suite's tables are registered in the test setup — check `apps/api/src/__tests__/setup/afterEach.ts`):
@@ -145,19 +194,27 @@ describe("HouseholdFamily schema", () => {
     ).rejects.toMatchObject({ code: "P2002" });
   });
 
-  it("audit entries append and read back in order", async () => {
+  it("audit entries append and read back newest-first", async () => {
     const creator = await db.person.create({ data: { firstName: "Ann", lastName: "Admin" } });
     const family = await db.familyGroup.create({ data: { name: "Fam", createdById: creator.id } });
     const household = await db.household.create({ data: { familyGroupId: family.id, name: "Home" } });
     await db.householdAuditEntry.create({
       data: {
         householdId: household.id, actorPersonId: creator.id, actorFamilyGroupId: family.id,
+        action: "LINKED", createdAt: new Date(Date.now() - 60_000)
+      }
+    });
+    await db.householdAuditEntry.create({
+      data: {
+        householdId: household.id, actorPersonId: creator.id, actorFamilyGroupId: family.id,
         action: "UPDATED", changes: { name: { from: "Home", to: "New Home" } }
       }
     });
-    const rows = await db.householdAuditEntry.findMany({ where: { householdId: household.id } });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.action).toBe("UPDATED");
+    const rows = await db.householdAuditEntry.findMany({
+      where: { householdId: household.id },
+      orderBy: { createdAt: "desc" }
+    });
+    expect(rows.map((r) => r.action)).toEqual(["UPDATED", "LINKED"]);
   });
 });
 ```
@@ -190,7 +247,7 @@ git commit -m "feat: P3-04 HouseholdFamily M2M join + audit tables, backfill, me
 - Produces (Tasks 3–4 rely on):
   - `householdViewer(householdId: string, personId: string): Promise<boolean>`
   - `householdAdmin(householdId: string, personId: string): Promise<boolean>`
-  - `linkedFamilies(householdId: string): Promise<{ id: string; name: string }[]>`
+  - `linkedFamilies(householdId: string, viewerPersonId: string): Promise<{ id?: string; name: string }[]>` — `id` only for the viewer's own families (confirm the FamilyGroup→FamilyMember relation field name in `schema.prisma` — likely `members` — and adjust the include)
   - `writeHouseholdAudit(tx, entry: { householdId: string; actorPersonId: string; actorFamilyGroupId: string; action: "UPDATED" | "LINKED" | "UNLINKED" | "RESIDENT_ADDED" | "RESIDENT_REMOVED" | "DESTROYED"; changes?: Record<string, { from: unknown; to: unknown }> }): Promise<void>` where `tx` is a Prisma transaction client (`Prisma.TransactionClient`).
 
 - [ ] **Step 1: Write the failing tests**
@@ -241,11 +298,15 @@ describe("householdAccess", () => {
     expect(await householdAdmin(f.household.id, f.adminB.id)).toBe(false);
   });
 
-  it("linkedFamilies returns id+name of every linked family", async () => {
+  it("linkedFamilies: every linked family's NAME; ids only for the viewer's own families", async () => {
     const f = await fixture();
-    const fams = await linkedFamilies(f.household.id);
-    expect(fams.map((x) => x.name).sort()).toEqual(["Alpha", "Beta"]);
-    expect(Object.keys(fams[0] ?? {}).sort()).toEqual(["id", "name"]); // names only — isolation invariant 1
+    const forMemberA = await linkedFamilies(f.household.id, f.memberA.id);
+    expect(forMemberA.map((x) => x.name).sort()).toEqual(["Alpha", "Beta"]);
+    const alpha = forMemberA.find((x) => x.name === "Alpha");
+    const beta = forMemberA.find((x) => x.name === "Beta");
+    expect(alpha?.id).toBe(f.famA.id);          // memberA belongs to Alpha → id present
+    expect(beta?.id).toBeUndefined();           // memberA is NOT in Beta → no foreign family id (invariant 1)
+    expect(Object.keys(beta ?? {})).toEqual(["name"]);
   });
 });
 ```
@@ -286,14 +347,34 @@ export async function householdAdmin(householdId: string, personId: string): Pro
   return memberships.some((m) => hasAdminRole(m));
 }
 
-/** Names of linked families are consented-visible across a link (spec §7 invariant 1). */
-export async function linkedFamilies(householdId: string): Promise<{ id: string; name: string }[]> {
+/**
+ * Names of linked families are consented-visible across a link; the id is included ONLY
+ * for families the viewer is an active member of (spec §7 invariant 1 — no foreign family
+ * ids; unlink, the only id-consuming call, always targets the caller's own family).
+ * Amended 2026-07-14 (council round 1).
+ */
+export async function linkedFamilies(
+  householdId: string,
+  viewerPersonId: string
+): Promise<{ id?: string; name: string }[]> {
   const links = await db.householdFamily.findMany({
     where: { householdId },
-    include: { familyGroup: { select: { id: true, name: true } } },
-    orderBy: { linkedAt: "asc" }
+    include: {
+      familyGroup: {
+        select: {
+          id: true,
+          name: true,
+          members: { where: { personId: viewerPersonId, suspendedAt: null }, select: { id: true } }
+        }
+      }
+    },
+    orderBy: [{ linkedAt: "asc" }, { id: "asc" }] // stable secondary order
   });
-  return links.map((l) => ({ id: l.familyGroup.id, name: l.familyGroup.name }));
+  return links.map((l) =>
+    l.familyGroup.members.length > 0
+      ? { id: l.familyGroup.id, name: l.familyGroup.name }
+      : { name: l.familyGroup.name }
+  );
 }
 
 export type HouseholdAuditAction =
@@ -345,12 +426,12 @@ git commit -m "feat: P3-04 householdAccess helpers (any-linked-family viewer/adm
 **Interfaces:**
 - Consumes: Task 2's `householdViewer`/`householdAdmin`/`linkedFamilies`/`writeHouseholdAudit`; existing `personed` middleware.
 - Produces (web/PR-3 rely on):
-  - `GET /households/:householdId` → `{ id, name, street, city, state, zip, country, createdAt, updatedAt, linkedFamilies: [{id, name}], members: [{ id, personId, role, joinedAt, displayName }] }`
+  - `GET /households/:householdId` → `{ id, name, street, city, state, zip, country, createdAt, updatedAt, linkedFamilies: [{id?, name}], members: [{ id, personId, role, joinedAt, displayName }] }` — `linkedFamilies[].id` present only for the viewer's own families (Task 2 shape)
   - `PUT /households/:householdId` → same shape as GET (no `familyGroupId` field anymore)
   - `POST /households/:householdId/unlink` `{ familyGroupId, destroy?: boolean }` → 204; last link without destroy → `409 { error: "LAST_LINK" }`
   - `GET /households/:householdId/audit` → `{ entries: [{ id, actorPersonId, actorFamilyGroupId, action, changes, createdAt }] }`
 
-(Verb note: spec §6.1 writes `PATCH /households/:id`; the existing route is `PUT` and stays `PUT` — partial-update semantics are already what the handler implements via `UpdateHouseholdSchema.partial()`. Spec notation, not a contract change.)
+(Verb note: spec §6.1 was amended 2026-07-14 to `PUT` — the existing route verb, whose handler already implements partial-update semantics via `UpdateHouseholdSchema.partial()`.)
 
 Behavior changes, exhaustively:
 1. **PUT**: authz `householdAdmin`; wrap update + `writeHouseholdAudit` in `db.$transaction`; `changes` = field-level diff of the fields actually modified (compare loaded row to parsed body, only keys present in the body and different); `action: "UPDATED"`; `actorFamilyGroupId` = the requester's admin membership family among the linked ones (first match). Response drops `familyGroupId`, adds `linkedFamilies`.
@@ -390,6 +471,8 @@ it("unlink the last link without destroy: 409 LAST_LINK, nothing deleted");
 it("unlink last link with destroy:true: 204, household + members gone, DESTROYED audit entry persists");
 it("unlink requires admin of the named family itself (admin of the OTHER family is 403)");
 it("GET audit returns entries newest-first to any linked family's admin, 403 to plain members");
+it("invariant-1 leak regression: GET household response for a cross-family viewer contains EXACTLY the whitelisted keys — deep-check: top-level [id,name,street,city,state,zip,country,createdAt,updatedAt,linkedFamilies,members]; linkedFamilies rows only [name] (foreign) or [id,name] (own); member rows only [id,personId,role,joinedAt,displayName] — no family memberships, rosters, or foreign ids anywhere");
+it("audit history persists after destroy (append-only): DESTROYED entry readable-by-DB after the household row is gone");
 ```
 
 Write each as a full test with real assertions on DB state (audit rows, link rows, household existence) — the pattern above is the case list, not the implementation; every `it` must contain a complete body asserting status code AND the resulting DB state.
@@ -414,19 +497,57 @@ const updated = await db.$transaction(async (tx) => {
 });
 ```
 
-`actorFamilyGroupId` resolution (used by PUT/members/unlink/destroy): the requester's first non-suspended admin membership among the household's linked families — one query:
+`actorFamilyGroupId` resolution (used by PUT/members/destroy): fetch **all** the requester's
+active linked memberships and pick the first that passes `hasAdminRole` — a `findFirst` by
+join date can land on a non-admin membership and wrongly reject a legitimate admin (council
+round-1 BLOCKER):
 
 ```ts
 async function actorAdminFamily(householdId: string, personId: string): Promise<string | null> {
-  const m = await db.familyMember.findFirst({
+  const memberships = await db.familyMember.findMany({
     where: { personId, suspendedAt: null, familyGroup: { householdLinks: { some: { householdId } } } },
     orderBy: { joinedAt: "asc" }
   });
-  return m && hasAdminRole(m) ? m.familyGroupId : null;
+  const admin = memberships.find((m) => hasAdminRole(m));
+  return admin ? admin.familyGroupId : null;
 }
 ```
 
 (For unlink, `actorFamilyGroupId` is simply `body.familyGroupId`.)
+
+**Unlink handler — two hard requirements (council round-1 BLOCKERs):**
+
+1. **Verify the named link exists before anything else.** After the admin check on
+   `body.familyGroupId`, load the exact `HouseholdFamily` row
+   (`householdId_familyGroupId` unique); missing → `404 { error: "Link not found" }`.
+   Without this, an admin of an unrelated family could pass `destroy: true` with their own
+   family id against a single-linked household and delete another tenant's household.
+2. **Serialize the min-1 check.** Count-then-delete races: two concurrent unlinks on a
+   two-link household can both observe count 2 and leave the household tenantless. Lock the
+   household row first, inside the transaction:
+
+```ts
+await db.$transaction(async (tx) => {
+  await tx.$queryRaw`SELECT "id" FROM "Household" WHERE "id" = ${householdId} FOR UPDATE`;
+  const link = await tx.householdFamily.findUnique({
+    where: { householdId_familyGroupId: { householdId, familyGroupId: body.familyGroupId } }
+  });
+  if (!link) throw new LinkNotFound(); // handler maps to 404
+  const count = await tx.householdFamily.count({ where: { householdId } });
+  if (count === 1 && !body.destroy) throw new LastLink(); // handler maps to 409 LAST_LINK
+  if (count === 1 && body.destroy) {
+    await writeHouseholdAudit(tx, { householdId, actorPersonId: requester.id, actorFamilyGroupId: body.familyGroupId, action: "DESTROYED" });
+    await tx.household.delete({ where: { id: householdId } }); // cascades HouseholdMember + HouseholdFamily; audit rows persist
+    return;
+  }
+  await tx.householdFamily.delete({ where: { id: link.id } });
+  await writeHouseholdAudit(tx, { householdId, actorPersonId: requester.id, actorFamilyGroupId: body.familyGroupId, action: "UNLINKED" });
+});
+```
+
+(`LinkNotFound`/`LastLink` are two local `class X extends Error {}` markers caught around the
+transaction — follow however the file already maps thrown errors to responses; if it doesn't,
+a simple try/catch with `instanceof` is fine.)
 
 - [ ] **Step 4: Run to verify all pass** — full file: `npx vitest run src/__tests__/routes/households.test.ts` → PASS.
 
@@ -454,17 +575,26 @@ git commit -m "feat: P3-04 household routes on any-linked-family authz + audit +
 - Produces: `householdIdsForPerson(personId: string, familyGroupId: string): Promise<string[]>` — new second parameter; only households BOTH containing the person AND linked to that family.
 
 Behavior changes, exhaustively:
-1. **`POST /families/:familyId/households`**: create household + `HouseholdFamily` link in one transaction (`linkedByPersonId` = requester). While `Household.familyGroupId` still exists (until Task 5) keep writing it too — both writes, same transaction. Response: replace `familyGroupId` with `linkedFamilies: [{ id, name }]`.
+1. *(moved to Task 1 — creation dual-write + link + `LINKED` audit already landed there; this task only changes the creation RESPONSE shape: replace `familyGroupId` with `linkedFamilies` per Task 3's viewer-scoped shape.)*
 2. **Family GET `households`**: switch the include to `householdLinks: { include: { household: { include: { members: ... } } } }` (mirror whatever the current nested include selects) and map `family.householdLinks.map((link) => ({ household: { ...same fields as today minus familyGroupId } }))` — the outer response shape (`households: [{ household: {...} }]`) stays identical minus the dropped field.
-3. **`eventVisibility.householdIdsForPerson`** gains `familyGroupId` and filters through the join:
+3. **`eventVisibility.householdIdsForPerson`** gains `familyGroupId` and enforces invariant 3
+by requiring the **viewer's own active membership in the event's family** — NOT merely that
+the household is linked to it (a shared household is linked to both families, so a
+link-based filter would pass in exactly the leak scenario; council round-1 BLOCKER):
 
 ```ts
+/**
+ * Household-invite visibility requires the viewer to be an active member of the
+ * event's family (spec §7 invariant 3). A household shared with another family
+ * must not surface this family's events to residents who aren't members here.
+ */
 async function householdIdsForPerson(personId: string, familyGroupId: string): Promise<string[]> {
+  const membership = await db.familyMember.findUnique({
+    where: { familyGroupId_personId: { familyGroupId, personId } }
+  });
+  if (!membership || membership.suspendedAt !== null) return [];
   const rows = await db.householdMember.findMany({
-    where: {
-      personId,
-      household: { families: { some: { familyGroupId } } }
-    },
+    where: { personId, household: { families: { some: { familyGroupId } } } },
     select: { householdId: true }
   });
   return rows.map((r) => r.householdId);
@@ -575,7 +705,7 @@ git commit -m "feat: P3-04 family-scoped household reads/creation via join table
 - Modify: `apps/web/lib/api/family.ts` (household response types: drop `familyGroupId`, add `linkedFamilies`), `apps/web/app/(protected)/family/[familyId]/page.tsx` (if it renders the dropped field — check), `apps/web/app/onboarding/steps/HouseholdStep.tsx` (uses the URL only — expected no change; verify)
 - Test: existing suites (regression)
 
-- [ ] **Step 1: Remove transitional writes/reads** — delete the Task-4 double-write of `familyGroupId` in `families.ts` household creation; remove `familyGroup`/`familyGroupId` from any remaining household include/select in `apps/api/src`.
+- [ ] **Step 1: Remove transitional writes/reads** — delete the Task-1 double-write of `familyGroupId` in `families.ts` household creation (keep the link + audit writes); remove `familyGroup`/`familyGroupId` from any remaining household include/select in `apps/api/src`.
 
 - [ ] **Step 2: Schema contract + migration** — remove `familyGroupId`, `familyGroup` from `model Household`; remove `households Household[]` from `model FamilyGroup`. From `packages/db`: `npx prisma migrate dev --name household_family_m2m_contract`. Generated SQL should be exactly a `DROP COLUMN` (plus its FK/index) — inspect it; anything else means a schema edit went wrong.
 
@@ -606,4 +736,4 @@ git commit -m "feat: P3-04 drop Household.familyGroupId — join table is the on
 
 ## Deploy note (Steve, after merge)
 
-`npx prisma migrate deploy` on Railway prod applies BOTH migrations (expand+backfill, then contract) in order — the backfill runs while the column still exists, so ordering is safe by construction. No env changes. Prod data: 3 families / 12 persons; every household ends with exactly one link (today's behavior, unchanged UX).
+`npx prisma migrate deploy` on Railway prod applies BOTH migrations (expand+backfill, then contract) in order — the backfill runs while the column still exists, so ordering is safe by construction. Then run `npx tsx src/scripts/verifyHouseholdBackfill.ts` (from `apps/api`, against prod `DATABASE_URL`) — it exits non-zero and prints orphan household ids if any household lacks a link. No env changes. Prod data: 3 families / 12 persons; every household ends with exactly one link (today's behavior, unchanged UX).
