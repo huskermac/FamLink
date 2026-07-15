@@ -648,6 +648,39 @@ describe("households routes", () => {
       expect(removed).toHaveLength(0);
     });
 
+    it("leaves an orphaned resident untouched — no active membership in the unlinked family or any remaining linked family", async () => {
+      const f = await twoFamilyFixture();
+      // outsider has a HouseholdMember row but is not an active member of famA (stays linked)
+      // or famB (being unlinked) — an out-of-scope stray membership. Only losses caused by
+      // THIS unlink are in scope; this regression-guards the `inUnlinkedFamily.has(id) &&`
+      // conjunct in the cascade criterion (without it, "not in any remaining family" alone
+      // would over-broadly sweep this resident up too).
+      await db.householdMember.create({
+        data: { householdId: f.household.id, personId: f.outsider.id, role: "RESIDENT" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID }); // adminB unlinks famB
+      const res = await request(app)
+        .post(`/api/v1/households/${f.household.id}/unlink`)
+        .set("Authorization", "Bearer mock")
+        .send({ familyGroupId: f.famB.id });
+
+      expect(res.status).toBe(204);
+
+      const hm = await db.householdMember.findUnique({
+        where: { householdId_personId: { householdId: f.household.id, personId: f.outsider.id } }
+      });
+      expect(hm).not.toBeNull();
+
+      const entries = await db.householdAuditEntry.findMany({ where: { householdId: f.household.id } });
+      const removedEntry = entries.find(
+        (e) =>
+          e.action === "RESIDENT_REMOVED" &&
+          (e.changes as { personId?: { from?: string } } | null)?.personId?.from === f.outsider.id
+      );
+      expect(removedEntry).toBeUndefined();
+    });
+
     it("destroy:true on the last link still deletes the household and all its members (unaffected by the cascade)", async () => {
       const f = await oneFamilyFixture();
       const resident = await seedPerson("user_test_resident2", "Res2", "Ident2");

@@ -1,13 +1,14 @@
-import { db, type Prisma } from "@famlink/db";
+import { db, type FamilyMember, type Prisma } from "@famlink/db";
 import { hasAdminRole } from "./familyAccess";
 
 /**
  * Membership row (active, non-suspended) in any family linked to the household, or null.
- * Exported: the sole authorization predicate for "is this person a member of any family
- * linked to this household" — households.ts imports this rather than re-implementing it, so
- * the predicate can't silently diverge between the two files.
+ * Exported: households.ts imports this rather than re-implementing the same lookup, so the
+ * two files can't silently diverge on "is this person a member of any family linked to this
+ * household". Note: householdAdmin (below) and actorAdminFamily (households.ts) still inline
+ * the identical where clause for their own membership queries — this is not the sole copy.
  */
-export async function anyLinkedMembership(householdId: string, personId: string) {
+export async function anyLinkedMembership(householdId: string, personId: string): Promise<FamilyMember | null> {
   return db.familyMember.findFirst({
     where: {
       personId,
