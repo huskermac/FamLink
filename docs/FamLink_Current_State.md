@@ -4,8 +4,8 @@
 
 | Field | Value |
 |---|---|
-| Last updated | 2026-07-14 |
-| Branch | `main` (W3b COMPLETE — PR #11 squash `95e876a`; naming-shortlist doc rebased on top as `de8ed98`). |
+| Last updated | 2026-07-14 (second checkpoint — W1 designed + planned) |
+| Branch | `main` (W3b COMPLETE — PR #11 squash `95e876a`; W1 spec `3f15f2e` + PR-1 plan converged `ca37977`). |
 | Checkpoint | **W3b passive SMS onboarding COMPLETE (2026-07-14), PR #11 MERGED (squash `95e876a`).** Inbound Twilio webhook (`POST /api/v1/webhooks/twilio/sms`, signature-verified before any DB work) → keyword handler (Y/N RSVP + phone verification, STOP/START/HELP, idempotent most-recent-invitation resolution **scoped to guest invitations** — final-review catch prevented hijacking W3a participation invites); `SmsConsent` suppression list gating both outbound Twilio send sites; compliance footer + 320-char GSM-7-safe budget on guest invite SMS; shared `rsvpClosed` deadline helper now used by both web-link and SMS RSVP paths. New env `API_PUBLIC_URL`. Additive migration only (`20260710183002_sms_consent`). **NOT YET DEPLOYED — see Open Blockers #6 (Steve deploy checklist).** **Next: W4 (Pro Organizer beta) or W1 (Household↔Family M2M) — Steve to choose.** |
 | Local verification | PASS (W3b, 2026-07-14): full API suite **478/478** (43 files; 49 new tests), full web suite **169/169** (coverage gate green at **87.29%** lines, threshold 80; web untouched), repo-root `type-check` 6/6 clean, `lint` 0 errors, `git diff --check` clean. PR #11 CI green (lint-and-typecheck, test, mobile, Vercel). |
 
@@ -38,6 +38,8 @@
 7. **W1** - Household to Family M2M reframe (migration-heavy).
 
 ## Work Completed Since Last Shared-State Update
+
+2026-07-14 (later same day) **W1 designed + PR 1 planned (docs only, no code).** Phase gate run (all open items explicitly deferred by Steve; W3b deploy flagged as parallel to-do). Brainstorm → Steve locked 6 product decisions (spec §2: A+B+C scope; any-admin+audit; W3a-participation escalation for household invites; guardian=adult-admin-of-minor's-family; teens=minors; request→grant architecture) → spec `3f15f2e` → PR-1 plan `52e7096` → council round 1 (`1dd26fd`, 6 BLOCKERs fixed: eventVisibility tightening was wrong — viewer-membership in event's family is the rule, not household-linked-to-family; unlink cross-tenant destroy hole; min-1 race → FOR UPDATE; actorAdminFamily wrong-membership; unaudited creation; linkedFamilies id leak → viewer-scoped ids + spec §6.1 amended) → round 2 (`ca37977`, 3 mechanical BLOCKERs fixed, converged). **Phase tag advances to P3-04 with the W1 PR-1 execution session.**
 
 2026-07-14 **W3b built + merged** (PR #11, squash `95e876a`; branch `p3-03-w3b-passive-sms-onboarding` + worktree deleted; local naming-shortlist doc commit rebased on top → main HEAD `de8ed98`). Full workflow: spec (council 2 rounds, `21ea09c` 2026-07-10) → plan (council 2 rounds, `0bd4a98`) → subagent-driven TDD, 6 tasks. **Sessions 2026-07-10 froze twice mid-Task-3** (once mid-implementation, once at review dispatch); resumed 2026-07-14 from the SDD ledger + git with zero work lost. Mid-branch Steve-approved amendments: (1) valid-NANP test literals (555 area code rejected by libphonenumber, found Task 1, `9db5692`); (2) ASCII `...` truncation marker + shared `buildBudgetedSmsBody` (Task 3 review found the plan's U+2026 marker forces UCS-2 → 5 billable segments, and the plan-mandated duplicated budget algorithm — Steve approved both fixes, `bdcbde4`+`f0bdf8f`). **Final whole-branch opus review found 1 Important the per-task gates couldn't see:** inbound queries (`findLatestInvitation`, STOP `updateMany`, `hasPendingInvitation`) filtered on `linkedPersonId` alone and also matched W3a cross-family participation invites (species `famlinkUser` never sets `guestPhone`) — a texted "Y" could ACCEPT a participation invite without its `EventParticipant` grant (soft-lock) and STOP could decline pending in-app invites. Fixed `46a91a7` (`guestPhone: {not: null}` at all 3 sites + 2 RED-verified regression tests); re-review **READY TO MERGE**. Spec §5 amended accordingly (`c50f0d0`). Verified: API 478/478, web 169/169 @ 87.29% coverage, type-check 6/6, lint 0 errors; PR CI green (incl. mobile). Also this stream (pre-committed docs): competitive naming shortlist `4642ef0` (2026-07-09, decision pending, no rename authorized).
 
@@ -108,10 +110,12 @@ Earlier 2026-06-24/25 stream:
 
 ## Next Recommended / Authorized Step
 
-**W3b is done and merged — nothing is authorized yet for the next phase.** Two immediate items first:
+**W1 (Household↔Family M2M reframe) is CHOSEN (Steve, 2026-07-14), designed, and PR 1 is planned — NEXT: execute the PR-1 plan** (subagent-driven, in a worktree; **phase tag P3-04**).
 
-1. **W3b prod deploy (Steve, quick — see Open Blockers #6):** migration + `API_PUBLIC_URL` + Twilio webhook config + smoke test. Until then the feature is merged but inert in prod (no inbound webhook configured; outbound suppression gate is live but the consent table is empty, which is correct).
-2. **Choose the next roadmap item:** **W4** (Pro Organizer beta — non-family event admin + B2B billing) or **W1** (Household↔Family M2M reframe — migration-heavy). Both undesigned; either starts with brainstorm → spec.
+- Spec: `docs/superpowers/specs/2026-07-14-w1-household-family-m2m-design.md` — Steve-approved section-by-section; scope **A+B+C** (schema + consent flows + lifecycle); locked decisions in spec §2 (any-admin+audit household writes; household-invite escalation via W3a participation; guardian = adult admin of minor's family; teens = minors; request→grant architecture; SMS consent = token links only, W3b router untouched).
+- PR-1 plan: `docs/superpowers/plans/2026-07-14-w1-pr1-household-family-m2m-schema-core.md` — 5 tasks, expand→contract (workspace type-checks at every task boundary), **2 Codex council rounds folded in, converged** (round 1: 6 BLOCKERs incl. a wrong eventVisibility tightening, a cross-tenant destroy hole, and a min-1 unlink race → all fixed; round 2: 3 mechanical BLOCKERs → fixed, prior fixes confirmed sound).
+- Remaining W1 slices after PR 1 (spec §10): PR 2 consent-flows API (`LinkRequest`), PR 3 web UI, PR 4 mobile UI — plans not yet written (plan PR 2 after PR 1 merges).
+- **Also pending Steve (unchanged): W3b prod deploy checklist (Open Blockers #6)** — do it BEFORE the W1 PR-1 migration lands so prod migrations stay in lockstep with `main`.
 
 ## Open Blockers / Questions Needing Steve
 
