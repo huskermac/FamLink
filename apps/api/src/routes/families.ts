@@ -344,16 +344,25 @@ familiesRouter.post("/:familyId/households", async (req, res) => {
   }
 
   const data = parsed.data;
-  const household = await db.household.create({
-    data: {
-      familyGroupId: familyId,
-      name: data.name,
-      street: data.street,
-      city: data.city,
-      state: data.state,
-      zip: data.zip,
-      country: data.country ?? "US"
-    }
+  const household = await db.$transaction(async (tx) => {
+    const h = await tx.household.create({
+      data: {
+        familyGroupId: familyId,
+        name: data.name,
+        street: data.street,
+        city: data.city,
+        state: data.state,
+        zip: data.zip,
+        country: data.country ?? "US"
+      }
+    });
+    await tx.householdFamily.create({
+      data: { householdId: h.id, familyGroupId: familyId, linkedByPersonId: requester.id }
+    });
+    await tx.householdAuditEntry.create({
+      data: { householdId: h.id, actorPersonId: requester.id, actorFamilyGroupId: familyId, action: "LINKED" }
+    });
+    return h;
   });
 
   res.status(201).json({

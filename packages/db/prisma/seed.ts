@@ -85,6 +85,11 @@ async function main(): Promise<void> {
       update: {},
       create: { id: h.id, name: h.name, familyGroupId: IDS.family }
     });
+    await prisma.householdFamily.upsert({
+      where: { householdId_familyGroupId: { householdId: h.id, familyGroupId: IDS.family } },
+      update: {},
+      create: { householdId: h.id, familyGroupId: IDS.family, linkedByPersonId: IDS.sarah }
+    });
   }
 
   // ── Family members ─────────────────────────────────────────

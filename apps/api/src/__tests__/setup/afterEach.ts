@@ -11,6 +11,8 @@ const tables = [
   "Event",
   "Relationship",
   "HouseholdMember",
+  "HouseholdFamily",
+  "HouseholdAuditEntry",
   "FamilyMember",
   "Household",
   "NotificationPreference",

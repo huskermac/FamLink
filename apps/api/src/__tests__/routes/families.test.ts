@@ -261,6 +261,34 @@ describe("families & households routes", () => {
     });
   });
 
+  describe("POST /api/v1/families/:familyId/households", () => {
+    it("creates the household plus exactly one HouseholdFamily link and one LINKED audit entry", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/households`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "New Household" });
+
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe("New Household");
+      expect(res.body.familyGroupId).toBe(familyGroup.id);
+
+      const links = await db.householdFamily.findMany({ where: { householdId: res.body.id } });
+      expect(links).toHaveLength(1);
+      expect(links[0]?.familyGroupId).toBe(familyGroup.id);
+      expect(links[0]?.linkedByPersonId).toBe(admin.id);
+
+      const auditEntries = await db.householdAuditEntry.findMany({ where: { householdId: res.body.id } });
+      expect(auditEntries).toHaveLength(1);
+      expect(auditEntries[0]?.action).toBe("LINKED");
+      expect(auditEntries[0]?.actorPersonId).toBe(admin.id);
+      expect(auditEntries[0]?.actorFamilyGroupId).toBe(familyGroup.id);
+    });
+  });
+
   describe("PUT /api/v1/families/:familyId", () => {
     it("admin updates name, aiEnabled, and defaultVisibility", async () => {
       const admin = await seedTestPerson();
