@@ -38,14 +38,19 @@ async function seedPerson(userId: string, firstName: string, lastName: string) {
  */
 async function twoFamilyFixture() {
   const adminA = await seedPerson(TEST_CLERK_ID, "Ada", "A");
-  const { familyGroup: famA } = await seedTestFamily(adminA.id);
+  const { familyGroup: famAInitial } = await seedTestFamily(adminA.id);
+  // Distinct names (council/review): seedTestFamily's default "Test Family" is identical for
+  // both families, which would let a linkedFamilies bug (e.g. returning the same family twice,
+  // or the wrong family's name) pass a same-name assertion undetected.
+  const famA = await db.familyGroup.update({ where: { id: famAInitial.id }, data: { name: "Family A" } });
   const memberA = await seedPerson("user_test_member_a", "Mia", "A");
   await db.familyMember.create({
     data: { familyGroupId: famA.id, personId: memberA.id, roles: [], permissions: [] }
   });
 
   const adminB = await seedPerson(TEST_USER_2_CLERK_ID, "Bob", "B");
-  const { familyGroup: famB } = await seedTestFamily(adminB.id);
+  const { familyGroup: famBInitial } = await seedTestFamily(adminB.id);
+  const famB = await db.familyGroup.update({ where: { id: famBInitial.id }, data: { name: "Family B" } });
   const memberB = await seedPerson("user_test_member_b", "Meg", "B");
   await db.familyMember.create({
     data: { familyGroupId: famB.id, personId: memberB.id, roles: [], permissions: [] }
@@ -206,7 +211,7 @@ describe("households routes", () => {
 
       expect(res.status).toBe(200);
       const names = res.body.linkedFamilies.map((x: { name: string }) => x.name).sort();
-      expect(names).toEqual(["Test Family", "Test Family"]); // both seedTestFamily default names
+      expect(names).toEqual(["Family A", "Family B"]); // distinct names discriminate mix-ups
 
       const own = res.body.linkedFamilies.find((x: { id?: string }) => x.id === f.famB.id);
       expect(own).toBeDefined();
@@ -554,6 +559,116 @@ describe("households routes", () => {
       expect(entries).toHaveLength(1);
       expect(entries[0].action).toBe("DESTROYED");
       expect(entries[0].actorFamilyGroupId).toBe(f.famA.id);
+    });
+  });
+
+  describe("POST /api/v1/households/:householdId/unlink — cascade-remove stranded residents", () => {
+    it("removes a resident whose only membership was in the unlinked family, with a RESIDENT_REMOVED audit entry naming them", async () => {
+      const f = await twoFamilyFixture();
+      await db.householdMember.create({
+        data: { householdId: f.household.id, personId: f.memberB.id, role: "RESIDENT" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID }); // adminB unlinks famB
+      const res = await request(app)
+        .post(`/api/v1/households/${f.household.id}/unlink`)
+        .set("Authorization", "Bearer mock")
+        .send({ familyGroupId: f.famB.id });
+
+      expect(res.status).toBe(204);
+
+      const hm = await db.householdMember.findUnique({
+        where: { householdId_personId: { householdId: f.household.id, personId: f.memberB.id } }
+      });
+      expect(hm).toBeNull();
+
+      const entries = await db.householdAuditEntry.findMany({ where: { householdId: f.household.id } });
+      const removedEntry = entries.find(
+        (e) =>
+          e.action === "RESIDENT_REMOVED" &&
+          (e.changes as { personId?: { from?: string } } | null)?.personId?.from === f.memberB.id
+      );
+      expect(removedEntry).toBeDefined();
+      expect(removedEntry?.actorPersonId).toBe(f.adminB.id);
+      expect(removedEntry?.actorFamilyGroupId).toBe(f.famB.id);
+    });
+
+    it("retains a resident who is an active member of BOTH families after one family unlinks", async () => {
+      const f = await twoFamilyFixture();
+      // memberA also joins famB, so they're an active member of both linked families.
+      await db.familyMember.create({
+        data: { familyGroupId: f.famB.id, personId: f.memberA.id, roles: [], permissions: [] }
+      });
+      await db.householdMember.create({
+        data: { householdId: f.household.id, personId: f.memberA.id, role: "RESIDENT" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID }); // adminB unlinks famB
+      const res = await request(app)
+        .post(`/api/v1/households/${f.household.id}/unlink`)
+        .set("Authorization", "Bearer mock")
+        .send({ familyGroupId: f.famB.id });
+
+      expect(res.status).toBe(204);
+
+      const hm = await db.householdMember.findUnique({
+        where: { householdId_personId: { householdId: f.household.id, personId: f.memberA.id } }
+      });
+      expect(hm).not.toBeNull();
+
+      const removed = await db.householdAuditEntry.findMany({
+        where: { householdId: f.household.id, action: "RESIDENT_REMOVED" }
+      });
+      expect(removed).toHaveLength(0);
+    });
+
+    it("leaves a resident untouched when they are a member of the remaining family but never a member of the unlinked family", async () => {
+      const f = await twoFamilyFixture();
+      // memberA is only ever a member of famA (the family that stays linked), never of famB.
+      await db.householdMember.create({
+        data: { householdId: f.household.id, personId: f.memberA.id, role: "RESIDENT" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID }); // adminB unlinks famB
+      const res = await request(app)
+        .post(`/api/v1/households/${f.household.id}/unlink`)
+        .set("Authorization", "Bearer mock")
+        .send({ familyGroupId: f.famB.id });
+
+      expect(res.status).toBe(204);
+
+      const hm = await db.householdMember.findUnique({
+        where: { householdId_personId: { householdId: f.household.id, personId: f.memberA.id } }
+      });
+      expect(hm).not.toBeNull();
+
+      const removed = await db.householdAuditEntry.findMany({
+        where: { householdId: f.household.id, action: "RESIDENT_REMOVED" }
+      });
+      expect(removed).toHaveLength(0);
+    });
+
+    it("destroy:true on the last link still deletes the household and all its members (unaffected by the cascade)", async () => {
+      const f = await oneFamilyFixture();
+      const resident = await seedPerson("user_test_resident2", "Res2", "Ident2");
+      await db.familyMember.create({
+        data: { familyGroupId: f.famA.id, personId: resident.id, roles: [], permissions: [] }
+      });
+      await db.householdMember.create({ data: { householdId: f.household.id, personId: resident.id } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/households/${f.household.id}/unlink`)
+        .set("Authorization", "Bearer mock")
+        .send({ familyGroupId: f.famA.id, destroy: true });
+
+      expect(res.status).toBe(204);
+      expect(await db.household.findUnique({ where: { id: f.household.id } })).toBeNull();
+      expect(await db.householdMember.count({ where: { householdId: f.household.id } })).toBe(0);
+
+      const entries = await db.householdAuditEntry.findMany({ where: { householdId: f.household.id } });
+      expect(entries).toHaveLength(1);
+      expect(entries[0].action).toBe("DESTROYED");
     });
   });
 

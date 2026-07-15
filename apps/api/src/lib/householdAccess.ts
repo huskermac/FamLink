@@ -1,8 +1,13 @@
 import { db, type Prisma } from "@famlink/db";
 import { hasAdminRole } from "./familyAccess";
 
-/** Membership row (active, non-suspended) in any family linked to the household, or null. */
-async function anyLinkedMembership(householdId: string, personId: string) {
+/**
+ * Membership row (active, non-suspended) in any family linked to the household, or null.
+ * Exported: the sole authorization predicate for "is this person a member of any family
+ * linked to this household" — households.ts imports this rather than re-implementing it, so
+ * the predicate can't silently diverge between the two files.
+ */
+export async function anyLinkedMembership(householdId: string, personId: string) {
   return db.familyMember.findFirst({
     where: {
       personId,

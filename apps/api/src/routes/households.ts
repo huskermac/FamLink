@@ -1,8 +1,14 @@
-import { Router } from "express";
+import { Router, type NextFunction } from "express";
 import { z } from "zod";
-import { db, type FamilyMember, type Household } from "@famlink/db";
+import { db, type Household } from "@famlink/db";
 import { activeFamilyMembership, hasAdminRole } from "../lib/familyAccess";
-import { householdAdmin, householdViewer, linkedFamilies, writeHouseholdAudit } from "../lib/householdAccess";
+import {
+  anyLinkedMembership,
+  householdAdmin,
+  householdViewer,
+  linkedFamilies,
+  writeHouseholdAudit
+} from "../lib/householdAccess";
 import { personed } from "../middleware/requireAuth";
 
 export const householdsRouter = Router();
@@ -66,17 +72,11 @@ async function actorAdminFamily(householdId: string, personId: string): Promise<
   return admin ? admin.familyGroupId : null;
 }
 
-/**
- * The requester's first active membership in ANY family linked to this household (admin or
- * not). Used to (a) validate that a target person is eligible to join the household, and (b)
- * resolve `actorFamilyGroupId` for self-removal by a plain member (actorAdminFamily returns
- * null for non-admins and would wrongly break self-removal).
- */
-async function anyLinkedMembership(householdId: string, personId: string): Promise<FamilyMember | null> {
-  return db.familyMember.findFirst({
-    where: { personId, suspendedAt: null, familyGroup: { householdLinks: { some: { householdId } } } }
-  });
-}
+// anyLinkedMembership (the requester's first active membership in ANY family linked to this
+// household, admin or not) is imported from householdAccess.ts — see Fix 1 there. Used to
+// (a) validate that a target person is eligible to join the household, and (b) resolve
+// `actorFamilyGroupId` for self-removal by a plain member (actorAdminFamily returns null for
+// non-admins and would wrongly break self-removal).
 
 async function householdResponsePayload(household: Household, viewerPersonId: string) {
   const [families, members] = await Promise.all([
@@ -349,7 +349,7 @@ householdsRouter.delete("/:householdId/members/:personId", async (req, res) => {
   res.status(204).send();
 });
 
-householdsRouter.post("/:householdId/unlink", async (req, res) => {
+householdsRouter.post("/:householdId/unlink", async (req, res, next: NextFunction) => {
   const p = householdIdParam.safeParse(req.params);
   if (!p.success) {
     res.status(400).json({ error: "Invalid household id", details: p.error.flatten() });
@@ -403,11 +403,16 @@ householdsRouter.post("/:householdId/unlink", async (req, res) => {
           actorFamilyGroupId: familyGroupId,
           action: "DESTROYED"
         });
+        // count===1 && destroy is the ONLY branch that deletes the household; a destroy:true
+        // request against a multi-link household deliberately degrades to a plain unlink below
+        // (min-1 rule preserved, no tenant left with zero linked families) — per plan.
         // Cascades HouseholdMember + HouseholdFamily; HouseholdAuditEntry rows persist by design.
         await tx.household.delete({ where: { id: householdId } });
         return;
       }
 
+      // Plain-unlink branch: reached only when count > 1 (count===1 is fully handled above,
+      // either LastLink or destroy). The household survives with at least one remaining link.
       await tx.householdFamily.delete({ where: { id: link.id } });
       await writeHouseholdAudit(tx, {
         householdId,
@@ -415,6 +420,50 @@ householdsRouter.post("/:householdId/unlink", async (req, res) => {
         actorFamilyGroupId: familyGroupId,
         action: "UNLINKED"
       });
+
+      // Cascade-remove residents stranded by this unlink: a HouseholdMember whose access came
+      // ONLY via the family just unlinked (active member of familyGroupId, and NOT an active
+      // member of any family still linked to the household post-delete) can no longer see or
+      // leave the household. Narrow by design: a resident who fails householdViewer for some
+      // OTHER reason is left untouched — only losses caused by THIS unlink are cleaned up.
+      const residents = await tx.householdMember.findMany({
+        where: { householdId },
+        select: { personId: true }
+      });
+      if (residents.length > 0) {
+        const residentPersonIds = residents.map((r) => r.personId);
+        const relevantMemberships = await tx.familyMember.findMany({
+          where: {
+            personId: { in: residentPersonIds },
+            suspendedAt: null,
+            OR: [{ familyGroupId }, { familyGroup: { householdLinks: { some: { householdId } } } }]
+          },
+          select: { personId: true, familyGroupId: true }
+        });
+        const inUnlinkedFamily = new Set<string>();
+        const inRemainingFamily = new Set<string>();
+        for (const m of relevantMemberships) {
+          if (m.familyGroupId === familyGroupId) inUnlinkedFamily.add(m.personId);
+          else inRemainingFamily.add(m.personId);
+        }
+        const strandedPersonIds = residentPersonIds.filter(
+          (id) => inUnlinkedFamily.has(id) && !inRemainingFamily.has(id)
+        );
+        if (strandedPersonIds.length > 0) {
+          await tx.householdMember.deleteMany({
+            where: { householdId, personId: { in: strandedPersonIds } }
+          });
+          for (const personId of strandedPersonIds) {
+            await writeHouseholdAudit(tx, {
+              householdId,
+              actorPersonId: requester.id,
+              actorFamilyGroupId: familyGroupId,
+              action: "RESIDENT_REMOVED",
+              changes: { personId: { from: personId, to: null } }
+            });
+          }
+        }
+      }
     });
   } catch (e: unknown) {
     if (e instanceof LinkNotFound) {
@@ -425,7 +474,8 @@ householdsRouter.post("/:householdId/unlink", async (req, res) => {
       res.status(409).json({ error: "LAST_LINK" });
       return;
     }
-    throw e;
+    next(e);
+    return;
   }
 
   res.status(204).send();
