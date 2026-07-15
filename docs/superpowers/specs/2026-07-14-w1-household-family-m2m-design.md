@@ -109,6 +109,18 @@ Written in the same transaction as the mutation it records. Readable by admins o
 currently-linked families. No delete/update path (append-only). Survives unlink of the actor's
 family (the entry's `actorFamilyGroupId` is a snapshot, not a live FK constraint on visibility).
 
+**Amended 2026-07-15 (Steve, final PR-1 review) — §3.3/§7.1 conflict resolved in the
+restrictive direction.** This section's "readable by admins of all currently-linked families"
+was read literally by the PR-1 plan to mean the *raw* `actorPersonId`/`actorFamilyGroupId`
+columns are returned to every admin viewer — but on a two-link household that hands family A's
+admin family B's family id and a foreign person id, directly contradicting §7 invariant 1
+("never another family's roster, members, events, or ids"). Steve resolved the conflict in
+favor of invariant 1: the audit log stays readable by admins of every currently-linked family
+(access is unchanged), but the **response** discloses `actorPersonId`/`actorFamilyGroupId` only
+when the viewer is an active member of that entry's `actorFamilyGroupId`; otherwise it carries
+the actor's display name and family name only, with the id fields absent (not `undefined`).
+This endpoint had no consumer at the time of the fix, so the shape change is free.
+
 ### 3.4 Unchanged
 
 `FamilyMember` (roles, permissions, `suspendedAt` = suspension mechanism), `HouseholdMember`,
