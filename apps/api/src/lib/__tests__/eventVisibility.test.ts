@@ -32,8 +32,9 @@ async function crossFamilyFixture() {
   await db.familyMember.create({ data: { familyGroupId: famA.id, personId: adminA.id, roles: ["ADMIN"] } });
   await db.familyMember.create({ data: { familyGroupId: famB.id, personId: bMember.id, roles: [] } });
   // household linked to BOTH families; Ben lives in it but is NOT a member of family A
-  const household = await db.household.create({ data: { familyGroupId: famA.id, name: "Shared" } });
-  await db.householdFamily.create({ data: { householdId: household.id, familyGroupId: famA.id } });
+  const household = await db.household.create({
+    data: { name: "Shared", families: { create: { familyGroupId: famA.id } } }
+  });
   await db.householdFamily.create({ data: { householdId: household.id, familyGroupId: famB.id } });
   await db.householdMember.create({ data: { householdId: household.id, personId: bMember.id } });
   // PRIVATE event in family A with a HOUSEHOLD-scope invitation to the shared household
@@ -80,6 +81,10 @@ describe("household-scope visibility under M2M (spec §7 invariant 3)", () => {
 
   it("spec §7 invariant 2: a shared household with NO invitation grants no visibility at all", async () => {
     const f = await crossFamilyFixture();
+    // Ben must be an active member of famA so the membership guard passes and the household
+    // branch is actually exercised — otherwise this would pass even if the household branch
+    // were deleted entirely (the membership guard alone would already return false).
+    await db.familyMember.create({ data: { familyGroupId: f.famA.id, personId: f.bMember.id, roles: [] } });
     await db.eventInvitation.deleteMany({ where: { eventId: f.event.id } });
     const visible = await canViewEvent(
       { id: f.event.id, eventVisibility: "PRIVATE", createdByPersonId: f.adminA.id, familyGroupId: f.famA.id },

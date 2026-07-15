@@ -395,7 +395,7 @@ describe("get_household_members", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("p_alice");
-    // scoped via HouseholdFamily join, not the transitional Household.familyGroupId FK
+    // scoped via HouseholdFamily join — Household has no familyGroupId FK at all anymore
     expect(mockHouseholdFindFirst).toHaveBeenCalledWith({
       where: { id: "hh1", families: { some: { familyGroupId: FAM_ID } } }
     });

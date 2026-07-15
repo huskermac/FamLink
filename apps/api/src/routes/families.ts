@@ -348,7 +348,6 @@ familiesRouter.post("/:familyId/households", async (req, res) => {
   const household = await db.$transaction(async (tx) => {
     const h = await tx.household.create({
       data: {
-        familyGroupId: familyId,
         name: data.name,
         street: data.street,
         city: data.city,

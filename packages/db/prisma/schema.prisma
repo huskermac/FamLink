@@ -59,7 +59,6 @@ model FamilyGroup {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  households     Household[]
   members        FamilyMember[]
   relationships  Relationship[]
   events         Event[]
@@ -69,8 +68,6 @@ model FamilyGroup {
 
 model Household {
   id            String      @id @default(cuid())
-  familyGroupId String
-  familyGroup   FamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
   name          String
   street        String?
   city          String?
@@ -82,8 +79,6 @@ model Household {
 
   members  HouseholdMember[]
   families HouseholdFamily[]
-
-  @@index([familyGroupId])
 }
 
 model HouseholdFamily {

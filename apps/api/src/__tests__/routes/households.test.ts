@@ -10,10 +10,11 @@ vi.mock("@clerk/express", () => ({
   getAuth: vi.fn()
 }));
 
-/** Household linked to exactly ONE family (dual-write parity with families.ts household creation). */
+/** Household linked to exactly ONE family. */
 async function seedHousehold(familyGroupId: string, name = "Main House") {
-  const household = await db.household.create({ data: { familyGroupId, name, country: "US" } });
-  await db.householdFamily.create({ data: { householdId: household.id, familyGroupId } });
+  const household = await db.household.create({
+    data: { name, country: "US", families: { create: { familyGroupId } } }
+  });
   return household;
 }
 
@@ -59,10 +60,11 @@ async function twoFamilyFixture() {
   const outsider = await seedPerson("user_test_outsider", "Out", "Sider");
 
   const household = await db.household.create({
-    data: { familyGroupId: famA.id, name: "Shared Home", country: "US" }
-  });
-  await db.householdFamily.create({
-    data: { householdId: household.id, familyGroupId: famA.id, linkedByPersonId: adminA.id }
+    data: {
+      name: "Shared Home",
+      country: "US",
+      families: { create: { familyGroupId: famA.id, linkedByPersonId: adminA.id } }
+    }
   });
   await db.householdFamily.create({
     data: { householdId: household.id, familyGroupId: famB.id, linkedByPersonId: adminB.id }
@@ -76,10 +78,11 @@ async function oneFamilyFixture() {
   const adminA = await seedPerson(TEST_CLERK_ID, "Ada", "A");
   const { familyGroup: famA } = await seedTestFamily(adminA.id);
   const household = await db.household.create({
-    data: { familyGroupId: famA.id, name: "Solo House", country: "US" }
-  });
-  await db.householdFamily.create({
-    data: { householdId: household.id, familyGroupId: famA.id, linkedByPersonId: adminA.id }
+    data: {
+      name: "Solo House",
+      country: "US",
+      families: { create: { familyGroupId: famA.id, linkedByPersonId: adminA.id } }
+    }
   });
   return { adminA, famA, household };
 }

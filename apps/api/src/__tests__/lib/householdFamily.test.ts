@@ -5,10 +5,10 @@ describe("HouseholdFamily schema", () => {
     const creator = await db.person.create({ data: { firstName: "Ann", lastName: "Admin" } });
     const family = await db.familyGroup.create({ data: { name: "Fam", createdById: creator.id } });
     const household = await db.household.create({
-      data: { familyGroupId: family.id, name: "Home" }
-    });
-    await db.householdFamily.create({
-      data: { householdId: household.id, familyGroupId: family.id, linkedByPersonId: creator.id }
+      data: {
+        name: "Home",
+        families: { create: { familyGroupId: family.id, linkedByPersonId: creator.id } }
+      }
     });
 
     const viaHousehold = await db.household.findUnique({
@@ -28,8 +28,9 @@ describe("HouseholdFamily schema", () => {
   it("duplicate link is rejected by the unique constraint", async () => {
     const creator = await db.person.create({ data: { firstName: "Ann", lastName: "Admin" } });
     const family = await db.familyGroup.create({ data: { name: "Fam", createdById: creator.id } });
-    const household = await db.household.create({ data: { familyGroupId: family.id, name: "Home" } });
-    await db.householdFamily.create({ data: { householdId: household.id, familyGroupId: family.id } });
+    const household = await db.household.create({
+      data: { name: "Home", families: { create: { familyGroupId: family.id } } }
+    });
     await expect(
       db.householdFamily.create({ data: { householdId: household.id, familyGroupId: family.id } })
     ).rejects.toMatchObject({ code: "P2002" });
@@ -38,7 +39,9 @@ describe("HouseholdFamily schema", () => {
   it("audit entries append and read back newest-first", async () => {
     const creator = await db.person.create({ data: { firstName: "Ann", lastName: "Admin" } });
     const family = await db.familyGroup.create({ data: { name: "Fam", createdById: creator.id } });
-    const household = await db.household.create({ data: { familyGroupId: family.id, name: "Home" } });
+    const household = await db.household.create({
+      data: { name: "Home", families: { create: { familyGroupId: family.id } } }
+    });
     await db.householdAuditEntry.create({
       data: {
         householdId: household.id, actorPersonId: creator.id, actorFamilyGroupId: family.id,

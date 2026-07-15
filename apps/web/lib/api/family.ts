@@ -39,7 +39,6 @@ export interface FamilyMembership {
 
 export interface HouseholdSummary {
   id: string;
-  familyGroupId: string;
   name: string;
   street: string | null;
   city: string | null;
@@ -48,6 +47,10 @@ export interface HouseholdSummary {
   country: string | null;
   createdAt: string;
   updatedAt: string;
+  // Present on the standalone household create/GET endpoints (viewer-scoped: foreign
+  // linked families omit `id` — spec §7 invariant 1). Absent from the family-detail
+  // endpoint's per-household objects (apps/api/src/routes/families.ts GET /:familyId).
+  linkedFamilies?: { id?: string; name: string }[];
 }
 
 export interface HouseholdWithMembers {

@@ -11,8 +11,9 @@ async function fixture() {
   await db.familyMember.create({ data: { familyGroupId: famA.id, personId: adminA.id, roles: ["ADMIN"] } });
   await db.familyMember.create({ data: { familyGroupId: famA.id, personId: memberA.id, roles: [] } });
   await db.familyMember.create({ data: { familyGroupId: famB.id, personId: adminB.id, roles: ["ADMIN"] } });
-  const household = await db.household.create({ data: { familyGroupId: famA.id, name: "Shared Home" } });
-  await db.householdFamily.create({ data: { householdId: household.id, familyGroupId: famA.id } });
+  const household = await db.household.create({
+    data: { name: "Shared Home", families: { create: { familyGroupId: famA.id } } }
+  });
   await db.householdFamily.create({ data: { householdId: household.id, familyGroupId: famB.id } });
   return { adminA, memberA, adminB, outsider, famA, famB, household };
 }

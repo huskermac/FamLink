@@ -128,13 +128,10 @@ describe("families & households routes", () => {
       const { familyGroup } = await seedTestFamily(admin.id);
       const household = await db.household.create({
         data: {
-          familyGroupId: familyGroup.id,
           name: "Main",
-          country: "US"
+          country: "US",
+          families: { create: { familyGroupId: familyGroup.id } }
         }
-      });
-      await db.householdFamily.create({
-        data: { householdId: household.id, familyGroupId: familyGroup.id }
       });
       const outsider = await seedSecondPerson();
       mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
@@ -248,11 +245,8 @@ describe("families & households routes", () => {
     it("returns family group, members, and households for a member", async () => {
       const admin = await seedTestPerson();
       const { familyGroup } = await seedTestFamily(admin.id);
-      const household = await db.household.create({
-        data: { familyGroupId: familyGroup.id, name: "Main", country: "US" }
-      });
-      await db.householdFamily.create({
-        data: { householdId: household.id, familyGroupId: familyGroup.id }
+      await db.household.create({
+        data: { name: "Main", country: "US", families: { create: { familyGroupId: familyGroup.id } } }
       });
 
       mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
@@ -268,16 +262,17 @@ describe("families & households routes", () => {
       expect(res.body.households[0].household.name).toBe("Main");
     });
 
-    it("reads households through the HouseholdFamily join — a household linked to this family but owned by another is returned", async () => {
+    it("reads households through the HouseholdFamily join — a household linked to two families is returned for both", async () => {
       const admin = await seedTestPerson();
       const { familyGroup } = await seedTestFamily(admin.id);
-      // Household whose transitional FK points at ANOTHER family, linked to ours via the join
+      // Household created and linked to a different family first, then also linked to ours —
+      // it must show up for ours purely via the join, with no ownership concept involved.
       const other = await seedSecondPerson();
       const otherFamily = await db.familyGroup.create({
         data: { name: "Other Family", createdById: other.id }
       });
       const household = await db.household.create({
-        data: { familyGroupId: otherFamily.id, name: "Shared", country: "US" }
+        data: { name: "Shared", country: "US", families: { create: { familyGroupId: otherFamily.id } } }
       });
       await db.householdFamily.create({
         data: { householdId: household.id, familyGroupId: familyGroup.id }
@@ -291,16 +286,16 @@ describe("families & households routes", () => {
       expect(res.status).toBe(200);
       expect(res.body.households).toHaveLength(1);
       expect(res.body.households[0].household.name).toBe("Shared");
-      // the transitional FK is no longer surfaced (spec §7 invariant 1 — no foreign family ids)
+      // no per-household family reference is ever surfaced (spec §7 invariant 1 — no foreign family ids)
       expect(res.body.households[0].household).not.toHaveProperty("familyGroupId");
     });
 
     it("does NOT return a household that is not linked to this family", async () => {
       const admin = await seedTestPerson();
       const { familyGroup } = await seedTestFamily(admin.id);
-      // FK points at our family, but there is no link row — the join is the source of truth
+      // No link row at all — the join is the sole source of truth for visibility
       await db.household.create({
-        data: { familyGroupId: familyGroup.id, name: "Unlinked", country: "US" }
+        data: { name: "Unlinked", country: "US" }
       });
 
       mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
@@ -329,10 +324,6 @@ describe("families & households routes", () => {
       // Response exposes linkedFamilies (viewer-scoped), not the transitional FK
       expect(res.body).not.toHaveProperty("familyGroupId");
       expect(res.body.linkedFamilies).toEqual([{ id: familyGroup.id, name: "Test Family" }]);
-
-      // transitional dual-write: the FK is still populated until Task 5 drops it
-      const created = await db.household.findUniqueOrThrow({ where: { id: res.body.id } });
-      expect(created.familyGroupId).toBe(familyGroup.id);
 
       const links = await db.householdFamily.findMany({ where: { householdId: res.body.id } });
       expect(links).toHaveLength(1);
