@@ -428,10 +428,20 @@ householdsRouter.post("/:householdId/unlink", async (req, res, next: NextFunctio
       // OTHER reason is left untouched — only losses caused by THIS unlink are cleaned up.
       const residents = await tx.householdMember.findMany({
         where: { householdId },
-        select: { personId: true }
+        select: {
+          personId: true,
+          person: { select: { firstName: true, lastName: true, preferredName: true } }
+        }
       });
       if (residents.length > 0) {
         const residentPersonIds = residents.map((r) => r.personId);
+        // Built from the same query that produced residentPersonIds — no extra per-resident
+        // query (avoids N+1). Used only for the audit `changes` display name below (Fix A,
+        // invariant 1): a cascade-removed resident is by construction foreign to the viewer of
+        // a remaining linked family, so their raw id must never be recorded, only their name.
+        const displayNameByPersonId = new Map(
+          residents.map((r) => [r.personId, buildDisplayName(r.person)])
+        );
         const relevantMemberships = await tx.familyMember.findMany({
           where: {
             personId: { in: residentPersonIds },
@@ -459,7 +469,12 @@ householdsRouter.post("/:householdId/unlink", async (req, res, next: NextFunctio
               actorPersonId: requester.id,
               actorFamilyGroupId: familyGroupId,
               action: "RESIDENT_REMOVED",
-              changes: { personId: { from: personId, to: null } }
+              changes: {
+                residentDisplayName: {
+                  from: displayNameByPersonId.get(personId) ?? "Unknown member",
+                  to: null
+                }
+              }
             });
           }
         }

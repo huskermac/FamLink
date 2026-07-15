@@ -589,7 +589,8 @@ describe("households routes", () => {
       const removedEntry = entries.find(
         (e) =>
           e.action === "RESIDENT_REMOVED" &&
-          (e.changes as { personId?: { from?: string } } | null)?.personId?.from === f.memberB.id
+          (e.changes as { residentDisplayName?: { from?: string } } | null)?.residentDisplayName?.from ===
+            "Meg B"
       );
       expect(removedEntry).toBeDefined();
       expect(removedEntry?.actorPersonId).toBe(f.adminB.id);
@@ -679,9 +680,45 @@ describe("households routes", () => {
       const removedEntry = entries.find(
         (e) =>
           e.action === "RESIDENT_REMOVED" &&
-          (e.changes as { personId?: { from?: string } } | null)?.personId?.from === f.outsider.id
+          (e.changes as { residentDisplayName?: { from?: string } } | null)?.residentDisplayName?.from ===
+            "Out Sider"
       );
       expect(removedEntry).toBeUndefined();
+    });
+
+    it("Fix A (CRITICAL): a cascade-removed resident's id never appears anywhere in the audit payload — only their display name", async () => {
+      const f = await twoFamilyFixture();
+      await db.householdMember.create({
+        data: { householdId: f.household.id, personId: f.memberB.id, role: "RESIDENT" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_USER_2_CLERK_ID }); // adminB unlinks famB, stranding memberB
+      const unlinkRes = await request(app)
+        .post(`/api/v1/households/${f.household.id}/unlink`)
+        .set("Authorization", "Bearer mock")
+        .send({ familyGroupId: f.famB.id });
+      expect(unlinkRes.status).toBe(204);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID }); // adminA — remaining family's admin
+      const res = await request(app)
+        .get(`/api/v1/households/${f.household.id}/audit`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+
+      // Whole-payload check (not just the `changes` key): proves the id is absent by
+      // construction, so the test still catches a future leak introduced anywhere else in
+      // this response shape.
+      const serialized = JSON.stringify(res.body);
+      expect(serialized).not.toContain(f.memberB.id);
+
+      const removedEntry = res.body.entries.find(
+        (e: { action: string }) => e.action === "RESIDENT_REMOVED"
+      );
+      expect(removedEntry).toBeDefined();
+      expect(removedEntry.changes).toEqual({
+        residentDisplayName: { from: "Meg B", to: null }
+      });
     });
 
     it("destroy:true on the last link still deletes the household and all its members (unaffected by the cascade)", async () => {
@@ -823,7 +860,7 @@ describe("households routes", () => {
       expect(removed.actorFamilyName).toBe("Family A");
     });
 
-    it("Fix 3/4: entries are ordered newest-first with a stable id tiebreak and capped by take", async () => {
+    it("Fix 3: entries are ordered newest-first across two separate requests (no tie — createdAt alone already orders these)", async () => {
       const f = await oneFamilyFixture();
       mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
 
@@ -842,12 +879,90 @@ describe("households routes", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.entries).toHaveLength(2);
-      // Newest first; when createdAt ties (same transaction timestamp), id desc breaks the tie.
+      expect(res.body.entries[0].action).toBe("UPDATED");
+      expect(res.body.entries[0].changes).toMatchObject({ name: { to: "Rename 2" } });
+      expect(res.body.entries[1].changes).toMatchObject({ name: { to: "Rename 1" } });
+    });
+
+    it("Fix C1: entries with a genuinely tied createdAt are ordered by the id-desc secondary key", async () => {
+      // NOTE on construction (see final-review-fixes-2-report.md for the full finding): the
+      // unlink cascade does NOT actually produce a createdAt tie in this codebase — verified
+      // empirically. Raw SQL confirms Postgres's CURRENT_TIMESTAMP is genuinely transaction-
+      // constant, but Prisma 7.7's `.create()` generates `@default(now())` values CLIENT-SIDE
+      // per call (new Date() at call time), not via the DB DEFAULT, so sequential creates in
+      // the same $transaction still get millisecond-distinct createdAt values in practice. The
+      // spec/plan's "rows written in one transaction share CURRENT_TIMESTAMP" premise does not
+      // hold for this ORM version. A tie CAN still occur for real (two writes landing in the
+      // same millisecond, or any future write path that sets createdAt explicitly), so the
+      // secondary key is still load-bearing — this test constructs a genuine tie directly to
+      // exercise it deterministically.
+      const f = await oneFamilyFixture();
+      const tiedAt = new Date("2026-01-01T00:00:00.000Z");
+      await db.householdAuditEntry.createMany({
+        data: [
+          {
+            householdId: f.household.id,
+            actorPersonId: f.adminA.id,
+            actorFamilyGroupId: f.famA.id,
+            action: "UPDATED",
+            changes: { name: { from: "a", to: "b" } },
+            createdAt: tiedAt
+          },
+          {
+            householdId: f.household.id,
+            actorPersonId: f.adminA.id,
+            actorFamilyGroupId: f.famA.id,
+            action: "UPDATED",
+            changes: { name: { from: "b", to: "c" } },
+            createdAt: tiedAt
+          },
+          {
+            householdId: f.household.id,
+            actorPersonId: f.adminA.id,
+            actorFamilyGroupId: f.famA.id,
+            action: "UPDATED",
+            changes: { name: { from: "c", to: "d" } },
+            createdAt: tiedAt
+          }
+        ]
+      });
+
       const dbEntries = await db.householdAuditEntry.findMany({
         where: { householdId: f.household.id },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }]
+        orderBy: [{ id: "desc" }]
       });
+      expect(dbEntries).toHaveLength(3);
+      // Confirm the tie is real, not incidental.
+      expect(new Set(dbEntries.map((e) => e.createdAt.getTime())).size).toBe(1);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/households/${f.household.id}/audit`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
       expect(res.body.entries.map((e: { id: string }) => e.id)).toEqual(dbEntries.map((e) => e.id));
+    });
+
+    it("Fix C2: response is capped at take:200 even when more entries exist", async () => {
+      const f = await oneFamilyFixture();
+      const rows = Array.from({ length: 201 }, (_, i) => ({
+        householdId: f.household.id,
+        actorPersonId: f.adminA.id,
+        actorFamilyGroupId: f.famA.id,
+        action: "UPDATED",
+        changes: { name: { from: `v${i}`, to: `v${i + 1}` } }
+      }));
+      await db.householdAuditEntry.createMany({ data: rows });
+      expect(await db.householdAuditEntry.count({ where: { householdId: f.household.id } })).toBe(201);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/households/${f.household.id}/audit`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.entries).toHaveLength(200);
     });
   });
 });
