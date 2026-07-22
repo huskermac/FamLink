@@ -59,17 +59,15 @@ model FamilyGroup {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  households    Household[]
-  members       FamilyMember[]
-  relationships Relationship[]
-  events        Event[]
-  subscription  FamilySubscription?
+  members        FamilyMember[]
+  relationships  Relationship[]
+  events         Event[]
+  subscription   FamilySubscription?
+  householdLinks HouseholdFamily[]
 }
 
 model Household {
   id            String      @id @default(cuid())
-  familyGroupId String
-  familyGroup   FamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
   name          String
   street        String?
   city          String?
@@ -79,9 +77,33 @@ model Household {
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
-  members HouseholdMember[]
+  members  HouseholdMember[]
+  families HouseholdFamily[]
+}
 
+model HouseholdFamily {
+  id               String      @id @default(cuid())
+  householdId      String
+  household        Household   @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  familyGroupId    String
+  familyGroup      FamilyGroup @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
+  linkedAt         DateTime    @default(now())
+  linkedByPersonId String?
+
+  @@unique([householdId, familyGroupId])
   @@index([familyGroupId])
+}
+
+model HouseholdAuditEntry {
+  id                 String   @id @default(cuid())
+  householdId        String
+  actorPersonId      String
+  actorFamilyGroupId String
+  action             String
+  changes            Json?
+  createdAt          DateTime @default(now())
+
+  @@index([householdId, createdAt])
 }
 
 model FamilyMember {

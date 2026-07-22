@@ -14,6 +14,7 @@ import {
 } from "../lib/personRequiredMessages";
 import { checkSeatExpansion } from "../lib/subscriptionEnforcement";
 import { stripe } from "../lib/stripeClient";
+import { linkedFamilies, writeHouseholdAudit } from "../lib/householdAccess";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
 export const familiesRouter = Router();
@@ -344,21 +345,31 @@ familiesRouter.post("/:familyId/households", async (req, res) => {
   }
 
   const data = parsed.data;
-  const household = await db.household.create({
-    data: {
-      familyGroupId: familyId,
-      name: data.name,
-      street: data.street,
-      city: data.city,
-      state: data.state,
-      zip: data.zip,
-      country: data.country ?? "US"
-    }
+  const household = await db.$transaction(async (tx) => {
+    const h = await tx.household.create({
+      data: {
+        name: data.name,
+        street: data.street,
+        city: data.city,
+        state: data.state,
+        zip: data.zip,
+        country: data.country ?? "US"
+      }
+    });
+    await tx.householdFamily.create({
+      data: { householdId: h.id, familyGroupId: familyId, linkedByPersonId: requester.id }
+    });
+    await writeHouseholdAudit(tx, {
+      householdId: h.id,
+      actorPersonId: requester.id,
+      actorFamilyGroupId: familyId,
+      action: "LINKED"
+    });
+    return h;
   });
 
   res.status(201).json({
     id: household.id,
-    familyGroupId: household.familyGroupId,
     name: household.name,
     street: household.street,
     city: household.city,
@@ -366,7 +377,8 @@ familiesRouter.post("/:familyId/households", async (req, res) => {
     zip: household.zip,
     country: household.country,
     createdAt: household.createdAt.toISOString(),
-    updatedAt: household.updatedAt.toISOString()
+    updatedAt: household.updatedAt.toISOString(),
+    linkedFamilies: await linkedFamilies(household.id, requester.id)
   });
 });
 
@@ -395,14 +407,18 @@ familiesRouter.get("/:familyId", async (req, res) => {
         include: { person: true },
         orderBy: { joinedAt: "asc" }
       },
-      households: {
+      householdLinks: {
         include: {
-          members: {
-            include: { person: true },
-            orderBy: { joinedAt: "asc" }
+          household: {
+            include: {
+              members: {
+                include: { person: true },
+                orderBy: { joinedAt: "asc" }
+              }
+            }
           }
         },
-        orderBy: { createdAt: "asc" }
+        orderBy: [{ linkedAt: "asc" }, { id: "asc" }] // stable secondary order
       }
     }
   });
@@ -411,6 +427,18 @@ familiesRouter.get("/:familyId", async (req, res) => {
     res.status(403).json({ error: "Not authorized to view this family" });
     return;
   }
+
+  // Household residents shown here are scoped to THIS family's own members (matches the
+  // suspension handling of `members` above — unfiltered on suspendedAt): under the M2M model
+  // a household can link to several families, and a resident who is only a member of another
+  // linked family must not have their DOB/Clerk id disclosed to this family (spec §7
+  // invariant 1). The household-scoped view (GET /households/:id) is where every resident
+  // appears, display-names-only. This filter is NOT a no-op: DELETE /:familyId/members/:personId
+  // hard-deletes the FamilyMember row while the person's HouseholdMember row survives, so a
+  // person removed from the family intentionally drops out of this view immediately and
+  // remains visible (and removable) via GET /households/:id — nothing is stranded (accepted
+  // semantics, Steve, 2026-07-15 final review; see the Fix B regression test).
+  const familyMemberPersonIds = new Set(family.members.map((m) => m.personId));
 
   res.json({
     familyGroup: {
@@ -427,10 +455,9 @@ familiesRouter.get("/:familyId", async (req, res) => {
       roles: m.roles,
       joinedAt: m.joinedAt.toISOString()
     })),
-    households: family.households.map((h) => ({
+    households: family.householdLinks.map(({ household: h }) => ({
       household: {
         id: h.id,
-        familyGroupId: h.familyGroupId,
         name: h.name,
         street: h.street,
         city: h.city,
@@ -440,7 +467,9 @@ familiesRouter.get("/:familyId", async (req, res) => {
         createdAt: h.createdAt.toISOString(),
         updatedAt: h.updatedAt.toISOString()
       },
-      members: h.members.map((hm) => serializePersonBrief(hm.person))
+      members: h.members
+        .filter((hm) => familyMemberPersonIds.has(hm.personId))
+        .map((hm) => serializePersonBrief(hm.person))
     }))
   });
 });

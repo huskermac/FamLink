@@ -128,7 +128,7 @@ calendarRouter.get("/:familyId/calendar/upcoming", async (req, res) => {
     where: {
       familyGroupId: familyId,
       startAt: { gte: now, lte: windowEnd },
-      AND: await visibleEventsWhere(requester.id, hasAdminRole(membership))
+      AND: await visibleEventsWhere(requester.id, hasAdminRole(membership), familyId)
     },
     orderBy: { startAt: "asc" }
   });
@@ -262,7 +262,7 @@ calendarRouter.get("/:familyId/calendar", async (req, res) => {
     where: {
       familyGroupId: familyId,
       startAt: { gte: startOfMonth, lt: endOfMonthExclusive },
-      AND: await visibleEventsWhere(requester.id, hasAdminRole(membership))
+      AND: await visibleEventsWhere(requester.id, hasAdminRole(membership), familyId)
     },
     orderBy: { startAt: "asc" }
   });

@@ -202,7 +202,9 @@ export async function mergePersons(
       ["EventItem.assignedToPersonId", tx.eventItem.updateMany({ where: { assignedToPersonId: duplicateId }, data: { assignedToPersonId: canonicalId } })],
       ["EventPhoto.uploadedById", tx.eventPhoto.updateMany({ where: { uploadedById: duplicateId }, data: { uploadedById: canonicalId } })],
       ["EventParticipant.invitedById", tx.eventParticipant.updateMany({ where: { invitedById: duplicateId }, data: { invitedById: canonicalId } })],
-      ["AssistantMessage.personId", tx.assistantMessage.updateMany({ where: { personId: duplicateId }, data: { personId: canonicalId } })]
+      ["AssistantMessage.personId", tx.assistantMessage.updateMany({ where: { personId: duplicateId }, data: { personId: canonicalId } })],
+      ["HouseholdFamily.linkedByPersonId", tx.householdFamily.updateMany({ where: { linkedByPersonId: duplicateId }, data: { linkedByPersonId: canonicalId } })],
+      ["HouseholdAuditEntry.actorPersonId", tx.householdAuditEntry.updateMany({ where: { actorPersonId: duplicateId }, data: { actorPersonId: canonicalId } })]
     ];
     for (const [label, op] of nonUnique) {
       repointed[label] = (await op).count;

@@ -440,7 +440,7 @@ git commit -m "feat: P3-04 householdAccess helpers (any-linked-family viewer/adm
   - `GET /households/:householdId` → `{ id, name, street, city, state, zip, country, createdAt, updatedAt, linkedFamilies: [{id?, name}], members: [{ id, personId, role, joinedAt, displayName }] }` — `linkedFamilies[].id` present only for the viewer's own families (Task 2 shape)
   - `PUT /households/:householdId` → same shape as GET (no `familyGroupId` field anymore)
   - `POST /households/:householdId/unlink` `{ familyGroupId, destroy?: boolean }` → 204; last link without destroy → `409 { error: "LAST_LINK" }`
-  - `GET /households/:householdId/audit` → `{ entries: [{ id, actorPersonId, actorFamilyGroupId, action, changes, createdAt }] }`
+  - `GET /households/:householdId/audit` → `{ entries: [{ id, actorPersonId?, actorFamilyGroupId?, actorDisplayName, actorFamilyName, action, changes, createdAt }] }` — `actorPersonId`/`actorFamilyGroupId` present only when the viewer is an active member of that entry's `actorFamilyGroupId`; `actorDisplayName`/`actorFamilyName` always present (spec §3.3 amendment, 2026-07-15 — the plan's original raw-ids-always shape contradicted invariant 1 on a two-link household; fixed in the final PR-1 review before this endpoint had any consumer)
 
 (Verb note: spec §6.1 was amended 2026-07-14 to `PUT` — the existing route verb, whose handler already implements partial-update semantics via `UpdateHouseholdSchema.partial()`.)
 

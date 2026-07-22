@@ -128,9 +128,9 @@ describe("families & households routes", () => {
       const { familyGroup } = await seedTestFamily(admin.id);
       const household = await db.household.create({
         data: {
-          familyGroupId: familyGroup.id,
           name: "Main",
-          country: "US"
+          country: "US",
+          families: { create: { familyGroupId: familyGroup.id } }
         }
       });
       const outsider = await seedSecondPerson();
@@ -245,7 +245,9 @@ describe("families & households routes", () => {
     it("returns family group, members, and households for a member", async () => {
       const admin = await seedTestPerson();
       const { familyGroup } = await seedTestFamily(admin.id);
-      await db.household.create({ data: { familyGroupId: familyGroup.id, name: "Main", country: "US" } });
+      await db.household.create({
+        data: { name: "Main", country: "US", families: { create: { familyGroupId: familyGroup.id } } }
+      });
 
       mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
       const res = await request(app)
@@ -258,6 +260,171 @@ describe("families & households routes", () => {
       expect(res.body.members[0].person.id).toBe(admin.id);
       expect(res.body.households).toHaveLength(1);
       expect(res.body.households[0].household.name).toBe("Main");
+    });
+
+    it("reads households through the HouseholdFamily join — a household linked to two families is returned for both", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      // Household created and linked to a different family first, then also linked to ours —
+      // it must show up for ours purely via the join, with no ownership concept involved.
+      const other = await seedSecondPerson();
+      const otherFamily = await db.familyGroup.create({
+        data: { name: "Other Family", createdById: other.id }
+      });
+      const household = await db.household.create({
+        data: { name: "Shared", country: "US", families: { create: { familyGroupId: otherFamily.id } } }
+      });
+      await db.householdFamily.create({
+        data: { householdId: household.id, familyGroupId: familyGroup.id }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/families/${familyGroup.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.households).toHaveLength(1);
+      expect(res.body.households[0].household.name).toBe("Shared");
+      // no per-household family reference is ever surfaced (spec §7 invariant 1 — no foreign family ids)
+      expect(res.body.households[0].household).not.toHaveProperty("familyGroupId");
+    });
+
+    it("household members are scoped to the requesting family — a resident who is only a member of the OTHER linked family is excluded, a resident of THIS family is included (Fix 1, invariant 1)", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const ownResident = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: ownResident.id, roles: [], permissions: [] }
+      });
+
+      const otherAdmin = await db.person.create({
+        data: { firstName: "Other", lastName: "Admin", ageGateLevel: "ADULT" }
+      });
+      const otherFamily = await db.familyGroup.create({
+        data: { name: "Other Family", createdById: otherAdmin.id }
+      });
+      const foreignResident = await db.person.create({
+        data: { firstName: "Foreign", lastName: "Resident", ageGateLevel: "ADULT", dateOfBirth: new Date("1990-01-01") }
+      });
+      await db.familyMember.create({
+        data: { familyGroupId: otherFamily.id, personId: foreignResident.id, roles: [], permissions: [] }
+      });
+
+      const household = await db.household.create({
+        data: {
+          name: "Shared Home",
+          country: "US",
+          families: {
+            create: [
+              { familyGroupId: familyGroup.id },
+              { familyGroupId: otherFamily.id }
+            ]
+          }
+        }
+      });
+      await db.householdMember.create({ data: { householdId: household.id, personId: ownResident.id } });
+      await db.householdMember.create({ data: { householdId: household.id, personId: foreignResident.id } });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/families/${familyGroup.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.households).toHaveLength(1);
+      const memberIds = res.body.households[0].members.map((p: { id: string }) => p.id);
+      expect(memberIds).toContain(ownResident.id);
+      expect(memberIds).not.toContain(foreignResident.id);
+      // foreignResident's DOB must never reach a viewer from the other linked family
+      expect(
+        (res.body.households[0].members as Array<{ id: string; dateOfBirth: string | null }>).some(
+          (p) => p.dateOfBirth === "1990-01-01"
+        )
+      ).toBe(false);
+    });
+
+    it("Fix B: a person removed from the family (FamilyMember hard-deleted) drops out of this view but remains visible via GET /households/:id — accepted semantics, nothing stranded", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const member = await seedSecondPerson();
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: member.id, roles: ["MEMBER"], permissions: [] }
+      });
+      const household = await db.household.create({
+        data: { name: "Shared Home", country: "US", families: { create: { familyGroupId: familyGroup.id } } }
+      });
+      await db.householdMember.create({ data: { householdId: household.id, personId: member.id } });
+
+      // Remove member from the family via the API — hard-deletes FamilyMember, leaves
+      // HouseholdMember intact (the behavior the corrected comment documents).
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const del = await request(app)
+        .delete(`/api/v1/families/${familyGroup.id}/members/${member.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(del.status).toBe(204);
+
+      const familyRes = await request(app)
+        .get(`/api/v1/families/${familyGroup.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(familyRes.status).toBe(200);
+      expect(familyRes.body.households).toHaveLength(1);
+      const familyViewMemberIds = familyRes.body.households[0].members.map((p: { id: string }) => p.id);
+      expect(familyViewMemberIds).not.toContain(member.id);
+
+      const householdRes = await request(app)
+        .get(`/api/v1/households/${household.id}`)
+        .set("Authorization", "Bearer mock");
+      expect(householdRes.status).toBe(200);
+      const householdViewMemberIds = householdRes.body.members.map((m: { personId: string }) => m.personId);
+      expect(householdViewMemberIds).toContain(member.id);
+    });
+
+    it("does NOT return a household that is not linked to this family", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+      // No link row at all — the join is the sole source of truth for visibility
+      await db.household.create({
+        data: { name: "Unlinked", country: "US" }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .get(`/api/v1/families/${familyGroup.id}`)
+        .set("Authorization", "Bearer mock");
+
+      expect(res.status).toBe(200);
+      expect(res.body.households).toEqual([]);
+    });
+  });
+
+  describe("POST /api/v1/families/:familyId/households", () => {
+    it("creates the household plus exactly one HouseholdFamily link and one LINKED audit entry", async () => {
+      const admin = await seedTestPerson();
+      const { familyGroup } = await seedTestFamily(admin.id);
+
+      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/households`)
+        .set("Authorization", "Bearer mock")
+        .send({ name: "New Household" });
+
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe("New Household");
+      // Response exposes linkedFamilies (viewer-scoped), not the transitional FK
+      expect(res.body).not.toHaveProperty("familyGroupId");
+      expect(res.body.linkedFamilies).toEqual([{ id: familyGroup.id, name: "Test Family" }]);
+
+      const links = await db.householdFamily.findMany({ where: { householdId: res.body.id } });
+      expect(links).toHaveLength(1);
+      expect(links[0]?.familyGroupId).toBe(familyGroup.id);
+      expect(links[0]?.linkedByPersonId).toBe(admin.id);
+
+      const auditEntries = await db.householdAuditEntry.findMany({ where: { householdId: res.body.id } });
+      expect(auditEntries).toHaveLength(1);
+      expect(auditEntries[0]?.action).toBe("LINKED");
+      expect(auditEntries[0]?.actorPersonId).toBe(admin.id);
+      expect(auditEntries[0]?.actorFamilyGroupId).toBe(familyGroup.id);
     });
   });
 
