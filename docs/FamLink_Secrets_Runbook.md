@@ -78,6 +78,12 @@ Fill the `<...>` locals with your real machine values (match your existing local
 - **Plain `npm run dev`** → will now FAIL Zod validation for the Infisical-only secrets. That's an intentional guardrail (it forces Infisical use). If you want an offline fallback instead, regenerate on demand: `infisical export --env=dev --format=dotenv > .env.local` (then re-guard the local `DATABASE_URL`, which the export may overwrite).
 - **Direct `prisma` / `tsx` commands** still read `.env` for the local `DATABASE_URL` (unchanged). For prod-targeting, set `DATABASE_URL` explicitly in the shell — never rely on `.env`.
 
+### Port collision note (2026-07-27)
+
+The original 2026-07-01 `import-to-infisical.sh` bootstrap pushed **all** local `.env` keys up to Infisical — including non-secret config like **`PORT`** and `NODE_ENV`. So `infisical run --env=dev` injects `PORT=3001` into the *whole* Turbo process, and both `next dev` and the API inherited it → `EADDRINUSE` on 3001 (Next grabbed it first). Two things address this:
+- **`apps/web` dev script is pinned to `next dev -p 3000`** — the `-p` flag overrides the injected `PORT`, so web is always 3000 and the API keeps 3001. This is the durable guard.
+- **Optional cleanup:** prune the non-secret keys that leaked into Infisical `dev` during bootstrap (`PORT`, `NODE_ENV`, and arguably the `NEXT_PUBLIC_*` URLs / `WEB_APP_URL`) so Infisical holds **secrets only** and can't inject surprises like `PORT`. Not required now that web is pinned. Delete via `infisical secrets delete PORT --env=dev` (or the dashboard).
+
 ### Ongoing rule
 
 On every rotation: update **Infisical (`dev` + any shared env)** and **Railway (prod)**. **Leave `.env` alone.** Verify with `npm run dev:infisical` → `GET /health` = 200.
