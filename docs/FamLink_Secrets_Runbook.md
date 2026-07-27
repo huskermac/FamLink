@@ -42,7 +42,7 @@ The bootstrap script `scripts/secrets/import-to-infisical.sh` pushed local `.env
 
 ### What `.env` keeps vs. what moves to Infisical
 
-**KEEP in root `.env`** (local, non-secret): `DATABASE_URL`, `TEST_DATABASE_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_URL`, the `NEXT_PUBLIC_CLERK_*` URL vars, `WEB_APP_URL`, `PORT`, `NODE_ENV`, `TURBO_TEAM`. The Clerk **publishable** key is public — fine to keep here or move to Infisical.
+**KEEP in root `.env`** (local, non-secret): `DATABASE_URL`, `TEST_DATABASE_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_URL`, the `NEXT_PUBLIC_CLERK_*` URL vars, `WEB_APP_URL`, `NODE_ENV`, `TURBO_TEAM`. **Do NOT set `PORT`** (see the template note — a global `PORT=3001` collides the web app with the API). The Clerk **publishable** key is public — fine to keep here or move to Infisical.
 
 **REMOVE from `.env`/`.env.local`** (secrets → Infisical owns them; these currently hold DEAD rotated values): `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET`, `RESEND_API_KEY`, `TWILIO_AUTH_TOKEN`, `GUEST_TOKEN_SECRET`, `FIREBASE_PRIVATE_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `HELICONE_API_KEY`, `CLOUDFLARE_R2_*`, `REDIS_URL`, `TURBO_TOKEN`, `STRIPE_*`. (Non-secret identifiers — `TWILIO_ACCOUNT_SID`, `TWILIO_PHONE_NUMBER`, `RESEND_FROM_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `CLOUDFLARE_R2_BUCKET_NAME`, `CLOUDFLARE_R2_PUBLIC_URL` — can go either place; simplest is to let Infisical carry them so `.env` stays purely local-machine config.)
 
@@ -54,7 +54,9 @@ The bootstrap script `scripts/secrets/import-to-infisical.sh` pushed local `.env
 DATABASE_URL="postgresql://<localuser>:<localpw>@localhost:5432/famlink_dev"
 TEST_DATABASE_URL="postgresql://<localuser>:<localpw>@localhost:5432/famlink_test"
 # --- Local service URLs / non-secret config ---
-PORT="3001"
+# Do NOT set PORT here. It is global and `next dev` also honors it, so PORT=3001 makes
+# the web app collide with the API on 3001 (EADDRINUSE) under `npm run dev:infisical`.
+# The API defaults to 3001 (env.ts) and Next defaults to 3000 when PORT is unset.
 NODE_ENV="development"
 WEB_APP_URL="http://localhost:3000"
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
@@ -81,6 +83,8 @@ Fill the `<...>` locals with your real machine values (match your existing local
 On every rotation: update **Infisical (`dev` + any shared env)** and **Railway (prod)**. **Leave `.env` alone.** Verify with `npm run dev:infisical` → `GET /health` = 200.
 
 ## Secret inventory
+
+> **Deprecation note (2026-07-25):** the "Stored in … local `.env`/`.env.local`" locations in the rows below are **historical**. As of the local consolidation (verified `dev:infisical` → `/health` 200 with `.env.local` contributing zero keys), local **secrets** come from **Infisical `dev`** only; root `.env` holds non-secret local config. See "Local environment architecture" above. Railway remains prod's source of truth.
 
 ### Database & cache
 
