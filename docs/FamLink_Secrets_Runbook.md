@@ -18,6 +18,68 @@ Applies to every SECRET-typed row below unless a row says otherwise.
 
 **If you add a brand-new secret name** (not just rotate an existing one), also add it to `turbo.json`'s `globalPassThroughEnv` array. Turborepo enters Strict Environment Variable Mode the moment `globalPassThroughEnv` exists at all — any var not explicitly listed there gets silently stripped before `infisical run -- turbo dev` hands it to a child task, even though `infisical run` itself successfully injected it into the parent process. This was invisible for most secrets during the initial 2026-07-01 rollout because they also happened to exist in local `.env`/`.env.local` (which `apps/api/src/loadEnv.ts` reads independently of Infisical) — it only surfaced once a secret (`STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`) existed solely in Infisical with no local fallback.
 
+## Local environment architecture (`.env` vs Infisical vs Railway)
+
+**Added 2026-07-25**, after a run of rotations left `.env`/`.env.local` stale (secrets were updated in Infisical + Railway but never in the local files). This section is the authoritative model; where the per-row "Stored in … local `.env`" notes in the inventory below disagree, they are **deprecated** — Infisical is the local source.
+
+### Three stores, clear owners
+
+| Store | Purpose | Update on rotation? |
+|---|---|---|
+| **Railway Variables** | production runtime source of truth | **Yes** |
+| **Infisical `dev`** | local-dev secret source, injected by `npm run dev:infisical` | **Yes** |
+| **`.env` / `.env.local`** | local, non-secret machine config only (local DB pointers + local URLs) | **No** — holds no rotating secrets |
+
+Secrets therefore live in exactly **two** places: Infisical (local) + Railway (prod). `.env` holds only what is per-machine and never rotates.
+
+### Sync direction — and a footgun
+
+The bootstrap script `scripts/secrets/import-to-infisical.sh` pushed local `.env` **→ Infisical** during the one-time 2026-07-01 setup. **Do NOT run it again.** The authoritative direction is now **Infisical → local** (via `infisical run` at dev time, or `infisical export` on demand). Re-running the import would overwrite the good Infisical values with stale local ones.
+
+### `DATABASE_URL` is a special case (not a rotating secret)
+
+`DATABASE_URL` in `.env` is a **local machine pointer** (→ local `famlink_dev`), not a shared secret, and it never rotates. Keep it authoritative in `.env`. **Do not also store a `DATABASE_URL` in Infisical `dev`** — `infisical run` would inject it and shadow the local pointer, so `dev:infisical` would silently connect to the wrong database. (Prod's `DATABASE_URL` lives in Railway, composed from `${{PGPASSWORD}}` as of 2026-07-25.)
+
+### What `.env` keeps vs. what moves to Infisical
+
+**KEEP in root `.env`** (local, non-secret): `DATABASE_URL`, `TEST_DATABASE_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_URL`, the `NEXT_PUBLIC_CLERK_*` URL vars, `WEB_APP_URL`, `PORT`, `NODE_ENV`, `TURBO_TEAM`. The Clerk **publishable** key is public — fine to keep here or move to Infisical.
+
+**REMOVE from `.env`/`.env.local`** (secrets → Infisical owns them; these currently hold DEAD rotated values): `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET`, `RESEND_API_KEY`, `TWILIO_AUTH_TOKEN`, `GUEST_TOKEN_SECRET`, `FIREBASE_PRIVATE_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `HELICONE_API_KEY`, `CLOUDFLARE_R2_*`, `REDIS_URL`, `TURBO_TOKEN`, `STRIPE_*`. (Non-secret identifiers — `TWILIO_ACCOUNT_SID`, `TWILIO_PHONE_NUMBER`, `RESEND_FROM_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `CLOUDFLARE_R2_BUCKET_NAME`, `CLOUDFLARE_R2_PUBLIC_URL` — can go either place; simplest is to let Infisical carry them so `.env` stays purely local-machine config.)
+
+### Target reduced `.env` (template)
+
+```dotenv
+# Local machine config ONLY — no secrets. Secrets come from Infisical via `npm run dev:infisical`.
+# --- Local database (Postgres 18 famlink_dev): a machine pointer, NOT a rotating secret ---
+DATABASE_URL="postgresql://<localuser>:<localpw>@localhost:5432/famlink_dev"
+TEST_DATABASE_URL="postgresql://<localuser>:<localpw>@localhost:5432/famlink_test"
+# --- Local service URLs / non-secret config ---
+PORT="3001"
+NODE_ENV="development"
+WEB_APP_URL="http://localhost:3000"
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+NEXT_PUBLIC_API_URL="http://localhost:3001"
+NEXT_PUBLIC_CLERK_SIGN_IN_URL="/sign-in"
+NEXT_PUBLIC_CLERK_SIGN_UP_URL="/sign-up"
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL="/dashboard"
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL="/dashboard"
+TURBO_TEAM="<your-turbo-team>"
+# Clerk publishable key is PUBLIC (not a secret) — keep here or move to Infisical
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="pk_test_..."
+```
+
+Fill the `<...>` locals with your real machine values (match your existing local DB creds and Clerk dev keys). Once `.env` looks like this, **`.env.local` can be emptied** — its secrets are Infisical's job now.
+
+### How local dev behaves after the cleanup
+
+- **`npm run dev:infisical`** → works; Infisical provides every secret. This is the standard local path.
+- **Plain `npm run dev`** → will now FAIL Zod validation for the Infisical-only secrets. That's an intentional guardrail (it forces Infisical use). If you want an offline fallback instead, regenerate on demand: `infisical export --env=dev --format=dotenv > .env.local` (then re-guard the local `DATABASE_URL`, which the export may overwrite).
+- **Direct `prisma` / `tsx` commands** still read `.env` for the local `DATABASE_URL` (unchanged). For prod-targeting, set `DATABASE_URL` explicitly in the shell — never rely on `.env`.
+
+### Ongoing rule
+
+On every rotation: update **Infisical (`dev` + any shared env)** and **Railway (prod)**. **Leave `.env` alone.** Verify with `npm run dev:infisical` → `GET /health` = 200.
+
 ## Secret inventory
 
 ### Database & cache
