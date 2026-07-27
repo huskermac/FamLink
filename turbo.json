@@ -31,7 +31,10 @@
     "STRIPE_WEBHOOK_SECRET",
     "STRIPE_PRICE_BASE",
     "STRIPE_PRICE_BASE_SEAT",
-    "STRIPE_PRICE_UNLIMITED"
+    "STRIPE_PRICE_UNLIMITED",
+    "AI_MAX_TOOL_ITERATIONS",
+    "NODE_ENV",
+    "PORT"
   ],
   "tasks": {
     "build": {
