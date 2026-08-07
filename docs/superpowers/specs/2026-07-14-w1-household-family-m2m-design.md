@@ -6,7 +6,7 @@
 | Phase | P3-04 (W1 of the family-model reframe) |
 | Parent design | `docs/FamLink_Design_Family_Model_Reframe.md` §3 (council-converged 2026-06-24; carry-ins B2-write-authority + membership-consent MAJOR resolved here) |
 | Scope decision | **A+B+C** (Steve, 2026-07-14): schema reframe + consented-pull link flows + membership-lifecycle formalization, one spec, sequential PRs |
-| Status | Awaiting Steve spec review → writing-plans |
+| Status | Steve-approved. §3.3 amended 2026-07-15 (PR-1 audit shape). **Consent-gate scope amended 2026-08-07** (§2 decision 8 + §3.2/§6.2/§6.3): consent gates a reachable autonomous party — active account or passive-with-contact; passive-without-contact is data entry. PR-2 planning in progress. |
 
 ## 1. Goal
 
@@ -27,6 +27,12 @@ household (parent-design invariant B1).
 5. **Teens = minors:** only ADULT self-consents; TEEN and CHILD require guardian consent.
 6. **Architecture:** **request→grant separation** (Approach 1). Pending consent lives in a new `LinkRequest` model; `FamilyMember`/`HouseholdFamily` rows are only ever created on acceptance — row existence = access, no status filters retrofitted into existing authz queries.
 7. **SMS consent stays link-token-based:** the W3b keyword router is untouched; "reply Y" remains exclusively the event-RSVP verb. Bare-keyword link consent is out of scope (W1b if ever wanted).
+8. **Consent gates a *reachable autonomous party*, not the mechanical membership row (Steve, 2026-08-07 — narrows decision 6 and §3.2/§6.2/§6.3).** Building out your own family with authored records is data entry, not an act against another person. The discriminator is **whether the target Person can be reached / acts autonomously**, decided by two facts on the `Person`:
+   - **Active account** (`userId != null`) → consent **required**, delivered **in-app** (a `LinkRequest` the target — or their guardian, for a minor — accepts from the consent inbox).
+   - **Passive** (`userId == null`) **with any contact detail** (`email`/`phone` present) → consent **required**, delivered as a **single-use token consent link** (email/SMS) to that contact. Confirming consents *and* verifies control of the contact (sets `emailVerifiedAt`/`phoneVerifiedAt`, as W3b's Y does).
+   - **Passive with no contact detail** (`userId == null` and no `email`/`phone`) → **no consent — pure data entry.** The admin authored the record (a child with no contact, a deceased relative, an offline relative); attaching it to a family via the existing direct path stays as-is.
+
+   Consequences carried into the plan: (a) the existing unconsented `POST /families/:familyId/members` (families.ts) is **kept only for the no-consent case** and must **reject / route through a `LinkRequest`** any target that has an account or a contact detail; (b) seat billing — which today fires only for `userId != null` targets (families.ts seat-enforcement branch) — **moves to the acceptance step**, and direct-add's billing branch becomes dead; (c) the **passive→active** consent moment (a passive record claiming an account) is **already handled at signup by CIF Plan B** (the Clerk `user.created` consolidation/merge) and is **not** re-implemented here.
 
 ## 3. Data model
 
@@ -85,6 +91,12 @@ model LinkRequest {
 - `FamilyMember` and `HouseholdFamily` **never contain unconsented rows.** Existing
   authorization queries (`activeFamilyMembership`, `eventVisibility`, all P3-00 isolation
   checks) keep their semantics with zero new filters.
+  - **Amended 2026-08-07 (Steve) — §2 decision 8:** "unconsented" is scoped to *reachable
+    autonomous parties*. A `FamilyMember` for a **passive `Person` with no contact detail**
+    (`userId == null`, no `email`/`phone`) is authored data, not an unconsented binding, and
+    may be created directly. Consent is required only when the target has an active account
+    **or** a contact detail (see §6.2/§6.3 for channel). `HouseholdFamily` links are always
+    consent-gated (a household link always crosses to another family's admins).
 - Expiry: 30 days (same class as guest tokens). Expired requests auto-transition on read.
 - Idempotent accept/decline: re-resolving an already-resolved request is a no-op returning the
   current state (webhook/token retry safety, the W3b pattern).
@@ -185,6 +197,13 @@ appends a `HouseholdAuditEntry` in the same transaction.
   - membership pull: `targetPersonId` **or** a contact (email/phone → CIF
     `findOrCreatePersonByContact`), optional `carryHouseholdId` (must be linked to
     `:familyId`);
+    - **Amended 2026-08-07 (Steve) — §2 decision 8:** a membership pull is required (and this
+      route is the only path) **only when the resolved target is a reachable autonomous
+      party** — an active account (`userId != null`, in-app consent) or a passive record with
+      a contact detail (token consent). A pull whose target resolves to a **passive `Person`
+      with no contact detail** is not an autonomous party: the caller should use the direct
+      data-entry attach (`POST /families/:familyId/members`), and this route should reject it
+      (nothing to deliver a consent request to).
   - household link: `targetHouseholdId` (pull a household in) or `targetFamilyGroupId`
     (JOIN direction: ask another family to accept this family's link to their household).
 - `GET /link-requests/pending` — consent inbox: requests where the caller is a valid
@@ -205,7 +224,8 @@ appends a `HouseholdAuditEntry` in the same transaction.
 |---|---|
 | PULL membership, target = active ADULT | the target person |
 | PULL membership, target = TEEN/CHILD | ADULT admin of any family the minor belongs to; family-less minor → the adult who created the `Person` record |
-| PULL membership, target = passive (no account) | the contact holder via token page (adult implied; DOB-unknown treated as adult only if the requester attests — see §11 open item resolution: treated as adult, requester attestation logged in the request) |
+| PULL membership, target = passive **with a contact detail** (no account) | the contact holder via token page (adult implied; DOB-unknown treated as adult only if the requester attests — see §11 open item resolution: treated as adult, requester attestation logged in the request) |
+| Attach, target = passive **with no contact detail** (no account) | **no consent — data entry.** Not a `LinkRequest`; created directly via `POST /families/:familyId/members`. *(Amended 2026-08-07, Steve — §2 decision 8.)* |
 | JOIN membership (person asks family) | any admin of the target family |
 | PULL household link (family A links household H it can see via a member) | any admin of another family H is linked to |
 | JOIN household link (family B asks to link H) | any admin of a family H is currently linked to |
