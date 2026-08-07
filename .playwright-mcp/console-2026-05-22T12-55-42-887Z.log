@@ -1,9 +1,0 @@
-[   11177ms] [WARNING] A speculation rule set was inserted into the document but will be ignored. This might happen, for example, if it was previously inserted into another document, or if it was created using the innerHTML setter. @ https://www.google.com/search?q=what+is+chatgpt+advanced+data+analysis&oq=what+is+chatgpt+adv&gs_lcrp=EgZjaHJvbWUqBwgBEAAYgAQyBggAEEUYOTIHCAEQABiABDIHCAIQABiABDIHCAMQABiABDIHCAQQABiABDIHCAUQABiABDIICAYQABgWGB4yCAgHEAAYFhgeMggICBAAGBYYHjIICAkQABgWGB7SAQg2ODA4ajBqN6gCB7ACAfEFH74b3Ac4yzA&sourceid=chrome&ie=UTF-8&source=chrome.ob:31
-[   11381ms] [INFO] Autofocus processing was blocked because a document already has a focused element. @ https://www.google.com/search?q=what+is+chatgpt+advanced+data+analysis&oq=what+is+chatgpt+adv&gs_lcrp=EgZjaHJvbWUqBwgBEAAYgAQyBggAEEUYOTIHCAEQABiABDIHCAIQABiABDIHCAMQABiABDIHCAQQABiABDIHCAUQABiABDIICAYQABgWGB4yCAgHEAAYFhgeMggICBAAGBYYHjIICAkQABgWGB7SAQg2ODA4ajBqN6gCB7ACAfEFH74b3Ac4yzA&sourceid=chrome&ie=UTF-8&source=chrome.ob&zx=1779454553457:0
-[92775360ms] [ERROR] Failed to load resource: net::ERR_QUIC_PROTOCOL_ERROR @ https://play.google.com/log?format=json&hasfast=true&authuser=0:0
-[175745921ms] [ERROR] Failed to load resource: net::ERR_NAME_NOT_RESOLVED @ https://accounts.google.com/RotateCookies:0
-[262101585ms] [ERROR] Failed to load resource: net::ERR_INTERNET_DISCONNECTED @ https://accounts.google.com/RotateCookies:0
-[341929062ms] [ERROR] Failed to load resource: net::ERR_INTERNET_DISCONNECTED @ https://accounts.google.com/RotateCookies:0
-[369590255ms] [ERROR] Failed to load resource: net::ERR_NAME_NOT_RESOLVED @ https://accounts.google.com/RotateCookies:0
-[428540747ms] [ERROR] Failed to load resource: net::ERR_INTERNET_DISCONNECTED @ https://accounts.google.com/RotateCookies:0
-[432313218ms] [ERROR] Failed to load resource: net::ERR_NAME_NOT_RESOLVED @ https://accounts.google.com/RotateCookies:0

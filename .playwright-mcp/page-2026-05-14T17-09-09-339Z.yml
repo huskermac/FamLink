@@ -1,7 +1,0 @@
-- main [ref=e2]:
-  - generic [ref=e3]:
-    - heading "FamLink" [level=1] [ref=e4]
-    - paragraph [ref=e5]: A focused hub for family coordination, across web and mobile.
-  - generic [ref=e6]:
-    - button "Open web app" [ref=e7]
-    - button "Open mobile app" [ref=e8]

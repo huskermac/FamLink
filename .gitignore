@@ -53,3 +53,6 @@ packages/db/apps/
 
 # Hermes skill-manager cache (duplicate of deployed skills under .claude/.agents)
 .hermes/
+
+# Playwright MCP browser artifacts (transient debug output)
+.playwright-mcp/
