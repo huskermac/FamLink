@@ -27,6 +27,12 @@ If the shared state conflicts with live code or git history, trust the code/hist
 
 ---
 
+## Writing Style — Simplified Technical English (STE)
+
+Write all FamLink written deliverables in ASD-STE100 Simplified Technical English. This rule covers specs, plans, design documents, the shared state document, checkpoints, README and other docs, and commit and pull-request messages. Chat replies to Steve stay conversational and do not need STE. Each agent applies its Simplified Technical English tool, or writes to the ASD-STE100 rules directly. Steve set this rule on 2026-08-07.
+
+---
+
 ## Repository Organization
 
 **Keep everything committed and organized at all times.**

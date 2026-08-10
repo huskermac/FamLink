@@ -23,6 +23,7 @@ Do not duplicate phase/status or process rules here — those two docs are canon
 - **Auto-memory is supplementary, not canonical.** Claude's auto-memory index (`MEMORY.md`) and session bookmarks under `C:\Users\swmcl\.claude\projects\C--Users-swmcl-FamLink\memory\` are private working notes. They supplement `docs/FamLink_Current_State.md` but never override it. When checkpointing, update `docs/FamLink_Current_State.md` (the shared resume point) **and** commit it; keep auto-memory in sync but treat the committed doc as source of truth.
 - **Skills:** superpowers skills (brainstorming → writing-plans → subagent-driven-development / executing-plans, codex-review for council gates) are the standard workflow for non-trivial work. Use them.
 - **Per-task verification must include `npm run lint`** (not just `tsc` + tests) — see the process note in `FamLink_Current_State.md`; an eslint-only error once broke CI.
+- **Simplified Technical English (STE):** For all FamLink written deliverables, Steve needs ASD-STE100 STE (see `docs/FamLink_Agent_Rules.md`). Invoke the `anthropic-skills:ste` skill before you write a deliverable. Write specs, plans, docs, the state document and checkpoints, and commit and pull-request messages to the STE rules. Chat replies to Steve stay conversational.
 
 ---
 
