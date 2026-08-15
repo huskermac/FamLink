@@ -11,7 +11,7 @@ vi.mock("stripe", () => {
   return { default: MockStripe };
 });
 
-import { reconcileSeats } from "../../lib/subscriptionEnforcement";
+import { reconcileSeats, billingImpactForAdd } from "../../lib/subscriptionEnforcement";
 
 async function paidSub(seatCount: number, opts?: { includedSeats?: number; status?: string; stripeSub?: string | null }) {
   const person = await seedTestPerson({ userId: `u_${Math.random()}` });
@@ -152,5 +152,48 @@ describe("reconcileSeats", () => {
     const sub = await db.familySubscription.findUnique({ where: { familyGroupId } });
     expect(sub?.seatCount).toBe(1); // admin only
     expect(mockStripe.subscriptions.update).not.toHaveBeenCalled(); // desiredQty 0, no seat item
+  });
+});
+
+describe("billingImpactForAdd", () => {
+  it("willBill=true with a note once the next active member exceeds includedSeats", async () => {
+    // includedSeats 2, admin + 1 = 2 active; adding one more => 3 > 2 => bills.
+    const { familyGroupId } = await paidSub(2, { includedSeats: 2 });
+    await addActiveMember(familyGroupId, 1);
+    const impact = await billingImpactForAdd(familyGroupId);
+    expect(impact.willBill).toBe(true);
+    expect(impact.note).toBe("This will be reflected on your next invoice.");
+  });
+
+  it("willBill=false with no note while the next member stays within includedSeats", async () => {
+    // includedSeats 5, admin only = 1 active; adding one more => 2 <= 5 => no bill.
+    const { familyGroupId } = await paidSub(1, { includedSeats: 5 });
+    const impact = await billingImpactForAdd(familyGroupId);
+    expect(impact.willBill).toBe(false);
+    expect(impact.note).toBeNull();
+  });
+
+  it("willBill=false for a free tier", async () => {
+    const person = await seedTestPerson({ userId: "u_bi_free" });
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "FREE", displayName: "Free", displayOrder: 0, stripePriceId: null } });
+    await db.familySubscription.create({ data: { familyGroupId: familyGroup.id, tierKey: "FREE", seatCount: 1, status: "ACTIVE" } });
+    const impact = await billingImpactForAdd(familyGroup.id);
+    expect(impact.willBill).toBe(false);
+    expect(impact.note).toBeNull();
+  });
+
+  it("willBill=false for a paid tier with no per-seat price (reconcile can't bill overflow)", async () => {
+    const person = await seedTestPerson({ userId: "u_bi_noseat" });
+    const { familyGroup } = await seedTestFamily(person.id);
+    // Paid tier, live sub, but stripeSeatPriceId is null => overflow can't be billed.
+    await db.pricingTier.create({ data: { tierKey: "NOSEAT", displayName: "No Seat", displayOrder: 1, includedSeats: 1, stripePriceId: "price_ns" } });
+    await db.familySubscription.create({ data: { familyGroupId: familyGroup.id, tierKey: "NOSEAT", seatCount: 1, status: "ACTIVE", stripeCustomerId: "cus", stripeSubscriptionId: "sub_ns" } });
+    const m = await seedTestPerson({ userId: "u_bi_noseat_m" });
+    await db.familyMember.create({ data: { familyGroupId: familyGroup.id, personId: m.id, roles: [], permissions: [] } });
+    // 2 active, includedSeats 1 => would exceed, but no seat price => no bill.
+    const impact = await billingImpactForAdd(familyGroup.id);
+    expect(impact.willBill).toBe(false);
+    expect(impact.note).toBeNull();
   });
 });

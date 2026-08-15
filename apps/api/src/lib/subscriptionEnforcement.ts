@@ -65,3 +65,37 @@ export async function reconcileSeats(familyGroupId: string): Promise<void> {
     proration_behavior: "create_prorations"
   });
 }
+
+/**
+ * Whether adding one more active (userId != null) member would raise billable
+ * headcount beyond the tier's included seats on a paid, entitling subscription.
+ * Pure read; no Stripe call. Consumed by the consent-accept path (W1 PR-2) and
+ * CIF activation to surface a "your bill will change" indicator.
+ */
+export async function billingImpactForAdd(
+  familyGroupId: string
+): Promise<{ willBill: boolean; note: string | null }> {
+  const sub = await db.familySubscription.findUnique({
+    where: { familyGroupId },
+    include: { pricingTier: true }
+  });
+  // Only promise a bill under the exact conditions reconcileSeats would actually
+  // charge: entitling + paid + a live Stripe subscription + a per-seat price.
+  if (
+    !sub ||
+    !ENTITLING_STATUSES.has(sub.status) ||
+    sub.pricingTier.stripePriceId === null ||
+    sub.pricingTier.stripeSeatPriceId === null ||
+    !sub.stripeSubscriptionId
+  ) {
+    return { willBill: false, note: null };
+  }
+  const activeCount = await db.familyMember.count({
+    where: { familyGroupId, suspendedAt: null, person: { userId: { not: null } } }
+  });
+  const willBill = activeCount + 1 > sub.pricingTier.includedSeats;
+  return {
+    willBill,
+    note: willBill ? "This will be reflected on your next invoice." : null
+  };
+}
