@@ -153,6 +153,24 @@ describe("reconcileSeats", () => {
     expect(sub?.seatCount).toBe(1); // admin only
     expect(mockStripe.subscriptions.update).not.toHaveBeenCalled(); // desiredQty 0, no seat item
   });
+
+  it("updates seatCount to headcount but makes NO Stripe call when the tier has no per-seat price", async () => {
+    // Paid + live subscription, but stripeSeatPriceId is null: reconcile writes
+    // seatCount (headcount) then early-returns before any Stripe call, even when
+    // headcount is over the included allowance.
+    const person = await seedTestPerson({ userId: "u_noseat_recon" });
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "NOSEAT", displayName: "No Seat", displayOrder: 1, includedSeats: 1, stripePriceId: "price_ns" } });
+    await db.familySubscription.create({ data: { familyGroupId: familyGroup.id, tierKey: "NOSEAT", seatCount: 9, status: "ACTIVE", stripeCustomerId: "cus", stripeSubscriptionId: "sub_ns" } });
+    await addActiveMember(familyGroup.id, 1); // admin + 1 = 2 active, over includedSeats 1
+
+    await reconcileSeats(familyGroup.id);
+
+    const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
+    expect(sub?.seatCount).toBe(2);
+    expect(mockStripe.subscriptions.retrieve).not.toHaveBeenCalled();
+    expect(mockStripe.subscriptions.update).not.toHaveBeenCalled();
+  });
 });
 
 describe("billingImpactForAdd", () => {

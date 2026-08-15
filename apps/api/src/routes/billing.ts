@@ -95,6 +95,9 @@ billingRouter.get("/subscription", asyncHandler(async (req: Request, res: Respon
   res.json({
     subscription: {
       tierKey: sub.tierKey,
+      // seatCount is a best-effort DISPLAY value (reconciled from headcount by the
+      // daily pass; below the included allowance it can differ until the next pass).
+      // Not authoritative — do not gate logic on it.
       seatCount: sub.seatCount,
       status: sub.status,
       trialEndsAt: sub.trialEndsAt?.toISOString() ?? null,

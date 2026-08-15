@@ -363,7 +363,7 @@ model PricingTier {
   activeUserLimit    Int?
   trialDays          Int?
   trialWarningDays   Int?
-  downgradeGraceDays Int      @default(7)
+  downgradeGraceDays Int      @default(7) // deprecated/dormant: downgrade grace retired (decision 10, 2026-08-15)
   displayName        String
   displayOrder       Int
   isActive           Boolean  @default(true)
