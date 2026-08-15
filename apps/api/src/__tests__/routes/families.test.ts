@@ -144,100 +144,44 @@ describe("families & households routes", () => {
     });
   });
 
-  describe("POST /api/v1/families/:familyId/members — seat enforcement", () => {
-    it("returns 402 with seatRequired when adding active user would exceed seat count", async () => {
-      const admin = await seedTestPerson();
+  describe("POST /api/v1/families/:familyId/members — no inline billing", () => {
+    it("adds an active member with no 402 gate and no Stripe call, even at the seat boundary", async () => {
+      const admin = await seedTestPerson({ userId: "clerk_admin_nb" });
       const { familyGroup } = await seedTestFamily(admin.id);
-      const second = await seedSecondPerson();
-      await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, activeUserLimit: 5 } });
-      await db.familySubscription.create({ data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1 } });
-
-      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
-      const res = await request(app)
-        .post(`/api/v1/families/${familyGroup.id}/members`)
-        .set("Authorization", "Bearer mock")
-        .send({ personId: second.id, roles: ["MEMBER"], permissions: [] });
-
-      expect(res.status).toBe(402);
-      expect(res.body.seatRequired).toBe(true);
-    });
-
-    it("adds active member with a DB-only seat bump when there is no Stripe seat price (free tier)", async () => {
-      const admin = await seedTestPerson();
-      const { familyGroup } = await seedTestFamily(admin.id);
-      const second = await seedSecondPerson();
-      await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, activeUserLimit: 5 } });
-      await db.familySubscription.create({ data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1 } });
-
-      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
-      const res = await request(app)
-        .post(`/api/v1/families/${familyGroup.id}/members`)
-        .set("Authorization", "Bearer mock")
-        .send({ personId: second.id, roles: ["MEMBER"], permissions: [], confirmSeatExpansion: true });
-
-      expect(res.status).toBe(201);
-      const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
-      expect(sub?.seatCount).toBe(2);
-      expect(mockStripe.subscriptions.update).not.toHaveBeenCalled();
-    });
-
-    it("confirmed expansion on a paid plan bumps the Stripe seat quantity, not the DB (Stripe = SOT)", async () => {
-      const admin = await seedTestPerson();
-      const { familyGroup } = await seedTestFamily(admin.id);
-      const second = await seedSecondPerson();
+      // activeUserLimit finite + activeCount(1 admin) == seatCount(1) => OLD code
+      // returns 402 without confirmSeatExpansion. That is the RED signal; new code
+      // must return 201 and never touch Stripe.
       await db.pricingTier.create({
-        data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, activeUserLimit: 5, stripePriceId: "price_base", stripeSeatPriceId: "price_seat" }
+        data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, includedSeats: 1, activeUserLimit: 1, stripePriceId: "price_base", stripeSeatPriceId: "price_seat" }
       });
       await db.familySubscription.create({
-        data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test" }
+        data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test", status: "ACTIVE" }
       });
-      mockStripe.subscriptions.retrieve.mockResolvedValue({
-        items: { data: [{ id: "si_seat", price: { id: "price_seat" } }] }
-      });
-      mockStripe.subscriptions.update.mockResolvedValue({});
+      const second = await seedTestPerson({ userId: "clerk_second_nb" });
 
-      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      mockGetAuth.mockReturnValue({ userId: "clerk_admin_nb" });
       const res = await request(app)
         .post(`/api/v1/families/${familyGroup.id}/members`)
-        .set("Authorization", "Bearer mock")
-        .send({ personId: second.id, roles: ["MEMBER"], permissions: [], confirmSeatExpansion: true });
+        .send({ personId: second.id, roles: ["MEMBER"], permissions: [] });
 
       expect(res.status).toBe(201);
-      // seatCount 1 + 1 new = 2 total; 1 is included in the base price → bill 1
-      expect(mockStripe.subscriptions.update).toHaveBeenCalledWith("sub_test", {
-        items: [{ id: "si_seat", quantity: 1 }],
-        proration_behavior: "create_prorations"
-      });
-      // seatCount converges via the customer.subscription.updated webhook
+      expect(res.body.personId).toBe(second.id);
+      expect(mockStripe.subscriptions.update).not.toHaveBeenCalled();
+      expect(mockStripe.subscriptions.retrieve).not.toHaveBeenCalled();
+      // seatCount is NOT bumped inline — the daily cron reconciles it.
       const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
       expect(sub?.seatCount).toBe(1);
     });
 
-    it("adds the seat item by price when none exists yet (first overflow seat)", async () => {
-      const admin = await seedTestPerson();
+    it("still accepts a legacy confirmSeatExpansion flag without error (field is vestigial)", async () => {
+      const admin = await seedTestPerson({ userId: "clerk_admin_legacy" });
       const { familyGroup } = await seedTestFamily(admin.id);
-      const second = await seedSecondPerson();
-      await db.pricingTier.create({
-        data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, activeUserLimit: 5, stripePriceId: "price_base", stripeSeatPriceId: "price_seat", includedSeats: 1 }
-      });
-      await db.familySubscription.create({
-        data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test" }
-      });
-      // No seat item on the subscription yet — family was within the allowance
-      mockStripe.subscriptions.retrieve.mockResolvedValue({ items: { data: [] } });
-      mockStripe.subscriptions.update.mockResolvedValue({});
-
-      mockGetAuth.mockReturnValue({ userId: TEST_CLERK_ID });
+      const second = await seedTestPerson({ userId: "clerk_second_legacy" });
+      mockGetAuth.mockReturnValue({ userId: "clerk_admin_legacy" });
       const res = await request(app)
         .post(`/api/v1/families/${familyGroup.id}/members`)
-        .set("Authorization", "Bearer mock")
         .send({ personId: second.id, roles: ["MEMBER"], permissions: [], confirmSeatExpansion: true });
-
       expect(res.status).toBe(201);
-      expect(mockStripe.subscriptions.update).toHaveBeenCalledWith("sub_test", {
-        items: [{ price: "price_seat", quantity: 1 }],
-        proration_behavior: "create_prorations"
-      });
     });
   });
 

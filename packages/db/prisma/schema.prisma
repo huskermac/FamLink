@@ -355,13 +355,15 @@ model PricingTier {
   stripePriceId      String?
   stripeSeatPriceId  String?
   // Active seats covered by the base price; only seats beyond this are billed
-  // via stripeSeatPriceId (decision 2026-06-12). seatCount on the subscription
-  // is always the TOTAL allowance: includedSeats + billed seat quantity.
+  // via stripeSeatPriceId (decision 2026-06-12).
+  // seatCount tracks the family's true active-member headcount, reconciled from
+  // membership by the daily seat-reconciliation pass (decision 10, 2026-08-15).
+  // Billed seat quantity is derived as max(0, seatCount - includedSeats).
   includedSeats      Int      @default(1)
   activeUserLimit    Int?
   trialDays          Int?
   trialWarningDays   Int?
-  downgradeGraceDays Int      @default(7)
+  downgradeGraceDays Int      @default(7) // deprecated/dormant: downgrade grace retired (decision 10, 2026-08-15)
   displayName        String
   displayOrder       Int
   isActive           Boolean  @default(true)

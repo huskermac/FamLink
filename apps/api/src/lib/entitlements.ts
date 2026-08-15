@@ -1,11 +1,11 @@
 /**
- * AI entitlement resolver (P3-02 / W2).
+ * AI entitlement resolver (P3-02 / W2; seat cap removed 2026-08-15, decision 10).
  *
  * Coverage is derived live on every call — never materialized. A person is
  * "covered" iff they are an active (non-suspended) member of at least one family
  * whose subscription is entitling (ACTIVE | TRIALING) AND on a paid tier
- * (PricingTier.stripePriceId !== null), AND they fall within that family's
- * seatCount when active members are ordered by joinedAt ascending.
+ * (PricingTier.stripePriceId !== null). There is no per-seat cap: seatCount is the
+ * family's active-member headcount (reconciled by the daily cron), not a coverage limit.
  */
 
 import { db } from "@famlink/db";
@@ -22,21 +22,17 @@ export async function isPersonCoveredByFamily(
 ): Promise<boolean> {
   const sub = await db.familySubscription.findUnique({
     where: { familyGroupId },
-    select: { status: true, seatCount: true, pricingTier: { select: { stripePriceId: true } } }
+    select: { status: true, pricingTier: { select: { stripePriceId: true } } }
   });
   if (!sub) return false;
   if (!ENTITLING_STATUSES.has(sub.status)) return false;
   if (sub.pricingTier.stripePriceId === null) return false; // free tier never covers
 
-  const seated = await db.familyMember.findMany({
-    where: { familyGroupId, suspendedAt: null },
-    // `id` is a stable tiebreak so the seat boundary is deterministic when
-    // two members share a joinedAt timestamp.
-    orderBy: [{ joinedAt: "asc" }, { id: "asc" }],
-    take: sub.seatCount,
-    select: { personId: true }
+  const membership = await db.familyMember.findFirst({
+    where: { familyGroupId, personId, suspendedAt: null },
+    select: { id: true }
   });
-  return seated.some((m) => m.personId === personId);
+  return membership !== null;
 }
 
 // NOTE: O(memberships) — ~2 queries per family. Fine for the small number of

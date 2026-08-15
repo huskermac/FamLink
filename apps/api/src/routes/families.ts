@@ -12,8 +12,6 @@ import {
   ERROR_PERSON_BEFORE_CREATE_FAMILY,
   ERROR_PERSON_RECORD_REQUIRED
 } from "../lib/personRequiredMessages";
-import { checkSeatExpansion } from "../lib/subscriptionEnforcement";
-import { stripe } from "../lib/stripeClient";
 import { linkedFamilies, writeHouseholdAudit } from "../lib/householdAccess";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
@@ -176,61 +174,6 @@ familiesRouter.post("/:familyId/members", async (req, res) => {
   if (!targetPerson) {
     res.status(400).json({ error: "Person not found" });
     return;
-  }
-
-  // Seat enforcement: only for active users (those with a Clerk account)
-  if (targetPerson.userId) {
-    const activeCount = await db.familyMember.count({
-      where: {
-        familyGroupId: familyId,
-        person: { userId: { not: null } },
-        suspendedAt: null
-      }
-    });
-    const check = await checkSeatExpansion(familyId, activeCount);
-    if (check.requiresConfirmation && !body.data.confirmSeatExpansion) {
-      res.status(402).json({ seatRequired: true, currentActiveCount: activeCount });
-      return;
-    }
-    if (check.requiresConfirmation && body.data.confirmSeatExpansion) {
-      const sub = await db.familySubscription.findUnique({
-        where: { familyGroupId: familyId },
-        include: { pricingTier: true }
-      });
-      if (sub?.stripeSubscriptionId && sub.pricingTier.stripeSeatPriceId) {
-        // Stripe is the source of truth (decision 2026-06-10): bill only the
-        // seats beyond the tier's included allowance. The seat item may not
-        // exist yet (family was within the allowance) — add it by price then.
-        // Local seatCount converges via the customer.subscription.updated webhook.
-        const newBillable = Math.max(0, sub.seatCount + 1 - sub.pricingTier.includedSeats);
-        if (newBillable === 0) {
-          // Still covered by the base price — nothing to bill.
-          await db.familySubscription.update({
-            where: { familyGroupId: familyId },
-            data: { seatCount: sub.seatCount + 1 }
-          });
-        } else {
-          const stripeSub = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
-          const seatItem = stripeSub.items.data.find(
-            (item) => item.price?.id === sub.pricingTier.stripeSeatPriceId
-          );
-          await stripe.subscriptions.update(sub.stripeSubscriptionId, {
-            items: [
-              seatItem
-                ? { id: seatItem.id, quantity: newBillable }
-                : { price: sub.pricingTier.stripeSeatPriceId, quantity: newBillable }
-            ],
-            proration_behavior: "create_prorations"
-          });
-        }
-      } else if (sub) {
-        // No Stripe subscription to bill (e.g. free tier) — DB-only bump.
-        await db.familySubscription.update({
-          where: { familyGroupId: familyId },
-          data: { seatCount: sub.seatCount + 1 }
-        });
-      }
-    }
   }
 
   let member;

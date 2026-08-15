@@ -95,13 +95,18 @@ billingRouter.get("/subscription", asyncHandler(async (req: Request, res: Respon
   res.json({
     subscription: {
       tierKey: sub.tierKey,
+      // seatCount is a best-effort DISPLAY value (reconciled from headcount by the
+      // daily pass; below the included allowance it can differ until the next pass).
+      // Not authoritative — do not gate logic on it.
       seatCount: sub.seatCount,
       status: sub.status,
       trialEndsAt: sub.trialEndsAt?.toISOString() ?? null,
       trialWarningSentAt: sub.trialWarningSentAt?.toISOString() ?? null,
-      pendingDowngradeTierKey: sub.pendingDowngradeTierKey ?? null,
-      pendingDowngradeSeatCount: sub.pendingDowngradeSeatCount ?? null,
-      downgradeGraceEndsAt: sub.downgradeGraceEndsAt?.toISOString() ?? null,
+      // Retired 2026-08-15 (decision 10): downgrades no longer suspend members, so
+      // these are always null to clients. Columns remain dormant in the DB (spec §8).
+      pendingDowngradeTierKey: null,
+      pendingDowngradeSeatCount: null,
+      downgradeGraceEndsAt: null,
       grandfathered: sub.grandfathered
     }
   });
@@ -380,24 +385,18 @@ async function handleStripeEvent(event: ReturnType<typeof stripe.webhooks.constr
         obj.items?.data,
         newTier ?? existing.pricingTier
       );
-      const isDowngrade = newTier !== null && newSeatCount < existing.seatCount;
 
-      const graceEndsAt = isDowngrade
-        ? new Date(Date.now() + (newTier?.downgradeGraceDays ?? 7) * 86400000)
-        : null;
-
+      // seatCount is the local convergence backstop for Stripe's quantity.
+      // Seat billing is reconciled from headcount by the daily cron (decision 10),
+      // and tier downgrades no longer suspend members (decision 4) — so no
+      // pendingDowngrade* / grace scheduling here.
       await db.familySubscription.update({
         where: { familyGroupId },
         data: {
           tierKey: tierKey ?? existing.tierKey,
           seatCount: newSeatCount,
           status: obj.status === "past_due" ? "PAST_DUE" : obj.status === "trialing" ? "TRIALING" : "ACTIVE",
-          trialEndsAt: obj.trial_end ? new Date(obj.trial_end * 1000) : existing.trialEndsAt,
-          ...(isDowngrade ? {
-            pendingDowngradeTierKey: tierKey ?? existing.tierKey,
-            pendingDowngradeSeatCount: newSeatCount,
-            downgradeGraceEndsAt: graceEndsAt
-          } : {})
+          trialEndsAt: obj.trial_end ? new Date(obj.trial_end * 1000) : existing.trialEndsAt
         }
       });
       break;
