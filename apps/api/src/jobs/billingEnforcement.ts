@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import { db } from "@famlink/db";
+import { reconcileSeats } from "../lib/subscriptionEnforcement";
 
 export async function runTrialWarningPass(): Promise<void> {
   const subs = await db.familySubscription.findMany({
@@ -24,60 +25,22 @@ export async function runTrialWarningPass(): Promise<void> {
   }
 }
 
-export async function runDowngradeEnforcementPass(): Promise<void> {
+export async function runSeatReconciliationPass(): Promise<void> {
   const subs = await db.familySubscription.findMany({
     where: {
-      downgradeGraceEndsAt: { not: null, lt: new Date() },
-      pendingDowngradeSeatCount: { not: null }
-    }
+      status: { in: ["ACTIVE", "TRIALING"] },
+      pricingTier: { stripePriceId: { not: null } }
+    },
+    select: { familyGroupId: true }
   });
 
-  for (const sub of subs) {
-    const newSeatCount = sub.pendingDowngradeSeatCount!;
-
-    const activeMembers = await db.familyMember.findMany({
-      where: {
-        familyGroupId: sub.familyGroupId,
-        suspendedAt: null,
-        person: { userId: { not: null } }
-      },
-      orderBy: { joinedAt: "asc" },
-      include: { person: true }
-    });
-
-    const overCount = activeMembers.length - newSeatCount;
-    if (overCount <= 0) {
-      await db.familySubscription.update({
-        where: { id: sub.id },
-        data: {
-          seatCount: newSeatCount,
-          pendingDowngradeTierKey: null,   // tierKey was already updated by the webhook handler
-          pendingDowngradeSeatCount: null,
-          downgradeGraceEndsAt: null
-        }
-      });
-      continue;
+  for (const { familyGroupId } of subs) {
+    try {
+      await reconcileSeats(familyGroupId);
+    } catch (err) {
+      // Non-fatal per family: one Stripe error must not abort the pass.
+      console.error("Seat reconciliation error for family", familyGroupId, err);
     }
-
-    // Suspend the newest-joined over-limit members (last in the asc-sorted list)
-    const toSuspend = activeMembers.slice(-overCount);
-    await db.$transaction(async (tx) => {
-      for (const member of toSuspend) {
-        await tx.familyMember.update({
-          where: { id: member.id },
-          data: { suspendedAt: new Date() }
-        });
-      }
-      await tx.familySubscription.update({
-        where: { id: sub.id },
-        data: {
-          seatCount: newSeatCount,
-          pendingDowngradeTierKey: null,   // tierKey was already updated by the webhook handler
-          pendingDowngradeSeatCount: null,
-          downgradeGraceEndsAt: null
-        }
-      });
-    });
   }
 }
 
@@ -86,7 +49,7 @@ export function startBillingCron(): void {
   cron.schedule("0 6 * * *", async () => {
     try {
       await runTrialWarningPass();
-      await runDowngradeEnforcementPass();
+      await runSeatReconciliationPass();
     } catch (err) {
       console.error("Billing enforcement cron error", err);
     }
