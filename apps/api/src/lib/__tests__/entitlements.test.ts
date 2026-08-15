@@ -35,7 +35,7 @@ describe("isPersonCovered", () => {
     expect(await isPersonCovered(person.id)).toBe(false);
   });
 
-  it("is true for a member of a paid ACTIVE family within seatCount", async () => {
+  it("is true for a member of a paid ACTIVE family", async () => {
     const person = await seedTestPerson();
     const { familyGroup } = await seedTestFamily(person.id);
     await paidTier("PRO");
@@ -59,11 +59,11 @@ describe("isPersonCovered", () => {
     expect(await isPersonCovered(person.id)).toBe(false);
   });
 
-  it("excludes members beyond seatCount (earliest-joined occupy the seats)", async () => {
+  it("covers ALL active members of a paid family regardless of seatCount (no cap)", async () => {
     const admin = await seedTestPerson();
     const { familyGroup } = await seedTestFamily(admin.id); // admin joins first
     await paidTier("SOLO");
-    await subscribe(familyGroup.id, "SOLO", 1);
+    await subscribe(familyGroup.id, "SOLO", 1); // seatCount=1 must NOT cap coverage
     const late = await db.person.create({
       data: { firstName: "Late", lastName: "Joiner", ageGateLevel: "ADULT", userId: null }
     });
@@ -71,7 +71,7 @@ describe("isPersonCovered", () => {
       data: { familyGroupId: familyGroup.id, personId: late.id, roles: [], permissions: [] }
     });
     expect(await isPersonCovered(admin.id)).toBe(true);
-    expect(await isPersonCovered(late.id)).toBe(false);
+    expect(await isPersonCovered(late.id)).toBe(true);
   });
 
   it("is false for an ACTIVE subscription on a null-stripePriceId tier regardless of tier name", async () => {
@@ -83,9 +83,9 @@ describe("isPersonCovered", () => {
     expect(await isPersonCovered(person.id)).toBe(false);
   });
 
-  it("skips a suspended early-joined member so the next active member is covered", async () => {
+  it("covers the non-suspended member and not the suspended one (both on a 1-seat sub)", async () => {
     const admin = await seedTestPerson();
-    const { familyGroup } = await seedTestFamily(admin.id); // admin joins first
+    const { familyGroup } = await seedTestFamily(admin.id);
     await paidTier("SOLO");
     await subscribe(familyGroup.id, "SOLO", 1);
     const next = await db.person.create({
@@ -94,7 +94,6 @@ describe("isPersonCovered", () => {
     await db.familyMember.create({
       data: { familyGroupId: familyGroup.id, personId: next.id, roles: [], permissions: [] }
     });
-    // Suspend the admin — the single seat should fall to the next active member.
     await db.familyMember.update({
       where: { familyGroupId_personId: { familyGroupId: familyGroup.id, personId: admin.id } },
       data: { suspendedAt: new Date() }
@@ -116,7 +115,7 @@ describe("isPersonCovered", () => {
 });
 
 describe("isPersonCoveredByFamily", () => {
-  it("is true for a paid family where the person is within seats", async () => {
+  it("is true for an active member of a paid family", async () => {
     const person = await seedTestPerson();
     const { familyGroup } = await seedTestFamily(person.id);
     await paidTier("PRO", 5);
@@ -140,14 +139,14 @@ describe("isPersonCoveredByFamily", () => {
     expect(await isPersonCoveredByFamily(person.id, familyGroup.id)).toBe(false);
   });
 
-  it("is false for a member beyond seatCount (earliest-joined seated)", async () => {
+  it("covers a member beyond the old seatCount boundary (cap removed)", async () => {
     const admin = await seedTestPerson();
     const { familyGroup } = await seedTestFamily(admin.id);
     await paidTier("SOLO", 1);
     await subscribe(familyGroup.id, "SOLO", 1);
     const late = await db.person.create({ data: { firstName: "Late", lastName: "J", ageGateLevel: "ADULT", userId: null } });
     await db.familyMember.create({ data: { familyGroupId: familyGroup.id, personId: late.id, roles: [], permissions: [] } });
-    expect(await isPersonCoveredByFamily(late.id, familyGroup.id)).toBe(false);
+    expect(await isPersonCoveredByFamily(late.id, familyGroup.id)).toBe(true);
     expect(await isPersonCoveredByFamily(admin.id, familyGroup.id)).toBe(true);
   });
 
