@@ -328,22 +328,25 @@ describe("POST /api/v1/billing/webhook", () => {
     expect(sub?.trialEndsAt).not.toBeNull();
   });
 
-  it("customer.subscription.updated — syncs status and detects downgrade", async () => {
+  it("customer.subscription.updated — syncs tier/seatCount/status and does NOT schedule a downgrade", async () => {
     const person = await seedTestPerson();
     const { familyGroup } = await seedTestFamily(person.id);
+    // BASE carries a seat price so totalSeatsFromStripeItems can find the item.
     await db.pricingTier.createMany({ data: [
-      { tierKey: "MID", displayName: "Mid", displayOrder: 1, activeUserLimit: 5 },
-      { tierKey: "BASE", displayName: "Base", displayOrder: 0, activeUserLimit: 2 }
+      { tierKey: "MID", displayName: "Mid", displayOrder: 1, includedSeats: 5, stripePriceId: "price_mid", stripeSeatPriceId: "price_seat" },
+      { tierKey: "BASE", displayName: "Base", displayOrder: 0, includedSeats: 2, stripePriceId: "price_base", stripeSeatPriceId: "price_seat" }
     ]});
+    // existing seatCount 6 > the incoming total (4) => OLD code detects a
+    // downgrade and writes pendingDowngrade*; new code must NOT. That gap is the RED.
     await db.familySubscription.create({
-      data: { familyGroupId: familyGroup.id, tierKey: "MID", seatCount: 4, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test", status: "ACTIVE" }
+      data: { familyGroupId: familyGroup.id, tierKey: "MID", seatCount: 6, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test", status: "ACTIVE" }
     });
 
     const { body, sig } = makeStripeEvent("customer.subscription.updated", {
       id: "sub_test",
       metadata: { familyGroupId: familyGroup.id, tierKey: "BASE" },
       status: "active",
-      items: { data: [{ quantity: 2 }] }
+      items: { data: [{ price: { id: "price_seat" }, quantity: 2 }] }
     });
 
     const res = await request(app)
@@ -355,8 +358,10 @@ describe("POST /api/v1/billing/webhook", () => {
     expect(res.status).toBe(200);
     const sub = await db.familySubscription.findUnique({ where: { familyGroupId: familyGroup.id } });
     expect(sub?.tierKey).toBe("BASE");
-    expect(sub?.pendingDowngradeTierKey).toBe("BASE");
-    expect(sub?.downgradeGraceEndsAt).not.toBeNull();
+    expect(sub?.seatCount).toBe(4); // 2 billed + includedSeats 2 (BASE)
+    expect(sub?.pendingDowngradeTierKey).toBeNull();
+    expect(sub?.pendingDowngradeSeatCount).toBeNull();
+    expect(sub?.downgradeGraceEndsAt).toBeNull();
   });
 
   it("customer.subscription.deleted — sets status to CANCELED", async () => {
@@ -628,5 +633,25 @@ describe("GET /api/v1/billing/subscription", () => {
     expect(res.body.subscription.tierKey).toBe("BASE");
     expect(res.body.subscription.seatCount).toBe(2);
     expect(res.body.subscription.status).toBe("ACTIVE");
+  });
+
+  it("GET /subscription returns null for the retired pendingDowngrade fields even when the row has values", async () => {
+    const person = await seedTestPerson({ userId: "clerk_sub_pd" });
+    const { familyGroup } = await seedTestFamily(person.id);
+    await db.pricingTier.create({ data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, stripePriceId: "price_base" } });
+    await db.familySubscription.create({
+      data: {
+        familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 3, status: "ACTIVE",
+        pendingDowngradeTierKey: "BASE", pendingDowngradeSeatCount: 1, downgradeGraceEndsAt: new Date("2026-06-07T00:00:00Z")
+      }
+    });
+    mockGetAuth.mockReturnValue({ userId: "clerk_sub_pd" });
+
+    const res = await request(app).get(`/api/v1/billing/subscription?familyGroupId=${familyGroup.id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.subscription.pendingDowngradeTierKey).toBeNull();
+    expect(res.body.subscription.pendingDowngradeSeatCount).toBeNull();
+    expect(res.body.subscription.downgradeGraceEndsAt).toBeNull();
   });
 });
