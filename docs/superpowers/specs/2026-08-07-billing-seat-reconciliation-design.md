@@ -60,7 +60,7 @@ reconcileSeats(familyGroupId):
       upsert the seat line item to desiredQty with proration_behavior: "none"
 ```
 
-- **`proration_behavior: "none"`** (recommended — **flag for Steve's spec review**): the new quantity takes effect at the **next billing cycle**; no mid-cycle proration line items, no instant charge. Members added mid-cycle are covered immediately and billed from the next cycle. *Alternative:* `"create_prorations"` bills the partial period at the next invoice (truer arrears, but adds proration line items). Recommendation is `"none"` for predictability and simplicity at current scale.
+- **`proration_behavior: "create_prorations"`** (**decided by Steve, 2026-08-15**): a mid-cycle seat change bills (member added) or credits (member removed) the partial period, settled on the **next invoice** as true arrears — no immediate out-of-cycle charge. This adds proration line items to the next invoice. *(The original recommendation was `"none"` for predictability; Steve chose proration for billing accuracy.)*
 - **Idempotent** (sets an absolute quantity; the `currentQty != desiredQty` guard makes re-runs no-ops).
 - Absolute-quantity is the same math already in `billing.ts`/`families.ts` today (`max(0, seats - includedSeats)`), so the Stripe interaction pattern is unchanged — only its *trigger* moves to the cron.
 
