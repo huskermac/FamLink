@@ -39,7 +39,7 @@
 
 This Architecture Decision Record (ADR) documents the significant technical choices made for FamLink's MVP and Phase 2 build. Each decision captures the options considered, the choice made, and the reasoning behind it. These decisions collectively define the technical foundation that all development — including AI-assisted Cursor prompts — will be built upon.
 
-This document should be read alongside the PRD. Where the PRD defines **what** to build and for whom, the ADR defines **how** to build it. Together they are the two source-of-truth documents that govern every development decision.
+Read this document alongside the PRD. The PRD defines **what** to build and for whom. The ADR defines **how** to build it. Together they are the two source-of-truth documents that govern every development decision.
 
 ### Status Badge Reference
 
@@ -66,7 +66,7 @@ FamLink is a three-tier web and mobile application with an AI layer that is arch
 | Services | Clerk (auth) + Resend (email) + Twilio (SMS) + FCM (push) | External integrations for identity and notifications |
 | Infrastructure | Vercel (frontend) + Railway (backend) + Cloudflare R2 (media, Phase 2) | Hosting, CDN, storage |
 
-*Principle: Every component chosen is mainstream, well-documented, and well-supported by AI coding tools. Exotic or niche choices are explicitly avoided.*
+*Principle: every chosen component is mainstream, well-documented, and well-supported by AI coding tools. The design explicitly avoids exotic or niche choices.*
 
 ---
 
@@ -76,7 +76,7 @@ FamLink is a three-tier web and mobile application with an AI layer that is arch
 
 **Decision:** Turborepo with npm workspaces. Monorepo structure spans: apps/web (Next.js), apps/mobile (Expo), apps/api (Node/Express), packages/shared (types + utils), packages/ui (component library).
 
-**Rationale:** Turborepo is the leading monorepo build system in the React/Node.js ecosystem with native Next.js, Expo, and Node.js support. npm workspaces chosen over Yarn or pnpm for simplicity and universal compatibility. Turborepo task-pipeline caching reduces CI build times as the codebase grows. This combination is the most AI-tool-friendly monorepo setup available. Resolved from Open Q#1 in v0.2.
+**Rationale:** Turborepo is the leading monorepo build system in the React/Node.js ecosystem, with native Next.js, Expo, and Node.js support. We chose npm workspaces over Yarn or pnpm for simplicity and universal compatibility. Turborepo task-pipeline caching reduces CI build times as the codebase grows. This combination is the most AI-tool-friendly monorepo setup available. Resolved from Open Q#1 in v0.2.
 
 #### Workspace Structure
 
@@ -92,7 +92,7 @@ FamLink is a three-tier web and mobile application with an AI layer that is arch
 
 ### ADR-01 — Frontend Framework [LOCKED]
 
-**Decision:** React (TypeScript) — web application built with Next.js App Router. Originally pinned to v14.2.35 (Phase 0 security patch from 14.1.0); upgraded to v15.2.8 during Phase 3 deploy bring-up.
+**Decision:** React (TypeScript) — a web application built with Next.js App Router. Originally pinned to v14.2.35 (Phase 0 security patch from 14.1.0). Upgraded to v15.2.8 during the Phase 3 deploy bring-up.
 
 **Rationale:** React is the dominant frontend framework with the largest ecosystem, best AI coding tool support, and most available talent. Next.js adds SSR, API routes, and file-based routing out of the box. TypeScript strict mode is mandatory — it prevents an entire class of runtime errors especially costly in AI-assisted build workflows.
 
@@ -110,7 +110,7 @@ FamLink is a three-tier web and mobile application with an AI layer that is arch
 
 **Decision:** React Native with Expo — shared codebase targeting iOS and Android. Expo managed workflow. Mobile is confirmed for Phase 2. Both web and mobile UIs are in scope for Phase 2, scoped to wedge features only (event coordination and shared calendar).
 
-**Rationale:** FamLink must be mobile-first. The Organizer, Grandparent, and Co-Parent personas all primarily live on their phones. Investor conversations require demonstrated real usage, and real usage requires mobile — the core user personas will not engage reliably with a web-only product. Expo managed workflow and EAS handle App Store and Play Store deployment without a native developer on the team. Shared types, business logic, API clients, and design tokens across web and mobile via packages/shared reduce total codebase size. Confirmed for Phase 2 in v0.4 (previously DEFERRED).
+**Rationale:** FamLink must be mobile-first. The Organizer, Grandparent, and Co-Parent personas all primarily live on their phones. Investor conversations need demonstrated real usage, and real usage needs mobile. The core user personas will not engage reliably with a web-only product. Expo managed workflow and EAS handle App Store and Play Store deployment without a native developer on the team. Shared types, business logic, API clients, and design tokens across web and mobile through packages/shared reduce total codebase size. Confirmed for Phase 2 in v0.4 (previously DEFERRED).
 
 **Phase 2 Mobile Scope Constraint:** React Native screens covering wedge features only — event coordination and shared calendar. Feature parity with web on core flows. No mobile-exclusive features in Phase 2.
 
@@ -138,7 +138,7 @@ FamLink is a three-tier web and mobile application with an AI layer that is arch
 
 **v0.4 Changes:**
 
-1. **Prisma 7 upgrade promoted to Phase 2, executed first.** The original deferral rationale was avoiding risk mid-build. With Phase 1 complete and only seed/test data in the system, this is the lowest-friction window for the upgrade. Executing before any new Phase 2 models are added and before real users are on the system is the correct sequencing. The Prisma 7 upgrade is Build Order 0 for Phase 2 — nothing else begins until it is complete and validated.
+1. **Prisma 7 upgrade promoted to Phase 2, executed first.** The original deferral rationale was to avoid risk mid-build. With Phase 1 complete and only seed and test data in the system, this is the lowest-friction window for the upgrade. To execute it before any new Phase 2 model is added, and before real users are on the system, is the correct sequencing. The Prisma 7 upgrade is Build Order 0 for Phase 2 — nothing else begins until it is complete and validated.
 
 2. **Graph DB evaluation approach locked.** A native graph database will not be adopted speculatively. A timebox spike will evaluate PostgreSQL relationship traversal query complexity against the Layer 1 AI tool requirements (particularly `get_relationship_path` and `get_family_members`). If query patterns prove painful in practice, evidence will be clear and a migration decision will be made at that point. Neo4j and AWS Neptune remain the evaluated candidates.
 
@@ -172,11 +172,11 @@ FamLink is a three-tier web and mobile application with an AI layer that is arch
 
 **Decision:** Clerk — managed authentication with social OAuth (Google, Apple) and email/password. Guest token system for Reluctant Member participation without account creation.
 
-**Rationale:** Authentication is security-critical and should not be built from scratch. Clerk provides production-grade auth, social OAuth, user management, session handling, MFA, and compliance features out of the box. It integrates natively with Next.js and Expo. Google and Apple OAuth are required at launch — they are the primary onboarding paths for the Organizer persona.
+**Rationale:** Authentication is security-critical. Do not build it from scratch. Clerk provides production-grade auth, social OAuth, user management, session handling, MFA, and compliance features out of the box. It integrates natively with Next.js and Expo. Google and Apple OAuth are necessary at launch. They are the primary onboarding paths for the Organizer persona.
 
 #### Guest Participation Architecture
 
-- Invitations generate a time-limited signed JWT token (24-48 hour expiry for event RSVPs; 7 days for family join invitations)
+- Invitations generate a time-limited signed JWT token (24-48 hour expiry for event RSVPs, 7 days for family join invitations)
 - Token encodes: invited person ID, event/family ID, permission scope (RSVP-only / view-only / join-pending)
 - Guest endpoints (/api/v1/guest/*) validate token signature without requiring a Clerk session
 - Guest actions recorded against the person record, not a user account
@@ -420,7 +420,7 @@ Stripe is the billing engine. The app holds a thin configuration layer:
 
 **Decision:** Helicone for AI observability in Phase 2. LangSmith deferred to Phase 3 evaluation. Vercel AI Gateway considered and deferred — see note below.
 
-**Rationale:** Helicone provides the lowest integration friction with the Vercel AI SDK. It delivers cost tracking, request logging, response caching, and rate limit enforcement — exactly the capabilities needed during initial AI layer build and early user testing. LangSmith's primary value is in prompt evaluation discipline: regression testing, evaluation datasets, and systematic prompt quality measurement. That discipline is Phase 3 work, aligned with when the proactive and agentic layers require rigorous quality control. LangChain/LangSmith migration path remains open and is bounded to the orchestration layer when needed.
+**Rationale:** Helicone provides the lowest integration friction with the Vercel AI SDK. It delivers cost tracking, request logging, response caching, and rate limit enforcement — exactly the capabilities needed during initial AI layer build and early user testing. LangSmith's primary value is in prompt evaluation discipline: regression testing, evaluation datasets, and systematic prompt quality measurement. That discipline is Phase 3 work. It aligns with the point when the proactive and agentic layers need rigorous quality control. The LangChain/LangSmith migration path stays open and is bounded to the orchestration layer when needed.
 
 | **Capability** | **Phase 2 (Helicone)** | **Phase 3 (LangSmith — evaluate)** |
 |---|---|---|
@@ -432,7 +432,7 @@ Stripe is the billing engine. The app holds a thin configuration layer:
 | Evaluation datasets | — | ✓ |
 | LangChain orchestration | — | ✓ (if adopted) |
 
-**v0.4.1 Note — Vercel AI Gateway:** The Vercel AI Gateway was evaluated as an alternative to direct provider API keys. It offers OIDC auth (no stored provider secrets), built-in model failover, and unified Vercel-dashboard observability. It was deferred because FamLink's API is hosted on Railway, not Vercel — the Gateway's OIDC credential issuance requires the Vercel platform and is unavailable in a Railway deployment. Direct `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env vars via Helicone remain correct for the current deployment target. If FamLink's API migrates to Vercel in a future phase, replacing Helicone with the AI Gateway is a one-file change to `aiClient.ts`.
+**v0.4.1 Note — Vercel AI Gateway:** The Vercel AI Gateway was evaluated as an alternative to direct provider API keys. It offers OIDC auth (no stored provider secrets), built-in model failover, and unified Vercel-dashboard observability. It was deferred because FamLink's API is hosted on Railway, not Vercel — the Gateway's OIDC credential issuance requires the Vercel platform and is unavailable in a Railway deployment. Direct `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env vars via Helicone remain correct for the current deployment target. If FamLink's API migrates to Vercel in a future phase, you can replace Helicone with the AI Gateway in a one-file change to `aiClient.ts`.
 
 ---
 
@@ -440,7 +440,7 @@ Stripe is the billing engine. The app holds a thin configuration layer:
 
 **Decision:** Vitest for `apps/api` and `apps/web`; Jest with Expo preset for `apps/mobile`. Phase 1 Jest integration tests in `apps/api` migrated to Vitest — not run alongside.
 
-**Rationale:** Phase 1 shipped a Jest test suite in `apps/api` (13 tests, real-database integration pattern via `globalSetup`/`globalTeardown`). P2-00 migrates these to Vitest to establish a single test runner across API and web. Running two test frameworks in the same package indefinitely creates cognitive overhead, inconsistent mock APIs (`jest.mock` vs `vi.mock`), and `turbo test` pipeline complexity. Vitest is materially faster than Jest (native ESM, no transform overhead) and its mock API is a near-identical superset. The migration is mechanical and bounded to 13 existing test files. Mobile uses Jest + Expo preset because `jest-expo` is the only officially supported test runner for Expo managed workflow.
+**Rationale:** Phase 1 shipped a Jest test suite in `apps/api` (13 tests, real-database integration pattern via `globalSetup`/`globalTeardown`). P2-00 migrates these to Vitest to establish a single test runner across API and web. Two test frameworks in the same package indefinitely create cognitive overhead, inconsistent mock APIs (`jest.mock` vs `vi.mock`), and `turbo test` pipeline complexity. Vitest is materially faster than Jest (native ESM, no transform overhead) and its mock API is a near-identical superset. The migration is mechanical and bounded to 13 existing test files. Mobile uses Jest + Expo preset because `jest-expo` is the only officially supported test runner for Expo managed workflow.
 
 | **Package** | **Test Runner** | **Mock Strategy** | **Environment** |
 |---|---|---|---|
@@ -466,12 +466,12 @@ Stripe is the billing engine. The app holds a thin configuration layer:
 - A US active user may invite a family member anywhere in the world as a passive guest.
 - Passive person records hold minimal data: name + one contact method (email or phone).
 - No behavioral tracking, no AI personalization, no Clerk account for passive persons.
-- Legal basis for holding passive EU-resident data: legitimate interest (family coordination) + implied consent via invitation acceptance.
+- Legal basis to hold passive EU-resident data: legitimate interest (family coordination) plus implied consent through invitation acceptance.
 - Privacy policy must acknowledge worldwide passive data collection and state the legal basis.
 
 **GDPR surface area:**
 - Technically applies to any EU-resident passive person's data, but exposure is narrow: name + contact only, no tracking, no profiling.
-- Right-to-erasure for passive persons is partially implemented via the `forgottenAt` field on Relationship records. Full erasure support (including Person record deletion) is a Phase 3+ requirement before any international marketing.
+- Right-to-erasure for passive persons is partially implemented through the `forgottenAt` field on Relationship records. Full erasure support (with Person record deletion) is a Phase 3+ requirement before any international marketing.
 - Right-to-access requests for passive EU persons: handled manually at launch (support ticket → admin DB lookup).
 
 **Data residency:**
@@ -532,7 +532,7 @@ Stripe is the billing engine. The app holds a thin configuration layer:
 - Family admin moderation panel UI — Phase 3 deliverable
 - FamLink staff moderation tooling — Phase 3 deliverable; internal admin app outside family-facing product
 - Appeals flow (member disputes admin suppression) — deferred, post-launch
-- Fine-grained content category labels (violence, harassment, CSAM, etc.) — AI model-dependent; implement alongside model selection
+- Fine-grained content category labels (violence, harassment, CSAM, and others) — AI model-dependent. Implement alongside model selection.
 
 ---
 
