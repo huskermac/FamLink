@@ -18,6 +18,8 @@ model Person {
   guardianPersonId String?
   guardian         Person?   @relation("GuardianWard", fields: [guardianPersonId], references: [id])
   wards            Person[]  @relation("GuardianWard")
+  /** Logical provenance only — no FK. Family that authored this passive Person record (Decision 9). */
+  createdByFamilyGroupId String?
   profilePhotoUrl String?
   email           String?
   phone           String?
@@ -412,4 +414,30 @@ model SmsConsent {
   optedInAt       DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+}
+
+model LinkRequest {
+  id                  String    @id @default(cuid())
+  kind                String    // FAMILY_MEMBERSHIP | HOUSEHOLD_LINK
+  direction           String    // PULL | JOIN
+  familyGroupId       String    // membership: the family joined; household: the initiating family
+  targetPersonId      String?   // FAMILY_MEMBERSHIP (also = requester for membership JOIN)
+  targetHouseholdId   String?   // HOUSEHOLD_LINK
+  carryHouseholdId    String?
+  carryInSkipped      Boolean   @default(false)
+  requestedByPersonId String
+  status              String    @default("PENDING") // PENDING|ACCEPTED|DECLINED|EXPIRED|CANCELLED
+  consentedByPersonId String?
+  consentChannel      String?   // IN_APP | SMS | EMAIL
+  token               String?   @unique
+  tokenChannel        String?   // SMS | EMAIL — the ONE channel the token was sent on
+  deliveredContact    String?   // snapshot of the exact email/phone the token was delivered to
+  attestedAdult       Boolean   @default(false)
+  expiresAt           DateTime
+  createdAt           DateTime  @default(now())
+  resolvedAt          DateTime?
+
+  @@index([familyGroupId, status])
+  @@index([targetPersonId, status])
+  @@index([targetHouseholdId, status])
 }

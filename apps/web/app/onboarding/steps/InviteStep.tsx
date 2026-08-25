@@ -88,7 +88,8 @@ export function InviteStep(props: InviteStepProps): ReactElement {
           body: JSON.stringify({
             firstName: row.firstName.trim(),
             lastName: "Member",
-            ageGateLevel: "ADULT"
+            ageGateLevel: "ADULT",
+            familyGroupId
           })
         });
         const base = process.env.NEXT_PUBLIC_API_URL ?? "";

@@ -131,6 +131,52 @@ async function repointRelationship(
 }
 
 /**
+ * `LinkRequest` carries a partial unique index on
+ * (familyGroupId, targetPersonId) WHERE status='PENDING' AND kind='FAMILY_MEMBERSHIP'.
+ * If both the canonical and duplicate person have a PENDING FAMILY_MEMBERSHIP
+ * request to the SAME family, repointing targetPersonId duplicate->canonical
+ * would create two PENDING rows for (familyGroupId, canonicalId) and the
+ * updateMany would throw P2002, aborting the whole merge transaction.
+ *
+ * Resolve deterministically BEFORE the repoint: for each family where both
+ * persons have a PENDING FAMILY_MEMBERSHIP request, keep the OLDER PENDING
+ * request (by createdAt) and CANCEL the newer one (status="CANCELLED",
+ * resolvedAt=now). Must complete (and be awaited) before the `nonUnique`
+ * array below is constructed, since each array entry's `updateMany` call
+ * fires immediately when the array literal is evaluated (not lazily in the
+ * loop) — running this after that point would race the repoint.
+ */
+async function resolvePendingMembershipCollisions(
+  tx: Prisma.TransactionClient,
+  canonicalId: string,
+  duplicateId: string
+): Promise<void> {
+  const pending = await tx.linkRequest.findMany({
+    where: {
+      kind: "FAMILY_MEMBERSHIP",
+      status: "PENDING",
+      targetPersonId: { in: [canonicalId, duplicateId] }
+    }
+  });
+  const byFamily = new Map<string, typeof pending>();
+  for (const r of pending) {
+    const list = byFamily.get(r.familyGroupId) ?? [];
+    list.push(r);
+    byFamily.set(r.familyGroupId, list);
+  }
+  for (const rows of byFamily.values()) {
+    const canonRow = rows.find((r) => r.targetPersonId === canonicalId);
+    const dupRow = rows.find((r) => r.targetPersonId === duplicateId);
+    if (!canonRow || !dupRow) continue; // only a collision when BOTH exist for this family
+    const cancel = canonRow.createdAt <= dupRow.createdAt ? dupRow : canonRow; // keep the older
+    await tx.linkRequest.update({
+      where: { id: cancel.id },
+      data: { status: "CANCELLED", resolvedAt: new Date() }
+    });
+  }
+}
+
+/**
  * Fuses `duplicateId` into `canonicalId`: re-points every Person-referencing
  * column, dedupes compound-unique collisions (canonical wins), deletes the
  * duplicate. Refuses to delete an account (duplicate with a userId).
@@ -190,6 +236,10 @@ export async function mergePersons(
       await tx.person.update({ where: { id: canonicalId }, data: { guardianPersonId: null } });
     }
 
+    // must fully resolve before the array below, since its updateMany calls fire eagerly
+    // on construction (see resolvePendingMembershipCollisions doc comment)
+    await resolvePendingMembershipCollisions(tx, canonicalId, duplicateId);
+
     // non-unique re-points (declared relations + logical Person-id columns)
     const nonUnique: ReadonlyArray<[string, Promise<{ count: number }>]> = [
       ["FamilyGroup.createdById", tx.familyGroup.updateMany({ where: { createdById: duplicateId }, data: { createdById: canonicalId } })],
@@ -204,7 +254,10 @@ export async function mergePersons(
       ["EventParticipant.invitedById", tx.eventParticipant.updateMany({ where: { invitedById: duplicateId }, data: { invitedById: canonicalId } })],
       ["AssistantMessage.personId", tx.assistantMessage.updateMany({ where: { personId: duplicateId }, data: { personId: canonicalId } })],
       ["HouseholdFamily.linkedByPersonId", tx.householdFamily.updateMany({ where: { linkedByPersonId: duplicateId }, data: { linkedByPersonId: canonicalId } })],
-      ["HouseholdAuditEntry.actorPersonId", tx.householdAuditEntry.updateMany({ where: { actorPersonId: duplicateId }, data: { actorPersonId: canonicalId } })]
+      ["HouseholdAuditEntry.actorPersonId", tx.householdAuditEntry.updateMany({ where: { actorPersonId: duplicateId }, data: { actorPersonId: canonicalId } })],
+      ["LinkRequest.targetPersonId", tx.linkRequest.updateMany({ where: { targetPersonId: duplicateId }, data: { targetPersonId: canonicalId } })],
+      ["LinkRequest.requestedByPersonId", tx.linkRequest.updateMany({ where: { requestedByPersonId: duplicateId }, data: { requestedByPersonId: canonicalId } })],
+      ["LinkRequest.consentedByPersonId", tx.linkRequest.updateMany({ where: { consentedByPersonId: duplicateId }, data: { consentedByPersonId: canonicalId } })]
     ];
     for (const [label, op] of nonUnique) {
       repointed[label] = (await op).count;

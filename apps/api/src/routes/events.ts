@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { db, type Event, type EventItem } from "@famlink/db";
-import { InviteScope, RSVPStatus } from "@famlink/shared";
+import { RSVPStatus } from "@famlink/shared";
 import { activeFamilyMembership, hasAdminRole, hasPermission } from "../lib/familyAccess";
 import { personed } from "../middleware/requireAuth";
 import { canViewEvent } from "../lib/eventVisibility";
@@ -13,9 +13,36 @@ import { resolveEventAccess, toForeignInvitedEventDTO, activeEventParticipant } 
 import { NotificationService, buildGuestInvitationMessage } from "../lib/notificationService";
 import { env } from "../lib/env";
 import { findOrCreatePersonByContact } from "../lib/personIdentity";
+import { isMinorLevel, hasAnyContact } from "../lib/linkRequest";
 
 function generateInviteToken(): string {
   return crypto.randomBytes(32).toString("hex");
+}
+
+/** Residents of a household, with just the fields the invite-escalation gates
+ *  and expansion need (never the full Person row — this data feeds a
+ *  cross-family-visible expansion, so it stays minimal). */
+function loadHouseholdResidents(householdId: string) {
+  return db.householdMember.findMany({
+    where: { householdId },
+    select: {
+      personId: true,
+      person: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          preferredName: true,
+          userId: true,
+          ageGateLevel: true,
+          email: true,
+          phone: true,
+          emailNormalized: true,
+          phoneNormalized: true
+        }
+      }
+    }
+  });
 }
 
 const visibilityEnum = z.enum(["PRIVATE", "HOUSEHOLD", "FAMILY", "INVITED", "GUEST"]);
@@ -56,33 +83,6 @@ export const CreateEventSchema = BaseEventFieldsSchema.superRefine((data, ctx) =
 });
 
 export const UpdateEventSchema = BaseEventFieldsSchema.partial();
-
-export const SendInvitationsSchema = z
-  .object({
-    scope: z.nativeEnum(InviteScope),
-    personIds: z.array(z.string().min(1)).optional(),
-    householdIds: z.array(z.string().min(1)).optional()
-  })
-  .superRefine((data, ctx) => {
-    if (data.scope === InviteScope.INDIVIDUAL) {
-      if (!data.personIds?.length) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["personIds"],
-          message: "personIds required for INDIVIDUAL scope"
-        });
-      }
-    }
-    if (data.scope === InviteScope.HOUSEHOLD) {
-      if (!data.householdIds?.length) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["householdIds"],
-          message: "householdIds required for HOUSEHOLD scope"
-        });
-      }
-    }
-  });
 
 const UpdateRsvpSchema = z.object({
   status: z.nativeEnum(RSVPStatus)
@@ -599,6 +599,10 @@ const InviteeSchema = z.discriminatedUnion("kind", [
     kind: z.literal("famlinkUser"),
     personId: z.string().min(1),
     role: z.enum(["PARTICIPANT", "EVENT_ADMIN"]).optional()
+  }),
+  z.object({
+    kind: z.literal("household"),
+    householdId: z.string().min(1)
   })
 ]);
 
@@ -645,8 +649,43 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
     return;
   }
 
+  // Household escalation: gate BEFORE expanding. (a) every household invitee
+  // must be linked to this event's family; (b) if the expansion touches any
+  // non-member (cross-family) resident, the organizer needs event-admin
+  // access — same authority the explicit `famlinkUser` kind already requires.
+  // Prefetched here (outside the transaction) so both gates can be resolved
+  // before any row is written.
+  const eventFamilyMemberIds = new Set(
+    (
+      await db.familyMember.findMany({
+        where: { familyGroupId: event.familyGroupId },
+        select: { personId: true }
+      })
+    ).map((m) => m.personId)
+  );
+
+  const householdResidents = new Map<string, Awaited<ReturnType<typeof loadHouseholdResidents>>>();
+  let householdHasCrossFamilyResident = false;
+
+  for (const invitee of parsed.data.invitees) {
+    if (invitee.kind !== "household") continue;
+    const link = await db.householdFamily.findFirst({
+      where: { householdId: invitee.householdId, familyGroupId: event.familyGroupId }
+    });
+    if (!link) {
+      res.status(403).json({ error: "Household is not linked to this event's family" });
+      return;
+    }
+    const residents = await loadHouseholdResidents(invitee.householdId);
+    householdResidents.set(invitee.householdId, residents);
+    if (residents.some((r) => !eventFamilyMemberIds.has(r.personId))) {
+      householdHasCrossFamilyResident = true;
+    }
+  }
+
   // Cross-family invites require event-admin access
-  const hasFamlinkUserInvite = parsed.data.invitees.some((i) => i.kind === "famlinkUser");
+  const hasFamlinkUserInvite =
+    parsed.data.invitees.some((i) => i.kind === "famlinkUser") || householdHasCrossFamilyResident;
   if (hasFamlinkUserInvite) {
     const access = await resolveEventAccess(eventId, requester.id);
     if ("error" in access) {
@@ -660,9 +699,15 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
   }
 
   const now = new Date();
-  const createdInvitations: object[] = [];
+  type InvitationChannel = "MEMBER" | "FAMLINK_USER" | "GUEST";
+  type CreatedInvitationEntry = {
+    channel: InvitationChannel;
+    row: { personId: string | null; linkedPersonId: string | null; guestName: string | null; status: string };
+  };
+  const createdInvitations: CreatedInvitationEntry[] = [];
   const famlinkUserInvites: Array<{ linkedPersonId: string; guestToken: string }> = [];
   const guestInvites: Array<{ invitationId: string; guestToken: string; email: string | null; phone: string | null }> = [];
+  const skipped: Array<{ displayName: string; reason: "MINOR_NON_MEMBER" | "NO_CONTACT" }> = [];
 
   await db.$transaction(async (tx) => {
     for (const invitee of parsed.data.invitees) {
@@ -681,7 +726,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
               sentAt: now
             }
           });
-          createdInvitations.push(created);
+          createdInvitations.push({ channel: "MEMBER", row: created });
         }
       } else if (invitee.kind === "guest") {
         // External guest
@@ -714,7 +759,7 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
               sentAt: now
             }
           });
-          createdInvitations.push(created);
+          createdInvitations.push({ channel: "GUEST", row: created });
           guestInvites.push({ invitationId: created.id, guestToken: created.guestToken!, email: invitee.guestEmail ?? null, phone: invitee.guestPhone ?? null });
         }
       } else if (invitee.kind === "famlinkUser") {
@@ -733,8 +778,95 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
               sentAt: now
             }
           });
-          createdInvitations.push(created);
+          createdInvitations.push({ channel: "FAMLINK_USER", row: created });
           famlinkUserInvites.push({ linkedPersonId: invitee.personId, guestToken: token });
+        }
+      } else if (invitee.kind === "household") {
+        const residents = householdResidents.get(invitee.householdId) ?? [];
+        for (const resident of residents) {
+          const person = resident.person;
+          const displayName = person.preferredName?.trim() || `${person.firstName} ${person.lastName}`.trim();
+
+          if (eventFamilyMemberIds.has(person.id)) {
+            // Event-family member: a normal (household-scoped) invitation.
+            const existing = await tx.eventInvitation.findFirst({ where: { eventId, personId: person.id } });
+            if (!existing) {
+              const created = await tx.eventInvitation.create({
+                data: {
+                  eventId,
+                  personId: person.id,
+                  householdId: invitee.householdId,
+                  invitedById: requester.id,
+                  scope: "HOUSEHOLD",
+                  status: "PENDING",
+                  sentAt: now
+                }
+              });
+              createdInvitations.push({ channel: "MEMBER", row: created });
+            }
+          } else if (person.userId) {
+            // Non-member with an account: the W3a famlinkUser path — accept
+            // grants the EventParticipant, this route never creates one directly.
+            const existing = await tx.eventInvitation.findFirst({ where: { eventId, linkedPersonId: person.id } });
+            if (!existing) {
+              const token = generateInviteToken();
+              const created = await tx.eventInvitation.create({
+                data: {
+                  eventId,
+                  linkedPersonId: person.id,
+                  householdId: invitee.householdId,
+                  role: "PARTICIPANT",
+                  guestToken: token,
+                  invitedById: requester.id,
+                  scope: "HOUSEHOLD",
+                  status: "PENDING",
+                  sentAt: now
+                }
+              });
+              createdInvitations.push({ channel: "FAMLINK_USER", row: created });
+              famlinkUserInvites.push({ linkedPersonId: person.id, guestToken: token });
+            }
+          } else if (isMinorLevel(person.ageGateLevel)) {
+            // Passive minor, non-member: no reachable consent — never a token,
+            // never a foreign id in the response.
+            skipped.push({ displayName, reason: "MINOR_NON_MEMBER" });
+          } else if (hasAnyContact(person)) {
+            // Non-member adult with a contact but no account: cannot
+            // authenticate, so a guest invitation (not famlinkUser).
+            const existing = await tx.eventInvitation.findFirst({
+              where: {
+                eventId,
+                OR: [
+                  { linkedPersonId: person.id },
+                  ...(person.email ? [{ guestEmail: person.email }] : []),
+                  ...(person.phone ? [{ guestPhone: person.phone }] : [])
+                ]
+              }
+            });
+            if (!existing) {
+              const token = generateInviteToken();
+              const created = await tx.eventInvitation.create({
+                data: {
+                  eventId,
+                  guestEmail: person.email ?? null,
+                  guestPhone: person.phone ?? null,
+                  guestName: displayName,
+                  guestToken: token,
+                  linkedPersonId: person.id,
+                  householdId: invitee.householdId,
+                  invitedById: requester.id,
+                  scope: "HOUSEHOLD",
+                  status: "PENDING",
+                  sentAt: now
+                }
+              });
+              createdInvitations.push({ channel: "GUEST", row: created });
+              guestInvites.push({ invitationId: created.id, guestToken: created.guestToken!, email: person.email ?? null, phone: person.phone ?? null });
+            }
+          } else {
+            // Passive non-member, no reachable consent (no account, no contact).
+            skipped.push({ displayName, reason: "NO_CONTACT" });
+          }
         }
       }
     }
@@ -771,7 +903,37 @@ eventsRouter.post("/:eventId/invitations", async (req, res) => {
     }
   }
 
-  res.status(201).json({ invitations: createdInvitations });
+  // Serialize a name-and-status summary only — never the guestToken, the
+  // linkedPersonId/personId, or guest contact fields (household expansion can
+  // pull in FOREIGN residents, so the raw rows must never reach the response).
+  const namesNeeded = createdInvitations
+    .filter((e) => e.channel === "MEMBER" || e.channel === "FAMLINK_USER")
+    .map((e) => (e.channel === "MEMBER" ? e.row.personId : e.row.linkedPersonId))
+    .filter((id): id is string => Boolean(id));
+  const namedPersons =
+    namesNeeded.length > 0
+      ? await db.person.findMany({
+          where: { id: { in: namesNeeded } },
+          select: { id: true, firstName: true, lastName: true, preferredName: true }
+        })
+      : [];
+  const nameById = new Map(
+    namedPersons.map((p) => [p.id, p.preferredName?.trim() || `${p.firstName} ${p.lastName}`.trim()])
+  );
+
+  const serializedInvitations = createdInvitations.map((e) => {
+    let displayName: string;
+    if (e.channel === "MEMBER") {
+      displayName = (e.row.personId && nameById.get(e.row.personId)) || "Member";
+    } else if (e.channel === "FAMLINK_USER") {
+      displayName = (e.row.linkedPersonId && nameById.get(e.row.linkedPersonId)) || "FamLink user";
+    } else {
+      displayName = e.row.guestName ?? "Guest";
+    }
+    return { displayName, channel: e.channel, status: e.row.status };
+  });
+
+  res.status(201).json({ invitations: serializedInvitations, skipped });
 });
 
 eventsRouter.get("/:eventId/invitations", async (req, res) => {
