@@ -1,5 +1,6 @@
 import crypto from "crypto";
-import { db, type LinkRequest } from "@famlink/db";
+import { db, type LinkRequest, type Prisma } from "@famlink/db";
+import { activeFamilyMembership, hasAdminRole } from "./familyAccess";
 import { findOrCreatePersonByContact } from "./personIdentity";
 
 export type MembershipTargetClass =
@@ -150,4 +151,141 @@ export function serializeOwnerRequest(r: LinkRequest) {
     resolvedAt: r.resolvedAt?.toISOString() ?? null
   };
 }
-// serializeInboxRequest (names only) is defined in Task 5.
+
+/** Conditional expiry: never clobbers a concurrently-resolved row. Returns the fresh row. */
+export async function resolveExpiry(r: LinkRequest): Promise<LinkRequest> {
+  if (r.status !== "PENDING" || r.expiresAt.getTime() >= Date.now()) return r;
+  await db.linkRequest.updateMany({
+    where: { id: r.id, status: "PENDING" },
+    data: { status: "EXPIRED", resolvedAt: new Date() }
+  });
+  return (await db.linkRequest.findUnique({ where: { id: r.id } }))!;
+}
+
+/** §6.3 membership matrix. PULL: active adult → self; minor → ADULT non-suspended admin of a family the
+ *  minor belongs to, or (family-less minor) the ADULT `guardianPersonId`. JOIN: any admin of the target
+ *  family. A requester may consent only when they ALSO hold the counterparty authority (dual-authority). */
+export async function canConsentMembership(r: LinkRequest, person: { id: string }): Promise<boolean> {
+  if (r.kind !== "FAMILY_MEMBERSHIP" || !r.targetPersonId) return false;
+  if (r.direction === "JOIN") {
+    const m = await activeFamilyMembership(r.familyGroupId, person.id);
+    return Boolean(m && hasAdminRole(m)); // accepting-family admin; the applicant is not an admin here
+  }
+  const target = await db.person.findUnique({ where: { id: r.targetPersonId } });
+  if (!target) return false;
+  if (isAdultLevel(target.ageGateLevel)) {
+    if (person.id === r.requestedByPersonId && person.id !== target.id) return false; // pure requester cannot self-accept
+    return person.id === target.id;
+  }
+  // minor → ADULT, non-suspended admin of a family the minor belongs to
+  const actor = await db.person.findUnique({ where: { id: person.id } });
+  if (!actor || !isAdultLevel(actor.ageGateLevel)) return false;
+  const adminMemberships = await db.familyMember.findMany({
+    where: { personId: person.id, suspendedAt: null, familyGroup: { members: { some: { personId: target.id } } } }
+  });
+  if (adminMemberships.some(hasAdminRole)) return true;
+  const minorFamilies = await db.familyMember.count({ where: { personId: target.id } });
+  return minorFamilies === 0 && target.guardianPersonId === person.id;
+}
+
+/** The tx-scoped mirror of the JOIN/guardian (role-derived) branches of `canConsentMembership`,
+ *  re-checked inside the grant transaction because that authority can change between the initial
+ *  check and the claim. Never called for the self-accept branch — that authority is identity. */
+export async function recheckMembershipConsentTx(
+  tx: Prisma.TransactionClient,
+  r: LinkRequest,
+  personId: string
+): Promise<boolean> {
+  if (r.kind !== "FAMILY_MEMBERSHIP" || !r.targetPersonId) return false;
+  if (r.direction === "JOIN") {
+    const m = await tx.familyMember.findFirst({
+      where: { familyGroupId: r.familyGroupId, personId, suspendedAt: null }
+    });
+    return Boolean(m && hasAdminRole(m));
+  }
+  // minor-guardian (this fn is only called on the non-self, role-derived branches)
+  const target = await tx.person.findUnique({ where: { id: r.targetPersonId } });
+  if (!target) return false;
+  const actor = await tx.person.findUnique({ where: { id: personId } });
+  if (!actor || !isAdultLevel(actor.ageGateLevel)) return false;
+  const adminMemberships = await tx.familyMember.findMany({
+    where: { personId, suspendedAt: null, familyGroup: { members: { some: { personId: target.id } } } }
+  });
+  if (adminMemberships.some(hasAdminRole)) return true;
+  const minorFamilies = await tx.familyMember.count({ where: { personId: target.id } });
+  return minorFamilies === 0 && target.guardianPersonId === personId;
+}
+
+/** The grant core, on a caller-supplied tx. The conditional claim re-checks status AND expiry
+ *  [council BLOCKER: expiry was not enforced by the claim], so an expired-but-unswept row is never
+ *  granted. Returns true if THIS call did the grant. No Stripe call. Exported so the token-accept
+ *  path (Task 6) can run the grant and the contact-verification stamp in ONE transaction. */
+export async function grantMembershipInTx(
+  tx: Prisma.TransactionClient,
+  r: LinkRequest,
+  consentedByPersonId: string,
+  channel: ConsentChannel
+): Promise<boolean> {
+  const claim = await tx.linkRequest.updateMany({
+    where: { id: r.id, status: "PENDING", expiresAt: { gt: new Date() } },
+    data: { status: "ACCEPTED", consentedByPersonId, consentChannel: channel, resolvedAt: new Date() }
+  });
+  if (claim.count === 0) return false; // another caller resolved it, or it expired — no double grant
+  await tx.familyMember.upsert({
+    where: { familyGroupId_personId: { familyGroupId: r.familyGroupId, personId: r.targetPersonId! } },
+    create: { familyGroupId: r.familyGroupId, personId: r.targetPersonId!, roles: ["MEMBER"], permissions: [] },
+    update: {}
+  });
+  if (r.carryHouseholdId) {
+    const valid = await tx.householdFamily.findUnique({
+      where: { householdId_familyGroupId: { householdId: r.carryHouseholdId, familyGroupId: r.familyGroupId } }
+    });
+    if (valid) {
+      await tx.householdMember.upsert({
+        where: { householdId_personId: { householdId: r.carryHouseholdId, personId: r.targetPersonId! } },
+        create: { householdId: r.carryHouseholdId, personId: r.targetPersonId! },
+        update: {}
+      });
+    } else {
+      await tx.linkRequest.update({ where: { id: r.id }, data: { carryInSkipped: true } }); // [R2] record, not silent
+    }
+  }
+  return true;
+}
+
+/** In-app accept wrapper. Idempotent. No Stripe call. */
+export async function claimAndAcceptMembership(
+  r: LinkRequest,
+  consentedByPersonId: string,
+  channel: ConsentChannel
+): Promise<boolean> {
+  return db.$transaction((tx) => grantMembershipInTx(tx, r, consentedByPersonId, channel));
+}
+
+/** Names-only inbox serializer — no ids, no roster, no token, for the counterparty's eyes. */
+export async function serializeInboxRequest(r: LinkRequest): Promise<{
+  id: string;
+  kind: string;
+  direction: string;
+  requestingFamilyName: string;
+  targetName: string | null;
+  carryHouseholdName: string | null;
+  notice: string;
+}> {
+  const fam = await db.familyGroup.findUnique({ where: { id: r.familyGroupId }, select: { name: true } });
+  const target = r.targetPersonId
+    ? await db.person.findUnique({ where: { id: r.targetPersonId }, select: { firstName: true, preferredName: true } })
+    : null;
+  const carry = r.carryHouseholdId
+    ? await db.household.findUnique({ where: { id: r.carryHouseholdId }, select: { name: true } })
+    : null;
+  return {
+    id: r.id,
+    kind: r.kind,
+    direction: r.direction,
+    requestingFamilyName: fam?.name ?? "A family",
+    targetName: target ? (target.preferredName ?? target.firstName) : null, // [R3] names-only "who" for the counterparty
+    carryHouseholdName: carry?.name ?? null, // [R2] carry-in disclosed to the target
+    notice: "Accepting adds you to this family. Linked families' admins can edit shared household details."
+  };
+}

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { db } from "@famlink/db";
 import { activeFamilyMembership, hasPermission } from "../lib/familyAccess";
 import { billingImpactForAdd } from "../lib/subscriptionEnforcement";
 import { deliverConsentLink } from "../lib/consentDelivery";
@@ -9,7 +10,13 @@ import {
   CarryHouseholdInvalid,
   DataEntryNoConsent,
   RequestAlreadyPending,
+  canConsentMembership,
+  claimAndAcceptMembership,
   createMembershipRequest,
+  grantMembershipInTx,
+  recheckMembershipConsentTx,
+  resolveExpiry,
+  serializeInboxRequest,
   serializeOwnerRequest
 } from "../lib/linkRequest";
 import { personed } from "../middleware/requireAuth";
@@ -159,4 +166,129 @@ linkRequestsRouter.post("/", async (req, res, next) => {
     }
     next(e);
   }
+});
+
+// GET /pending must be registered before any /:id route so it is never captured as an id segment.
+linkRequestsRouter.get("/pending", async (req, res) => {
+  const requester = personed(req).person;
+
+  // Families the requester admins — feeds both the JOIN-counterparty branch and the
+  // in-family-minor guardian branch below.
+  const adminMemberships = await db.familyMember.findMany({
+    where: { personId: requester.id, roles: { has: "ADMIN" }, suspendedAt: null },
+    select: { familyGroupId: true }
+  });
+  const adminFamilyIds = adminMemberships.map((m) => m.familyGroupId);
+
+  // Guardian targets, pre-queried as id lists rather than a `targetPerson` relation, so
+  // LinkRequest.targetPersonId stays a logical (no-FK) column per the HouseholdAuditEntry
+  // convention. Two cases: a minor who is a member of a family the requester admins, and a
+  // family-less minor whose guardianPersonId is the requester.
+  const inFamilyMinors = await db.familyMember.findMany({
+    where: { familyGroupId: { in: adminFamilyIds }, person: { ageGateLevel: { in: ["TEEN", "CHILD"] } } },
+    select: { personId: true }
+  });
+  const familyLessWards = await db.person.findMany({
+    where: { guardianPersonId: requester.id, familyMemberships: { none: {} } },
+    select: { id: true }
+  });
+  const guardianTargetIds = [...inFamilyMinors.map((m) => m.personId), ...familyLessWards.map((p) => p.id)];
+
+  // Household requests widen this filter in Task 8 — kept to FAMILY_MEMBERSHIP for now.
+  const rows = await db.linkRequest.findMany({
+    where: {
+      kind: "FAMILY_MEMBERSHIP",
+      status: "PENDING",
+      expiresAt: { gt: new Date() },
+      OR: [
+        { targetPersonId: requester.id },
+        { direction: "JOIN", familyGroupId: { in: adminFamilyIds } },
+        { targetPersonId: { in: guardianTargetIds } }
+      ]
+    }
+  });
+
+  // Never resolveExpiry-mutate on read — expired rows are already excluded by expiresAt:{gt:now}.
+  const authorized: typeof rows = [];
+  for (const r of rows) {
+    if (await canConsentMembership(r, requester)) authorized.push(r);
+  }
+  const serialized = await Promise.all(authorized.map((r) => serializeInboxRequest(r)));
+  res.json({ requests: serialized });
+});
+
+linkRequestsRouter.post("/:id/accept", async (req, res) => {
+  const consenter = personed(req).person;
+  const row = await db.linkRequest.findUnique({ where: { id: req.params.id } });
+  if (!row) {
+    res.status(404).json({ error: "NOT_FOUND" });
+    return;
+  }
+
+  // Authorize on the RAW row FIRST — resolveExpiry mutates, so it must run after the check,
+  // otherwise a foreign caller who guesses an expired id flips it to EXPIRED for free.
+  const authorized = await canConsentMembership(row, consenter);
+  if (!authorized) {
+    res.status(403).json({ error: "NOT_AUTHORIZED" });
+    return;
+  }
+
+  const fresh = await resolveExpiry(row);
+  if (fresh.status !== "PENDING") {
+    res.status(200).json({ ...serializeOwnerRequest(fresh), granted: false });
+    return;
+  }
+
+  const isSelf = consenter.id === fresh.targetPersonId;
+  let granted: boolean;
+  if (isSelf) {
+    // Self-accept: authority is identity and cannot change between the check and the claim.
+    granted = await claimAndAcceptMembership(fresh, consenter.id, "IN_APP");
+  } else {
+    // JOIN or minor-guardian accept: the authority is role-derived and can change, so re-check
+    // it inside the same tx as the claim.
+    const outcome = await db.$transaction(async (tx) => {
+      const stillAuthorized = await recheckMembershipConsentTx(tx, fresh, consenter.id);
+      if (!stillAuthorized) return "UNAUTHORIZED" as const;
+      const ok = await grantMembershipInTx(tx, fresh, consenter.id, "IN_APP");
+      return ok ? ("GRANTED" as const) : ("RESOLVED" as const);
+    });
+    if (outcome === "UNAUTHORIZED") {
+      res.status(403).json({ error: "NOT_AUTHORIZED" });
+      return;
+    }
+    granted = outcome === "GRANTED";
+  }
+
+  const current = (await db.linkRequest.findUnique({ where: { id: fresh.id } }))!;
+  res.status(200).json({ ...serializeOwnerRequest(current), granted });
+});
+
+linkRequestsRouter.post("/:id/decline", async (req, res) => {
+  const consenter = personed(req).person;
+  const row = await db.linkRequest.findUnique({ where: { id: req.params.id } });
+  if (!row) {
+    res.status(404).json({ error: "NOT_FOUND" });
+    return;
+  }
+
+  const authorized = await canConsentMembership(row, consenter);
+  if (!authorized) {
+    res.status(403).json({ error: "NOT_AUTHORIZED" });
+    return;
+  }
+
+  const fresh = await resolveExpiry(row);
+  if (fresh.status !== "PENDING") {
+    res.status(200).json(serializeOwnerRequest(fresh));
+    return;
+  }
+
+  await db.linkRequest.updateMany({
+    where: { id: fresh.id, status: "PENDING" },
+    data: { status: "DECLINED", consentedByPersonId: consenter.id, consentChannel: "IN_APP", resolvedAt: new Date() }
+  });
+
+  const current = (await db.linkRequest.findUnique({ where: { id: fresh.id } }))!;
+  res.status(200).json(serializeOwnerRequest(current));
 });
