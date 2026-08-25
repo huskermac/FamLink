@@ -362,11 +362,21 @@ describe("POST /api/v1/link-requests", () => {
   });
 
   describe("HOUSEHOLD_LINK dispatch", () => {
-    it("a HOUSEHOLD_LINK body returns 501 (Task 8 implements it)", async () => {
+    // Task 8 implements HOUSEHOLD_LINK creation; the full PULL/JOIN/authz/visibility matrix is
+    // covered in linkRequests.household.test.ts. This just confirms the create route no longer
+    // dispatches to the Task-4 placeholder 501 and reaches the real implementation.
+    it("a HOUSEHOLD_LINK body already linked to this family → 409 (no longer 501)", async () => {
       const { admin, familyGroup } = await seedAdminFamily();
       const household = await db.household.create({
         data: { name: "Some House", country: "US", families: { create: { familyGroupId: familyGroup.id } } }
       });
+      // A resident so the family "sees" the household — otherwise the PULL visibility precondition
+      // (checked before the already-linked check) would fire first with a different 403.
+      const resident = await seedPerson(null, { firstName: "Resident", lastName: "Person" });
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: resident.id, roles: [], permissions: [] }
+      });
+      await db.householdMember.create({ data: { householdId: household.id, personId: resident.id } });
 
       const res = await asAdmin(admin.id)
         .post("/api/v1/link-requests")
@@ -377,7 +387,8 @@ describe("POST /api/v1/link-requests", () => {
           targetHouseholdId: household.id
         });
 
-      expect(res.status).toBe(501);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("REQUEST_ALREADY_PENDING");
     });
   });
 });

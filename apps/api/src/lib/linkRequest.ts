@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { db, type LinkRequest, type Prisma } from "@famlink/db";
 import { activeFamilyMembership, hasAdminRole } from "./familyAccess";
+import { writeHouseholdAudit } from "./householdAccess";
 import { findOrCreatePersonByContact } from "./personIdentity";
 
 export type MembershipTargetClass =
@@ -269,6 +270,7 @@ export async function serializeInboxRequest(r: LinkRequest): Promise<{
   direction: string;
   requestingFamilyName: string;
   targetName: string | null;
+  targetHouseholdName?: string | null;
   carryHouseholdName: string | null;
   notice: string;
 }> {
@@ -279,7 +281,7 @@ export async function serializeInboxRequest(r: LinkRequest): Promise<{
   const carry = r.carryHouseholdId
     ? await db.household.findUnique({ where: { id: r.carryHouseholdId }, select: { name: true } })
     : null;
-  return {
+  const base = {
     id: r.id,
     kind: r.kind,
     direction: r.direction,
@@ -288,4 +290,142 @@ export async function serializeInboxRequest(r: LinkRequest): Promise<{
     carryHouseholdName: carry?.name ?? null, // [R2] carry-in disclosed to the target
     notice: "Accepting adds you to this family. Linked families' admins can edit shared household details."
   };
+  // targetHouseholdName is added ONLY for HOUSEHOLD_LINK rows — omitted (not null) for
+  // FAMILY_MEMBERSHIP rows so the existing names-only shape stays byte-for-byte unchanged.
+  if (r.kind === "HOUSEHOLD_LINK" && r.targetHouseholdId) {
+    const targetHousehold = await db.household.findUnique({
+      where: { id: r.targetHouseholdId },
+      select: { name: true }
+    });
+    return { ...base, targetHouseholdName: targetHousehold?.name ?? null };
+  }
+  return base;
+}
+
+// ---------------------------------------------------------------------------
+// HOUSEHOLD_LINK (Task 8): family-to-family household linking via the same
+// consent-request pipeline, PULL (a family with visibility asks a household in)
+// or JOIN (a family asks to join a household it already knows the id of).
+// ---------------------------------------------------------------------------
+
+export class HouseholdNotVisible extends Error {}
+export class NotInitiatingAdmin extends Error {}
+
+export async function createHouseholdLinkRequest(params: {
+  familyGroupId: string;
+  requester: { id: string };
+  targetHouseholdId: string;
+  direction: LinkRequestDirection;
+}): Promise<LinkRequest> {
+  // [council BLOCKER] the requester must be an admin of the INITIATING family (`familyGroupId`) — for BOTH
+  // directions. Without this, JOIN lets any authenticated person open a request on an arbitrary family, and
+  // PULL only proved the family can see H, not that the requester belongs to that family.
+  const initiating = await activeFamilyMembership(params.familyGroupId, params.requester.id);
+  if (!initiating || !hasAdminRole(initiating)) throw new NotInitiatingAdmin();
+  // PULL precondition: the initiating family must SEE H through a resident who is a member of it. [R2 BLOCKER #10]
+  if (params.direction === "PULL") {
+    const sees = await db.householdMember.findFirst({
+      where: {
+        householdId: params.targetHouseholdId,
+        person: { familyMemberships: { some: { familyGroupId: params.familyGroupId, suspendedAt: null } } }
+      }
+    });
+    if (!sees) throw new HouseholdNotVisible();
+  }
+  const already = await db.householdFamily.findUnique({
+    where: {
+      householdId_familyGroupId: { householdId: params.targetHouseholdId, familyGroupId: params.familyGroupId }
+    }
+  });
+  if (already) throw new RequestAlreadyPending();
+  // [R3] sweep an expired-but-still-PENDING duplicate so it cannot block the partial-unique index
+  await db.linkRequest.updateMany({
+    where: {
+      kind: "HOUSEHOLD_LINK",
+      familyGroupId: params.familyGroupId,
+      targetHouseholdId: params.targetHouseholdId,
+      status: "PENDING",
+      expiresAt: { lt: new Date() }
+    },
+    data: { status: "EXPIRED", resolvedAt: new Date() }
+  });
+  try {
+    return await db.linkRequest.create({
+      data: {
+        kind: "HOUSEHOLD_LINK",
+        direction: params.direction,
+        familyGroupId: params.familyGroupId,
+        targetHouseholdId: params.targetHouseholdId,
+        requestedByPersonId: params.requester.id,
+        status: "PENDING",
+        expiresAt: new Date(Date.now() + LINK_REQUEST_TTL_DAYS * 86_400_000)
+      }
+    });
+  } catch (e) {
+    if (typeof e === "object" && e && "code" in e && (e as { code: string }).code === "P2002") {
+      throw new RequestAlreadyPending();
+    }
+    throw e;
+  }
+}
+
+/** Counterparty = admin of a family CURRENTLY linked to H. Dual-authority allowed (requester can also qualify). */
+export async function householdConsentFamily(householdId: string, personId: string): Promise<string | null> {
+  const memberships = await db.familyMember.findMany({
+    where: {
+      personId,
+      suspendedAt: null,
+      familyGroup: { householdLinks: { some: { householdId } } }
+    }
+  });
+  const admin = memberships.find(hasAdminRole);
+  return admin ? admin.familyGroupId : null;
+}
+
+export async function canConsentHousehold(r: LinkRequest, person: { id: string }): Promise<boolean> {
+  if (r.kind !== "HOUSEHOLD_LINK" || !r.targetHouseholdId) return false;
+  return (await householdConsentFamily(r.targetHouseholdId, person.id)) !== null; // dual-authority: no requester exclusion
+}
+
+/** [council MAJOR] distinct outcomes so the route never treats lost authority as idempotent success. */
+export type HouseholdAcceptOutcome = "GRANTED" | "RESOLVED" | "UNAUTHORIZED";
+
+export async function claimAndAcceptHousehold(
+  r: LinkRequest,
+  consenter: { id: string }
+): Promise<HouseholdAcceptOutcome> {
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "Household" WHERE "id" = ${r.targetHouseholdId} FOR UPDATE`;
+    // Re-validate authority AND pending status UNDER the lock. [R2 BLOCKER #11]
+    const stillAdmin = await tx.familyMember.findFirst({
+      where: {
+        personId: consenter.id,
+        suspendedAt: null,
+        familyGroup: { householdLinks: { some: { householdId: r.targetHouseholdId! } } },
+        roles: { has: "ADMIN" }
+      }
+    });
+    if (!stillAdmin) return "UNAUTHORIZED"; // lost authority — the route returns 403, NOT idempotent success
+    // The claim re-checks status AND expiry under the lock. [council BLOCKER: expiry must be enforced by the claim]
+    const claim = await tx.linkRequest.updateMany({
+      where: { id: r.id, status: "PENDING", expiresAt: { gt: new Date() } },
+      data: { status: "ACCEPTED", consentedByPersonId: consenter.id, consentChannel: "IN_APP", resolvedAt: new Date() }
+    });
+    if (claim.count === 0) return "RESOLVED"; // already resolved or expired — the route returns the current state
+    const existing = await tx.householdFamily.findUnique({
+      where: { householdId_familyGroupId: { householdId: r.targetHouseholdId!, familyGroupId: r.familyGroupId } }
+    });
+    if (!existing) {
+      await tx.householdFamily.create({
+        data: { householdId: r.targetHouseholdId!, familyGroupId: r.familyGroupId, linkedByPersonId: consenter.id }
+      });
+      await writeHouseholdAudit(tx, {
+        householdId: r.targetHouseholdId!,
+        actorPersonId: consenter.id,
+        actorFamilyGroupId: stillAdmin.familyGroupId, // [R2 MAJOR] consenter's family, not the initiator's
+        action: "LINKED"
+      });
+    }
+    return "GRANTED";
+  });
 }

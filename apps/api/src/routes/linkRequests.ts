@@ -9,9 +9,14 @@ import {
   AttestationRequired,
   CarryHouseholdInvalid,
   DataEntryNoConsent,
+  HouseholdNotVisible,
+  NotInitiatingAdmin,
   RequestAlreadyPending,
+  canConsentHousehold,
   canConsentMembership,
+  claimAndAcceptHousehold,
   claimAndAcceptMembership,
+  createHouseholdLinkRequest,
   createMembershipRequest,
   grantMembershipInTx,
   recheckMembershipConsentTx,
@@ -92,14 +97,34 @@ linkRequestsRouter.post("/", async (req, res, next) => {
     return;
   }
   const body = parsed.data;
+  const requester = personed(req).person;
 
-  // HOUSEHOLD_LINK is implemented in Task 8 — dispatch to a temporary 501 now.
   if (body.kind === "HOUSEHOLD_LINK") {
-    res.status(501).json({ error: "NOT_IMPLEMENTED" });
+    try {
+      const request = await createHouseholdLinkRequest({
+        familyGroupId: body.familyGroupId,
+        requester: { id: requester.id },
+        targetHouseholdId: body.targetHouseholdId!,
+        direction: body.direction
+      });
+      res.status(201).json(serializeOwnerRequest(request));
+    } catch (e) {
+      if (e instanceof NotInitiatingAdmin) {
+        res.status(403).json({ error: "NOT_AUTHORIZED" });
+        return;
+      }
+      if (e instanceof HouseholdNotVisible) {
+        res.status(403).json({ error: "HOUSEHOLD_NOT_VISIBLE" });
+        return;
+      }
+      if (e instanceof RequestAlreadyPending) {
+        res.status(409).json({ error: "REQUEST_ALREADY_PENDING" });
+        return;
+      }
+      next(e);
+    }
     return;
   }
-
-  const requester = personed(req).person;
 
   // Requester authorization: PULL needs an INVITE_MEMBERS admin of familyGroupId; JOIN needs
   // only an authenticated person (the applicant IS the target, enforced in createMembershipRequest).
@@ -194,8 +219,7 @@ linkRequestsRouter.get("/pending", async (req, res) => {
   });
   const guardianTargetIds = [...inFamilyMinors.map((m) => m.personId), ...familyLessWards.map((p) => p.id)];
 
-  // Household requests widen this filter in Task 8 — kept to FAMILY_MEMBERSHIP for now.
-  const rows = await db.linkRequest.findMany({
+  const membershipRows = await db.linkRequest.findMany({
     where: {
       kind: "FAMILY_MEMBERSHIP",
       status: "PENDING",
@@ -208,12 +232,34 @@ linkRequestsRouter.get("/pending", async (req, res) => {
     }
   });
 
+  // Household requests: households currently linked to a family the requester admins — feeds
+  // the household-consent-family check (Task 8).
+  const adminHouseholds = await db.householdFamily.findMany({
+    where: { familyGroupId: { in: adminFamilyIds } },
+    select: { householdId: true }
+  });
+  const adminHouseholdIds = adminHouseholds.map((h) => h.householdId);
+  const householdRows = await db.linkRequest.findMany({
+    where: {
+      kind: "HOUSEHOLD_LINK",
+      status: "PENDING",
+      expiresAt: { gt: new Date() },
+      targetHouseholdId: { in: adminHouseholdIds }
+    }
+  });
+
   // Never resolveExpiry-mutate on read — expired rows are already excluded by expiresAt:{gt:now}.
-  const authorized: typeof rows = [];
-  for (const r of rows) {
-    if (await canConsentMembership(r, requester)) authorized.push(r);
+  const authorizedMembership: typeof membershipRows = [];
+  for (const r of membershipRows) {
+    if (await canConsentMembership(r, requester)) authorizedMembership.push(r);
   }
-  const serialized = await Promise.all(authorized.map((r) => serializeInboxRequest(r)));
+  const authorizedHousehold: typeof householdRows = [];
+  for (const r of householdRows) {
+    if (await canConsentHousehold(r, requester)) authorizedHousehold.push(r);
+  }
+  const serialized = await Promise.all(
+    [...authorizedMembership, ...authorizedHousehold].map((r) => serializeInboxRequest(r))
+  );
   res.json({ requests: serialized });
 });
 
@@ -222,6 +268,20 @@ linkRequestsRouter.post("/:id/accept", async (req, res) => {
   const row = await db.linkRequest.findUnique({ where: { id: req.params.id } });
   if (!row) {
     res.status(404).json({ error: "NOT_FOUND" });
+    return;
+  }
+
+  if (row.kind === "HOUSEHOLD_LINK") {
+    // claimAndAcceptHousehold re-validates BOTH the consenter's linked-family admin authority and
+    // the PENDING+non-expired status INSIDE its own locked transaction, so there is no separate
+    // pre-check here: UNAUTHORIZED covers both "never had authority" and "lost it since request".
+    const outcome = await claimAndAcceptHousehold(row, { id: consenter.id });
+    if (outcome === "UNAUTHORIZED") {
+      res.status(403).json({ error: "NOT_AUTHORIZED" }); // never serialize state on lost/absent authority
+      return;
+    }
+    const current = (await db.linkRequest.findUnique({ where: { id: row.id } }))!;
+    res.status(200).json({ ...serializeOwnerRequest(current), granted: outcome === "GRANTED" });
     return;
   }
 
@@ -272,7 +332,8 @@ linkRequestsRouter.post("/:id/decline", async (req, res) => {
     return;
   }
 
-  const authorized = await canConsentMembership(row, consenter);
+  const authorized =
+    row.kind === "HOUSEHOLD_LINK" ? await canConsentHousehold(row, consenter) : await canConsentMembership(row, consenter);
   if (!authorized) {
     res.status(403).json({ error: "NOT_AUTHORIZED" });
     return;
