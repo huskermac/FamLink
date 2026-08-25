@@ -47,8 +47,7 @@ const CreateHouseholdSchema = z.object({
 const AddMemberSchema = z.object({
   personId: z.string().min(1),
   roles: z.array(z.string()).min(1),
-  permissions: z.array(z.string()).default([]),
-  confirmSeatExpansion: z.boolean().optional().default(false)
+  permissions: z.array(z.string()).default([])
 });
 
 /** Prisma `@default(cuid())` ids must not be validated with Zod `cuid()` — formats can differ. */
@@ -170,31 +169,60 @@ familiesRouter.post("/:familyId/members", async (req, res) => {
     return;
   }
 
-  const targetPerson = await db.person.findUnique({ where: { id: body.data.personId } });
-  if (!targetPerson) {
-    res.status(400).json({ error: "Person not found" });
-    return;
-  }
-
-  let member;
-  try {
-    member = await db.familyMember.create({
-      data: {
-        familyGroupId: familyId,
-        personId: body.data.personId,
-        roles: body.data.roles,
-        permissions: body.data.permissions
+  // Direct add is allowed ONLY for a passive, contact-less Person that THIS family authored
+  // (Person.createdByFamilyGroupId === familyId) — a provably-authored data-entry record.
+  // Everything else (an active account, any contact, or a foreign/no owner) must go through
+  // the link-request consent flow. The re-read and the insert run in ONE transaction, with
+  // a row lock taken first, so the target cannot acquire a userId or a contact between the
+  // classify check and the FamilyMember insert (TOCTOU under READ COMMITTED).
+  const result = await db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "Person" WHERE "id" = ${body.data.personId} FOR UPDATE`;
+    const t = await tx.person.findUnique({ where: { id: body.data.personId } });
+    if (!t) return { error: "NOT_FOUND" as const };
+    const passiveNoContact = t.userId === null && !t.email && !t.phone && !t.emailNormalized && !t.phoneNormalized;
+    if (!passiveNoContact || t.createdByFamilyGroupId !== familyId) return { error: "CONSENT_REQUIRED" as const };
+    try {
+      const member = await tx.familyMember.create({
+        data: {
+          familyGroupId: familyId,
+          personId: t.id,
+          roles: body.data.roles,
+          permissions: body.data.permissions
+        }
+      });
+      return { member };
+    } catch (e) {
+      if (typeof e === "object" && e && "code" in e && (e as { code: string }).code === "P2002") {
+        return { error: "ALREADY_MEMBER" as const };
       }
-    });
-  } catch (e: unknown) {
-    const code = typeof e === "object" && e !== null && "code" in e ? (e as { code: string }).code : "";
-    if (code === "P2002") {
+      throw e;
+    }
+  });
+
+  if ("error" in result) {
+    if (result.error === "NOT_FOUND") {
+      res.status(400).json({ error: "Person not found" });
+      return;
+    }
+    if (result.error === "ALREADY_MEMBER") {
       res.status(400).json({ error: "Person is already a member of this family" });
       return;
     }
-    throw e;
+    res.status(409).json({
+      error: "CONSENT_REQUIRED",
+      hint: "This person has an account, contact details, or a different owning family — send a link request they can accept.",
+      linkRequest: {
+        endpoint: "/api/v1/link-requests",
+        kind: "FAMILY_MEMBERSHIP",
+        direction: "PULL",
+        familyGroupId: familyId,
+        targetPersonId: body.data.personId
+      }
+    });
+    return;
   }
 
+  const { member } = result;
   res.status(201).json({
     id: member.id,
     familyGroupId: member.familyGroupId,

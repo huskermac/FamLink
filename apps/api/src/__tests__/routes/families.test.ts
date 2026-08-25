@@ -144,28 +144,30 @@ describe("families & households routes", () => {
     });
   });
 
-  describe("POST /api/v1/families/:familyId/members — no inline billing", () => {
-    it("adds an active member with no 402 gate and no Stripe call, even at the seat boundary", async () => {
+  describe("POST /api/v1/families/:familyId/members — provenance gate, no inline billing", () => {
+    it("adds a passive, contact-less target this family authored (provenance) — 201, no 402 gate, no Stripe call, even at the seat boundary", async () => {
       const admin = await seedTestPerson({ userId: "clerk_admin_nb" });
       const { familyGroup } = await seedTestFamily(admin.id);
-      // activeUserLimit finite + activeCount(1 admin) == seatCount(1) => OLD code
-      // returns 402 without confirmSeatExpansion. That is the RED signal; new code
-      // must return 201 and never touch Stripe.
+      // activeUserLimit finite + activeCount(1 admin) == seatCount(1) => OLD billing-gate code
+      // would have returned 402. That gate is gone; the ONLY gate now is provenance.
       await db.pricingTier.create({
         data: { tierKey: "BASE", displayName: "Base", displayOrder: 1, includedSeats: 1, activeUserLimit: 1, stripePriceId: "price_base", stripeSeatPriceId: "price_seat" }
       });
       await db.familySubscription.create({
         data: { familyGroupId: familyGroup.id, tierKey: "BASE", seatCount: 1, stripeCustomerId: "cus_test", stripeSubscriptionId: "sub_test", status: "ACTIVE" }
       });
-      const second = await seedTestPerson({ userId: "clerk_second_nb" });
+      // Passive, no contact at all, authored by THIS family — data entry the gate must allow.
+      const dataEntry = await db.person.create({
+        data: { firstName: "Data", lastName: "Entry", ageGateLevel: "ADULT", userId: null, createdByFamilyGroupId: familyGroup.id }
+      });
 
       mockGetAuth.mockReturnValue({ userId: "clerk_admin_nb" });
       const res = await request(app)
         .post(`/api/v1/families/${familyGroup.id}/members`)
-        .send({ personId: second.id, roles: ["MEMBER"], permissions: [] });
+        .send({ personId: dataEntry.id, roles: ["MEMBER"], permissions: [] });
 
       expect(res.status).toBe(201);
-      expect(res.body.personId).toBe(second.id);
+      expect(res.body.personId).toBe(dataEntry.id);
       expect(mockStripe.subscriptions.update).not.toHaveBeenCalled();
       expect(mockStripe.subscriptions.retrieve).not.toHaveBeenCalled();
       // seatCount is NOT bumped inline — the daily cron reconciles it.
@@ -173,14 +175,144 @@ describe("families & households routes", () => {
       expect(sub?.seatCount).toBe(1);
     });
 
-    it("still accepts a legacy confirmSeatExpansion flag without error (field is vestigial)", async () => {
-      const admin = await seedTestPerson({ userId: "clerk_admin_legacy" });
+    it("409 CONSENT_REQUIRED for an active-account target (has userId) — no FamilyMember created", async () => {
+      const admin = await seedTestPerson({ userId: "clerk_admin_active" });
       const { familyGroup } = await seedTestFamily(admin.id);
-      const second = await seedTestPerson({ userId: "clerk_second_legacy" });
-      mockGetAuth.mockReturnValue({ userId: "clerk_admin_legacy" });
+      const activeTarget = await seedTestPerson({ userId: "clerk_target_active" });
+
+      mockGetAuth.mockReturnValue({ userId: "clerk_admin_active" });
       const res = await request(app)
         .post(`/api/v1/families/${familyGroup.id}/members`)
-        .send({ personId: second.id, roles: ["MEMBER"], permissions: [], confirmSeatExpansion: true });
+        .send({ personId: activeTarget.id, roles: ["MEMBER"], permissions: [] });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("CONSENT_REQUIRED");
+      expect(res.body.linkRequest).toMatchObject({
+        endpoint: "/api/v1/link-requests",
+        kind: "FAMILY_MEMBERSHIP",
+        direction: "PULL",
+        familyGroupId: familyGroup.id,
+        targetPersonId: activeTarget.id
+      });
+      const member = await db.familyMember.findUnique({
+        where: { familyGroupId_personId: { familyGroupId: familyGroup.id, personId: activeTarget.id } }
+      });
+      expect(member).toBeNull();
+    });
+
+    it("409 CONSENT_REQUIRED for a passive target WITH contact (email set) — no FamilyMember created", async () => {
+      const admin = await seedTestPerson({ userId: "clerk_admin_contact" });
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const contactTarget = await db.person.create({
+        data: {
+          firstName: "Has",
+          lastName: "Contact",
+          ageGateLevel: "ADULT",
+          userId: null,
+          createdByFamilyGroupId: familyGroup.id,
+          email: "has-contact@example.com",
+          emailNormalized: "has-contact@example.com"
+        }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: "clerk_admin_contact" });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/members`)
+        .send({ personId: contactTarget.id, roles: ["MEMBER"], permissions: [] });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("CONSENT_REQUIRED");
+      const member = await db.familyMember.findUnique({
+        where: { familyGroupId_personId: { familyGroupId: familyGroup.id, personId: contactTarget.id } }
+      });
+      expect(member).toBeNull();
+    });
+
+    it("409 CONSENT_REQUIRED for a passive, contact-less target with NO owning family (createdByFamilyGroupId null) — no FamilyMember created", async () => {
+      const admin = await seedTestPerson({ userId: "clerk_admin_orphan" });
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const orphan = await seedGuestPerson(); // passive, no contact, createdByFamilyGroupId null
+
+      mockGetAuth.mockReturnValue({ userId: "clerk_admin_orphan" });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/members`)
+        .send({ personId: orphan.id, roles: ["MEMBER"], permissions: [] });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("CONSENT_REQUIRED");
+      const member = await db.familyMember.findUnique({
+        where: { familyGroupId_personId: { familyGroupId: familyGroup.id, personId: orphan.id } }
+      });
+      expect(member).toBeNull();
+    });
+
+    it("409 CONSENT_REQUIRED for a passive, contact-less target authored by a DIFFERENT family — no FamilyMember created", async () => {
+      const admin = await seedTestPerson({ userId: "clerk_admin_foreign" });
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const otherAdmin = await seedSecondPerson();
+      const otherFamily = await db.familyGroup.create({
+        data: { name: "Other Family", createdById: otherAdmin.id }
+      });
+      const foreignEntry = await db.person.create({
+        data: { firstName: "Foreign", lastName: "Entry", ageGateLevel: "ADULT", userId: null, createdByFamilyGroupId: otherFamily.id }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: "clerk_admin_foreign" });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/members`)
+        .send({ personId: foreignEntry.id, roles: ["MEMBER"], permissions: [] });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("CONSENT_REQUIRED");
+      const member = await db.familyMember.findUnique({
+        where: { familyGroupId_personId: { familyGroupId: familyGroup.id, personId: foreignEntry.id } }
+      });
+      expect(member).toBeNull();
+    });
+
+    it("400 Person not found for an unknown personId", async () => {
+      const admin = await seedTestPerson({ userId: "clerk_admin_nf" });
+      const { familyGroup } = await seedTestFamily(admin.id);
+
+      mockGetAuth.mockReturnValue({ userId: "clerk_admin_nf" });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/members`)
+        .send({ personId: "nonexistent-person-id", roles: ["MEMBER"], permissions: [] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Person not found");
+    });
+
+    it("400 Person is already a member of this family (idempotent re-add of the same provenance target)", async () => {
+      const admin = await seedTestPerson({ userId: "clerk_admin_dup" });
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const dataEntry = await db.person.create({
+        data: { firstName: "Data", lastName: "Entry", ageGateLevel: "ADULT", userId: null, createdByFamilyGroupId: familyGroup.id }
+      });
+      await db.familyMember.create({
+        data: { familyGroupId: familyGroup.id, personId: dataEntry.id, roles: ["MEMBER"], permissions: [] }
+      });
+
+      mockGetAuth.mockReturnValue({ userId: "clerk_admin_dup" });
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/members`)
+        .send({ personId: dataEntry.id, roles: ["MEMBER"], permissions: [] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Person is already a member of this family");
+    });
+
+    it("rejects an unknown confirmSeatExpansion-less body the same way as before removal (schema no longer has the field, no error from sending it)", async () => {
+      const admin = await seedTestPerson({ userId: "clerk_admin_legacy" });
+      const { familyGroup } = await seedTestFamily(admin.id);
+      const dataEntry = await db.person.create({
+        data: { firstName: "Data", lastName: "Entry", ageGateLevel: "ADULT", userId: null, createdByFamilyGroupId: familyGroup.id }
+      });
+      mockGetAuth.mockReturnValue({ userId: "clerk_admin_legacy" });
+      // A stale client sending the now-removed field must not get a 400 — zod strips unknown keys.
+      const res = await request(app)
+        .post(`/api/v1/families/${familyGroup.id}/members`)
+        .send({ personId: dataEntry.id, roles: ["MEMBER"], permissions: [], confirmSeatExpansion: true });
       expect(res.status).toBe(201);
     });
   });
