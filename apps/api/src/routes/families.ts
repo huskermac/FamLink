@@ -13,6 +13,7 @@ import {
   ERROR_PERSON_RECORD_REQUIRED
 } from "../lib/personRequiredMessages";
 import { linkedFamilies, writeHouseholdAudit } from "../lib/householdAccess";
+import { isPassiveNoContact } from "../lib/linkRequest";
 import type { AuthedRequest } from "../middleware/requireAuth";
 
 export const familiesRouter = Router();
@@ -179,7 +180,7 @@ familiesRouter.post("/:familyId/members", async (req, res) => {
     await tx.$queryRaw`SELECT "id" FROM "Person" WHERE "id" = ${body.data.personId} FOR UPDATE`;
     const t = await tx.person.findUnique({ where: { id: body.data.personId } });
     if (!t) return { error: "NOT_FOUND" as const };
-    const passiveNoContact = t.userId === null && !t.email && !t.phone && !t.emailNormalized && !t.phoneNormalized;
+    const passiveNoContact = isPassiveNoContact(t);
     if (!passiveNoContact || t.createdByFamilyGroupId !== familyId) return { error: "CONSENT_REQUIRED" as const };
     try {
       const member = await tx.familyMember.create({

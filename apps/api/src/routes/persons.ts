@@ -29,7 +29,7 @@ export const CreatePersonSchema = z.object({
 // from an uploader-scoped R2 key via POST /:personId/photo.
 const confirmPhotoSchema = z.object({ key: z.string().min(1) });
 
-export const UpdatePersonSchema = CreatePersonSchema.partial();
+export const UpdatePersonSchema = CreatePersonSchema.omit({ familyGroupId: true }).partial();
 
 const personIdParamSchema = z.object({
   personId: z.string().min(1)

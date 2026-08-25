@@ -32,6 +32,18 @@ export function hasAnyContact(p: {
   return Boolean(p.email || p.phone || p.emailNormalized || p.phoneNormalized);
 }
 
+/** A never-onboarded person with no contact by any of the 4 fields — the only class of
+ *  Person a family may direct-add without going through the link-request consent flow. */
+export function isPassiveNoContact(p: {
+  userId: string | null;
+  email: string | null;
+  phone: string | null;
+  emailNormalized: string | null;
+  phoneNormalized: string | null;
+}): boolean {
+  return p.userId === null && !hasAnyContact(p);
+}
+
 export async function classifyMembershipTarget(input: {
   personId?: string;
   email?: string;

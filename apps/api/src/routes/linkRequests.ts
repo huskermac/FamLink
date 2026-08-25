@@ -281,7 +281,12 @@ linkRequestsRouter.post("/:id/accept", async (req, res) => {
       return;
     }
     const current = (await db.linkRequest.findUnique({ where: { id: row.id } }))!;
-    res.status(200).json({ ...serializeOwnerRequest(current), granted: outcome === "GRANTED" });
+    res.status(200).json({
+      id: current.id,
+      status: current.status,
+      granted: outcome === "GRANTED",
+      resolvedAt: current.resolvedAt?.toISOString() ?? null
+    });
     return;
   }
 
@@ -295,7 +300,12 @@ linkRequestsRouter.post("/:id/accept", async (req, res) => {
 
   const fresh = await resolveExpiry(row);
   if (fresh.status !== "PENDING") {
-    res.status(200).json({ ...serializeOwnerRequest(fresh), granted: false });
+    res.status(200).json({
+      id: fresh.id,
+      status: fresh.status,
+      granted: false,
+      resolvedAt: fresh.resolvedAt?.toISOString() ?? null
+    });
     return;
   }
 
@@ -321,7 +331,12 @@ linkRequestsRouter.post("/:id/accept", async (req, res) => {
   }
 
   const current = (await db.linkRequest.findUnique({ where: { id: fresh.id } }))!;
-  res.status(200).json({ ...serializeOwnerRequest(current), granted });
+  res.status(200).json({
+    id: current.id,
+    status: current.status,
+    granted,
+    resolvedAt: current.resolvedAt?.toISOString() ?? null
+  });
 });
 
 linkRequestsRouter.post("/:id/decline", async (req, res) => {
@@ -341,7 +356,11 @@ linkRequestsRouter.post("/:id/decline", async (req, res) => {
 
   const fresh = await resolveExpiry(row);
   if (fresh.status !== "PENDING") {
-    res.status(200).json(serializeOwnerRequest(fresh));
+    res.status(200).json({
+      id: fresh.id,
+      status: fresh.status,
+      resolvedAt: fresh.resolvedAt?.toISOString() ?? null
+    });
     return;
   }
 
@@ -351,5 +370,9 @@ linkRequestsRouter.post("/:id/decline", async (req, res) => {
   });
 
   const current = (await db.linkRequest.findUnique({ where: { id: fresh.id } }))!;
-  res.status(200).json(serializeOwnerRequest(current));
+  res.status(200).json({
+    id: current.id,
+    status: current.status,
+    resolvedAt: current.resolvedAt?.toISOString() ?? null
+  });
 });

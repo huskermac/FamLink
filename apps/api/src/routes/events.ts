@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { db, type Event, type EventItem } from "@famlink/db";
-import { InviteScope, RSVPStatus } from "@famlink/shared";
+import { RSVPStatus } from "@famlink/shared";
 import { activeFamilyMembership, hasAdminRole, hasPermission } from "../lib/familyAccess";
 import { personed } from "../middleware/requireAuth";
 import { canViewEvent } from "../lib/eventVisibility";
@@ -83,33 +83,6 @@ export const CreateEventSchema = BaseEventFieldsSchema.superRefine((data, ctx) =
 });
 
 export const UpdateEventSchema = BaseEventFieldsSchema.partial();
-
-export const SendInvitationsSchema = z
-  .object({
-    scope: z.nativeEnum(InviteScope),
-    personIds: z.array(z.string().min(1)).optional(),
-    householdIds: z.array(z.string().min(1)).optional()
-  })
-  .superRefine((data, ctx) => {
-    if (data.scope === InviteScope.INDIVIDUAL) {
-      if (!data.personIds?.length) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["personIds"],
-          message: "personIds required for INDIVIDUAL scope"
-        });
-      }
-    }
-    if (data.scope === InviteScope.HOUSEHOLD) {
-      if (!data.householdIds?.length) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["householdIds"],
-          message: "householdIds required for HOUSEHOLD scope"
-        });
-      }
-    }
-  });
 
 const UpdateRsvpSchema = z.object({
   status: z.nativeEnum(RSVPStatus)

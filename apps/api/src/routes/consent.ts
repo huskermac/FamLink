@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "@famlink/db";
 import { grantMembershipInTx, resolveExpiry } from "../lib/linkRequest";
+import { asyncHandler } from "../middleware/asyncHandler";
 import { guestRateLimiter } from "../middleware/rateLimit";
 
 export const consentRouter = Router();
@@ -13,7 +14,7 @@ consentRouter.use(guestRateLimiter);
  * page. Never echoes the token back in the response body. 410 on an expired
  * request (resolved on read, mirroring the in-app inbox's expiry sweep).
  */
-consentRouter.get("/:token", async (req, res) => {
+consentRouter.get("/:token", asyncHandler(async (req, res) => {
   const { token } = req.params;
   const r = await db.linkRequest.findUnique({ where: { token } });
   if (!r) {
@@ -39,7 +40,7 @@ consentRouter.get("/:token", async (req, res) => {
     status: fresh.status,
     notice: "Accepting adds you to this family. Linked families' admins can edit shared household details."
   });
-});
+}));
 
 /**
  * POST /api/v1/consent/:token/accept — authorized by possession of the token
@@ -52,7 +53,7 @@ consentRouter.get("/:token", async (req, res) => {
  * conditional claim inside `grantMembershipInTx` (a second call -> count 0 ->
  * 409 with the current state).
  */
-consentRouter.post("/:token/accept", async (req, res) => {
+consentRouter.post("/:token/accept", asyncHandler(async (req, res) => {
   const { token } = req.params;
   const r = await db.linkRequest.findUnique({ where: { token } });
   if (!r || !r.targetPersonId) {
@@ -88,4 +89,4 @@ consentRouter.post("/:token/accept", async (req, res) => {
     return;
   }
   res.json({ granted: true, status: "ACCEPTED" });
-});
+}));

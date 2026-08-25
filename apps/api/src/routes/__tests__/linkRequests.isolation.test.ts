@@ -343,6 +343,46 @@ describe("P3-04 W1 PR-2 isolation invariants", () => {
     });
   });
 
+  describe("inv6: accept/decline responses carry no foreign id — counterparty-safe shape", () => {
+    it("a JOIN membership decline response contains none of the foreign ids (familyGroupId/targetPersonId)", async () => {
+      const { admin, familyGroup } = await seedAdminFamily();
+      const applicant = await seedAuthedPerson({ firstName: "Ap", lastName: "Plicant" });
+      const linkRequest = await seedMembershipRequest({
+        familyGroupId: familyGroup.id,
+        targetPersonId: applicant.id,
+        requestedByPersonId: applicant.id,
+        direction: "JOIN"
+      });
+
+      const res = await asAdmin(admin.id).post(`/api/v1/link-requests/${linkRequest.id}/decline`);
+
+      expect(res.status).toBe(200);
+      const json = JSON.stringify(res.body);
+      expect(json).not.toContain(familyGroup.id);
+      expect(json).not.toContain(applicant.id);
+      expect(Object.keys(res.body).sort()).toEqual(["id", "resolvedAt", "status"].sort());
+    });
+
+    it("a HOUSEHOLD_LINK decline response contains none of the foreign ids (familyGroupId/targetHouseholdId)", async () => {
+      const { admin: reqAdmin, familyGroup: reqFamily } = await seedAdminFamily();
+      const { admin: linkedAdmin, familyGroup: linkedFamily } = await seedAdminFamily();
+      const household = await seedHousehold({ linkedFamilyGroupIds: [linkedFamily.id] });
+
+      const createRes = await asAdmin(reqAdmin.id)
+        .post("/api/v1/link-requests")
+        .send({ kind: "HOUSEHOLD_LINK", direction: "JOIN", familyGroupId: reqFamily.id, targetHouseholdId: household.id });
+      expect(createRes.status).toBe(201);
+
+      const res = await asAdmin(linkedAdmin.id).post(`/api/v1/link-requests/${createRes.body.id}/decline`);
+
+      expect(res.status).toBe(200);
+      const json = JSON.stringify(res.body);
+      expect(json).not.toContain(reqFamily.id);
+      expect(json).not.toContain(household.id);
+      expect(Object.keys(res.body).sort()).toEqual(["id", "resolvedAt", "status"].sort());
+    });
+  });
+
   describe("escalation: the household-invite response carries no token and no foreign personId", () => {
     it("a mixed household expansion's invitations and skipped[] carry no guestToken/linkedPersonId/personId", async () => {
       const admin = await seedAuthedPerson({ firstName: "Organizer", lastName: "Admin" });
