@@ -2,6 +2,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { db, type Person } from "@famlink/db";
 import type { AuthedRequest } from "../middleware/requireAuth";
+import { activeFamilyMembership } from "../lib/familyAccess";
 import { publicUrlForKey, uploadKeyPrefix } from "../lib/r2";
 
 export const personsRouter = Router();
@@ -20,7 +21,8 @@ export const CreatePersonSchema = z.object({
   dateOfBirth: isoDateOnly,
   ageGateLevel: ageGateEnum.optional().default("ADULT"),
   /** Prisma `@default(cuid())` ids must not use Zod `cuid()` — formats can differ. */
-  guardianPersonId: z.string().min(1).optional()
+  guardianPersonId: z.string().min(1).optional(),
+  familyGroupId: z.string().min(1).optional()
 });
 
 // Profile photo URL is never trusted from the client — it is derived server-side
@@ -186,6 +188,20 @@ personsRouter.post("/", async (req, res) => {
   /** First Person for this Clerk user (onboarding) — link account. Otherwise create a family member without login (userId null). */
   const linkToClerk = requesterPerson === null;
 
+  let createdByFamilyGroupId: string | null = null;
+  if (data.familyGroupId) {
+    if (!requesterPerson) {
+      res.status(400).json({ error: "Person record not found — complete onboarding" });
+      return;
+    }
+    const membership = await activeFamilyMembership(data.familyGroupId, requesterPerson.id);
+    if (!membership) {
+      res.status(403).json({ error: "Not a member of this family" });
+      return;
+    }
+    if (!linkToClerk) createdByFamilyGroupId = data.familyGroupId; // passive record only
+  }
+
   const created = await db.person.create({
     data: {
       firstName: data.firstName,
@@ -194,7 +210,8 @@ personsRouter.post("/", async (req, res) => {
       dateOfBirth,
       ageGateLevel: data.ageGateLevel ?? "ADULT",
       guardianPersonId: data.guardianPersonId,
-      userId: linkToClerk ? userId : null
+      userId: linkToClerk ? userId : null,
+      createdByFamilyGroupId
     }
   });
 

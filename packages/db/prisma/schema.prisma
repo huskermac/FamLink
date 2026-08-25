@@ -18,6 +18,8 @@ model Person {
   guardianPersonId String?
   guardian         Person?   @relation("GuardianWard", fields: [guardianPersonId], references: [id])
   wards            Person[]  @relation("GuardianWard")
+  /** Logical provenance only — no FK. Family that authored this passive Person record (Decision 9). */
+  createdByFamilyGroupId String?
   profilePhotoUrl String?
   email           String?
   phone           String?
