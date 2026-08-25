@@ -126,6 +126,37 @@ describe("POST /api/v1/link-requests", () => {
       expect(row?.token).not.toBeNull();
     });
 
+    it("known minor target (TEEN, has contact) never gets a token — 201, token null, IN_APP consent", async () => {
+      const { admin, familyGroup } = await seedAdminFamily();
+      // A known minor (ageGateLevel TEEN) with a contact detail, not yet a member of this
+      // family. Attestation applies only to a DOB-unknown passive ADULT target (spec §11) —
+      // a known minor must skip that gate entirely and never receive a token link; the
+      // guardian consents in-app instead.
+      const minorTarget = await seedPerson(null, {
+        firstName: "Minor",
+        lastName: "Target",
+        ageGateLevel: "TEEN",
+        email: "minor.target@example.com"
+      });
+
+      const res = await asAdmin(admin.id)
+        .post("/api/v1/link-requests")
+        .send({
+          kind: "FAMILY_MEMBERSHIP",
+          direction: "PULL",
+          familyGroupId: familyGroup.id,
+          targetPersonId: minorTarget.id
+        });
+
+      expect(res.status).toBe(201);
+
+      const row = await db.linkRequest.findFirst({
+        where: { familyGroupId: familyGroup.id, targetPersonId: minorTarget.id }
+      });
+      expect(row?.token).toBeNull();
+      expect(row?.consentChannel).toBe("IN_APP");
+    });
+
     it("data-entry target (no contact at all) → 409 DATA_ENTRY_NO_CONSENT", async () => {
       const { admin, familyGroup } = await seedAdminFamily();
       const dataEntryTarget = await seedPerson(null, { firstName: "No", lastName: "Contact" });
@@ -187,6 +218,9 @@ describe("POST /api/v1/link-requests", () => {
           targetPersonId: activeTarget.id
         });
       expect(second.status).toBe(409);
+      // Pin the specific error code — a regression that accidentally routed this through the
+      // AlreadyMember check would still 409, but with the wrong body.
+      expect(second.body.error).toBe("REQUEST_ALREADY_PENDING");
     });
 
     it("target already a family member → 409 ALREADY_MEMBER", async () => {
