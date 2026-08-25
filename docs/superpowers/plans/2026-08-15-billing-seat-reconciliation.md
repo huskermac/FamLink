@@ -6,14 +6,14 @@
 
 **Architecture:** Coverage in `entitlements.ts` no longer uses the `take: seatCount` cap. It keys only on paid, entitling membership. This slice removes the 402 seat-confirm gate and its inline Stripe call from `POST /families/:familyId/members`. A new idempotent function `reconcileSeats(familyGroupId)` sets the absolute Stripe seat quantity from the headcount. A new daily pass runs it for every entitling family. This slice also removes seat-based member suspension and the downgrade-grace machinery. No membership change bills Stripe at the time of the change.
 
-**Tech Stack:** TypeScript, Express, Prisma 7.7 (`@famlink/db`), Stripe SDK (mocked in tests via `vi.hoisted`), Vitest against a real Postgres test DB, `node-cron`.
+**Tech Stack:** TypeScript, Express, Prisma 7.7 (`@famlink/db`), Stripe SDK (mocked in tests with `vi.hoisted`), Vitest against a real Postgres test DB, `node-cron`.
 
 **Spec:** `docs/superpowers/specs/2026-08-07-billing-seat-reconciliation-design.md` (W1 spec §2 decision 10 slice).
 
 ## Global Constraints
 
 - **Package:** All code is in `apps/api` (`@famlink/api`). Every task runs this verification from the repo root: `npm run type-check`, `npm run lint` (0 errors; 34 known warnings are OK), and the API suite `npm test --workspace=@famlink/api`.
-- **`proration_behavior: "create_prorations"`** on every Stripe seat-quantity change (spec §5; **Steve chose proration on 2026-08-15**). A mid-cycle seat change makes a proration adjustment. A member added mid-cycle makes a charge. A member removed mid-cycle makes a credit. The adjustment settles on the **next invoice** as arrears. There is no immediate out-of-cycle charge. Do **not** use `"none"`.
+- **`proration_behavior: "create_prorations"`** on every Stripe seat-quantity change (spec §5. **Steve chose proration on 2026-08-15**). A mid-cycle seat change makes a proration adjustment. A member added mid-cycle makes a charge. A member removed mid-cycle makes a credit. The adjustment settles on the **next invoice** as arrears. The system makes no immediate out-of-cycle charge. Do **not** use `"none"`.
 - **Stripe is the source of truth** for billed seat quantity (decision 2026-06-10).
 - **`seatCount` means the true active-member headcount** (spec §5 — `reconcileSeats` writes `activeCount`). After this slice `seatCount` is **display-only**. The only readers that remain are `GET /billing/subscription` and the read-only `seat-impact` preview. Tasks 1–5 remove every correctness reader. The `customer.subscription.updated` webhook is a Stripe backstop that writes `includedSeats + billedQty`. Below the included allowance this value can differ from the headcount for a short time. The next daily reconciliation pass corrects it. Task 3 must **update the schema comment** at `packages/db/prisma/schema.prisma:358-359`, which still says "seatCount … is always the TOTAL allowance". *(This resolves an ambiguity in the spec. Decision 2 calls `seatCount` the "billing quantity". §5 writes `activeCount`. Headcount is the chosen meaning.)*
 - **Coverage is derived live, never materialized.**
@@ -219,7 +219,7 @@ Replace the entire `describe("POST /api/v1/families/:familyId/members — seat e
   });
 ```
 
-> Note for the implementer: match the existing file's auth-mock helper. If the file uses a different name than `mockGetAuth` (check the top of `families.test.ts`), use that name. The `mockStripe` hoisted mock already exists at `families.test.ts:21`.
+> NOTE for the implementer: match the existing file's auth-mock helper. If the file uses a different name than `mockGetAuth` (look at the top of `families.test.ts`), use that name. The `mockStripe` hoisted mock already exists at `families.test.ts:21`.
 
 - [ ] **Step 2: Run the test to verify the new assertion fails**
 
@@ -627,7 +627,7 @@ describe("runSeatReconciliationPass", () => {
 });
 ```
 
-> The isolation assertion is order-independent: it fails the first Stripe call by call-order (`mockRejectedValueOnce`), not by family identity, and asserts both families reached the Stripe leg. Without a per-family `try/catch`, the first rejection aborts the pass and `retrieve` runs only once.
+> The isolation assertion is order-independent. It fails the first Stripe call by call-order (`mockRejectedValueOnce`), not by family identity. It asserts that both families reached the Stripe leg. Without a per-family `try/catch`, the first rejection aborts the pass, and `retrieve` runs only once.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -706,7 +706,7 @@ git commit -m "feat: P3-04 billing — daily seat reconciliation pass; retire do
 - Consumes: nothing new.
 - Produces: `customer.subscription.updated` still syncs `tierKey`, `seatCount` (from the Stripe seat quantity — the local convergence backstop), `status`, and `trialEndsAt`. It **no longer writes** `pendingDowngradeTierKey` / `pendingDowngradeSeatCount` / `downgradeGraceEndsAt`. `GET /subscription` returns those three fields as `null` unconditionally (they are retired — the web `BillingBanners` "avoid suspension" banner keys on them, and suspension no longer happens; hardcoding `null` neutralizes the false warning for any family with stale rows without a data migration).
 
-> **Why not clear the DB rows?** Per spec §8 the columns stay dormant (no destructive migration). Nulling them at the read boundary fully closes the false-warning path — the banner condition (`pendingDowngradeTierKey && downgradeGraceEndsAt`) can never be satisfied — and does not depend on a one-time script running against prod. The stale columns are harmless once unread. (Removing the now-dead downgrade branch from `apps/web/components/billing/BillingBanners.tsx:20-22` is a non-blocking web cleanup, deferred.)
+> **Why not clear the DB rows?** Per spec §8 the columns stay dormant (no destructive migration). A null at the read boundary fully closes the false-warning path. The banner condition (`pendingDowngradeTierKey && downgradeGraceEndsAt`) can never be true. This approach does not depend on a one-time script against prod. The stale columns are harmless once unread. (The removal of the now-dead downgrade branch from `apps/web/components/billing/BillingBanners.tsx:20-22` is a non-blocking web cleanup, deferred.)
 
 - [ ] **Step 1: Rewrite the downgrade webhook test**
 
@@ -776,7 +776,7 @@ Add a second regression test (near the other `GET /subscription` tests — searc
   });
 ```
 
-> Match the file's auth-mock/request helpers (check the top of `billing.test.ts`; the auth-mock name may differ from `mockGetAuth`). If `GET /subscription` requires a scope/admin, follow the pattern of the existing `/subscription` tests in the file.
+> Match the file's auth-mock and request helpers (look at the top of `billing.test.ts`. The auth-mock name can differ from `mockGetAuth`). If `GET /subscription` needs a scope or admin, follow the pattern of the existing `/subscription` tests in the file.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -988,23 +988,23 @@ git commit -m "feat: P3-04 billing — add billingImpactForAdd helper for consen
 ## Whole-branch review brief (name these as in-scope even where the diff does not touch them)
 
 - **Isolation:** `reconcileSeats` and `billingImpactForAdd` must read and write only the given family's own subscription and its own Stripe objects. They must have no cross-tenant surface. Make sure that the `FamilyMember.count` is family-scoped.
-- **Idempotency:** A re-run of the daily pass makes no Stripe **write** when the quantities match. `subscriptions.retrieve` runs every time. The idempotency is about `subscriptions.update`. Confirm the `currentQty === desiredQty` guard, the `desiredQty === 0` delete-before-guard branch, and the `seatCount` equality guard.
+- **Idempotency:** A re-run of the daily pass makes no Stripe **write** when the quantities match. `subscriptions.retrieve` runs every time. The idempotency is about `subscriptions.update`. Examine the `currentQty === desiredQty` guard, the `desiredQty === 0` delete-before-guard branch, and the `seatCount` equality guard.
 - **`billingImpactForAdd` fidelity:** It must return `willBill:true` only under the same conditions that make `reconcileSeats` charge (entitling, paid, a live `stripeSubscriptionId`, and a `stripeSeatPriceId`). Then the "your bill will change" indicator does not over-promise.
 - **`proration_behavior: "create_prorations"`** on every Stripe write (no `"none"` in the new code).
 - **Coverage semantics:** Make sure that no code path uses the old `take: seatCount` boundary. Grep `seatCount` across `apps/api/src` for read-time coverage uses.
-- **Dormant columns:** Confirm that this slice adds no destructive migration. `pendingDowngrade*` and `activeUserLimit` stay as unused columns.
+- **Dormant columns:** Make sure that this slice adds no destructive migration. `pendingDowngrade*` and `activeUserLimit` stay as unused columns.
 
 ## Self-review notes (author, 2026-08-15)
 
-- **Spec coverage:** §3 → Task 1; §4 add-path → Task 2; §5 `reconcileSeats` + §8 `checkSeatExpansion` deletion → Task 3; §6 daily pass + downgrade-pass removal → Task 4; §6 webhook backstop + decision 4 (no `pendingDowngrade`) → Task 5; §7 `billingImpactForAdd` → Task 6; §9 isolation/idempotency → review brief; §10 testing → folded into each task's tests. §11 out-of-scope (`seat-impact`/`expandSeats` removal, dropping dormant columns, UI) respected.
-- **Deviation from spec wording:** The plan never creates `applySeatIncrement` (spec §4 confirms that `reconcileSeats` supersedes it). The `expandSeats` endpoint named in §8 does not exist. The plan leaves the read-only `seat-impact` preview untouched. The `pendingDowngrade*` write is in the webhook handler, which Task 5 edits.
+- **Spec coverage:** §3 → Task 1. §4 add-path → Task 2. §5 `reconcileSeats` and §8 `checkSeatExpansion` deletion → Task 3. §6 daily pass and downgrade-pass removal → Task 4. §6 webhook backstop and decision 4 (no `pendingDowngrade`) → Task 5. §7 `billingImpactForAdd` → Task 6. §9 isolation and idempotency → review brief. §10 testing → folded into each task's tests. §11 out-of-scope (`seat-impact` and `expandSeats` removal, the drop of dormant columns, UI) respected.
+- **Deviation from spec wording:** The plan never creates `applySeatIncrement` (spec §4 states that `reconcileSeats` supersedes it). The `expandSeats` endpoint named in §8 does not exist. The plan leaves the read-only `seat-impact` preview untouched. The `pendingDowngrade*` write is in the webhook handler, which Task 5 edits.
 - **Type consistency:** `reconcileSeats(familyGroupId: string): Promise<void>`, `billingImpactForAdd(familyGroupId: string): Promise<{ willBill: boolean; note: string | null }>`, `runSeatReconciliationPass(): Promise<void>` used consistently across producer/consumer tasks.
 - **Proration decision (Steve, 2026-08-15):** `proration_behavior: "create_prorations"`. A mid-cycle seat change bills or credits the partial period on the next invoice (arrears). This decision supersedes the spec §5 `"none"` recommendation. The spec §5 text now records this decision.
 
 ## Council round 1 (Codex, 2026-08-15) — folded in
 
 The plan resolves all 4 BLOCKERs, 3 MAJORs, and the MINOR and NIT findings:
-- **[BLOCKER] Task 5 could not reach GREEN** — The fixture now gives BASE a `stripeSeatPriceId` and the event item a matching `price.id`. `existing.seatCount = 6 > 4`, so old code schedules a downgrade (RED) and new code does not (GREEN).
+- **[BLOCKER] Task 5 did not reach GREEN** — The fixture now gives BASE a `stripeSeatPriceId` and the event item a matching `price.id`. `existing.seatCount = 6 > 4`, so old code schedules a downgrade (RED) and new code does not (GREEN).
 - **[BLOCKER] `seatCount` had two meanings** — Pinned to active-member headcount (spec §5). Documented as display-only after this slice. Task 3 updates the stale schema comment.
 - **[BLOCKER] Zero-seat delete bypassed by the equality guard** — `reconcileSeats` now branches on `desiredQty === 0` before the `currentQty === desiredQty` guard. Added a stray-quantity-0 regression test.
 - **[BLOCKER] Per-task verification** — Every task Step 4 now runs type-check and lint, not only the filtered tests.
