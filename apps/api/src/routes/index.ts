@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requirePerson } from "../middleware/requireAuth";
+import { consentRouter } from "./consent";
 import { familiesRouter } from "./families";
 import { guestRouter } from "./guest";
 import { householdsRouter } from "./households";
@@ -19,6 +20,7 @@ import { billingRouter } from "./billing";
 export const router = Router();
 
 router.use("/api/v1/guest", guestRouter);
+router.use("/api/v1/consent", consentRouter);
 // families/persons/relationships routers resolve Person themselves: family
 // creation has an onboarding-specific error, person creation must work
 // without a Person, and requirePerson on a shared path prefix would run for
