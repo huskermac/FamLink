@@ -177,10 +177,10 @@ Earlier 2026-06-24/25 stream:
 
 ## Next Recommended / Authorized Step
 
-**W1 PR-2 (consent flows) is MERGED (PR #14, squash `273a138`). The next step is W1 PR-3 (web UI), after the prod-deploy confirmation below.**
+**W1 PR-2 (consent flows) is MERGED (PR #14, squash `273a138`). The prod-deploy is CONFIRMED. The next step is W1 PR-3 (web UI).**
 
 1. ~~**Round-3 plan rewrite**~~, ~~**execution**~~, and ~~**merge**~~ — **DONE 2026-08-25** (PR #14, `273a138`; branch+worktree deleted; GitNexus re-analyzed on `273a138`). CI green.
-2. **Prod-deploy watch (do first on resume):** the merge triggered a Railway deploy that applies **two additive migrations** (`20260825174644_link_request`, `20260825175214_person_provenance`) — low-risk at prod scale, but **confirm the Railway deploy log applies BOTH and `/health` is green** (post-merge `/health` was 200 `db:ok`, but that alone does not prove the new migrations ran — check the deploy log). The reconciliation cron stays **revenue-critical** — the heartbeat/alert follow-up still stands (Deferred Items).
+2. ~~**Prod-deploy watch**~~ — **DONE, CONFIRMED 2026-08-28.** The Railway deploy log (deploy `eca0cd1c`, the `1711c2a` docs-commit redeploy that ran after the `273a138` merge container) shows `25 migrations found` + `No pending migrations to apply` against the prod DB (`railway` @ `gondola.proxy.rlwy.net:15778`), so both additive migrations (`20260825174644_link_request`, `20260825175214_person_provenance`) are recorded in prod `_prisma_migrations` (25 = the W1-PR-1 baseline of 23 + these 2). API up, `/health` 200. The reconciliation cron stays **revenue-critical** — the heartbeat/alert follow-up still stands (Deferred Items).
 3. **Then W1 PR-3 (web UI):** consent inbox, accept/decline, the `/consent/{token}` page, household linked-families + audit surfaces, organizer skip-notices, AND route a contact-bearing onboarding invitee through the consent flow (today `InviteStep` discards the collected contact — the API returns a `CONSENT_REQUIRED` hint so PR-3 can adapt). Twilio/Resend delivery is mocked until then. Phase tag stays **P3-04**.
 
 **Older note (superseded by the above but kept for the PR-2 constraints):** the earlier "plan not yet written" is done. Original constraints still apply.
