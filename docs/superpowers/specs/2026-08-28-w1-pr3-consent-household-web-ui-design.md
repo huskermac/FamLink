@@ -144,10 +144,17 @@ The parent spec §7 defines the full set. This PR does a test of the web render 
 - Live SMS or email delivery — the delivery stays mocked or logged until a real domain and a
   verified number exist.
 
-## 9. Open UI defaults
+## 9. Locked UI decisions (Steve, 2026-09-02)
 
-These defaults are low-risk. Steve can change them at plan time or at review time.
+Steve locked these decisions at the spec review.
 
-- The Activity view renders as a section on the household detail, not a separate route.
-- The Requests navigation item uses a mail glyph.
-- The inbox groups pending requests by newest first.
+- **Badge refresh — refetch on navigation and on window focus.** The pending-count query uses
+  the React Query default. It refetches when the user navigates or gives focus to the tab. It
+  does no background poll.
+- **Add-member 409 behavior — silent retry.** If `POST /families/:id/members` returns
+  `409 CONSENT_REQUIRED`, the form calls the link-request endpoint without a prompt. It then
+  shows "Invitation sent, pending consent". The form never tells the requester that the target
+  is a reachable or registered party (invariants 1 and 6).
+- **The Activity view renders as a section on the household detail, not a separate route.**
+- **The Requests navigation item uses a mail glyph.**
+- **The inbox groups pending requests by newest first.**
