@@ -10,9 +10,9 @@
 
 ## Global Constraints
 
-- The web workspace name is `famlink-web`. Run every command from `apps/web`.
-- The coverage gate is 80% lines through `npx vitest run --coverage`. Per-task verification runs the coverage gate, not one targeted file (the PR #6 lesson). Cover each new client function and each new handler with a real test.
-- The lint step must pass. Run `npm run lint` from the repo root before each commit. The API CI lint step fails on any error.
+- The web workspace name is `famlink-web`. Run every test command from `apps/web`.
+- **Per-task verification (every task, before its commit) — mandatory, the PR #6 lesson:** first iterate with the targeted file (`npx vitest run <file>`) for the red-green loop. Then, before the commit, run the whole-suite coverage gate `cd apps/web && npx vitest run --coverage` and confirm lines coverage is 80% or higher. Then run lint from the repository root: `cd ../.. && npm run lint` (two levels up from `apps/web`). The commit happens only after both pass. Cover each new client function and each new handler with a real test.
+- The API CI lint step fails on any error. Lint must show 0 errors.
 - Client functions for authenticated endpoints use `apiFetch` from `@/lib/api` and take a `getToken` parameter of type `() => Promise<string | null>`.
 - Client functions for the public token endpoints use a direct `fetch` with the base `process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"`, the same as `getGuestInvitation`.
 - The endpoint names are the live names from spec §3. The create route is `POST /api/v1/link-requests` with `familyGroupId` in the body. The public consent path has an accept endpoint only. It has no decline endpoint.
@@ -33,7 +33,8 @@
 - `apps/web/components/family/AddMemberForm.tsx` — the unified add-member form. **Create.**
 - `apps/web/app/(protected)/family/[familyId]/page.tsx` — mount the add-member form and the household section. **Modify.**
 - `apps/web/components/family/HouseholdSection.tsx` — the linked-families, audit, and unlink surfaces. **Create.**
-- `apps/web/components/events/SkipNotices.tsx` — the organizer skip-notices. **Create.**
+
+Note: spec §4.6 (organizer skip-notices) is deferred. The web invite page has no household-invitee kind, so the API never returns a skip notice in a web-only flow. That surface ships with the future web household-invite UI. This plan does not build it.
 
 ---
 
@@ -568,15 +569,16 @@ git commit -m "feat: P3-04 add person, member, and household web API client func
 - Modify: `apps/web/components/nav/Sidebar.tsx`
 - Modify: `apps/web/components/nav/TopNav.tsx`
 - Test: `apps/web/components/nav/__tests__/RequestsBadge.test.tsx`
+- Test: `apps/web/hooks/__tests__/useLinkRequestCount.test.tsx`
 
 **Interfaces:**
-- Consumes: `getPendingLinkRequests` (Task 1), `useAuth` from `@clerk/nextjs`, `useQuery` from `@tanstack/react-query`.
+- Consumes: `getPendingLinkRequests` (Task 1), `useAuth` from `@clerk/nextjs`, `useQuery` from `@tanstack/react-query`, `usePathname` from `next/navigation`.
 - Produces:
   - `useLinkRequestCount(): number`
   - `RequestsBadge` React component.
   - `NAV_ITEMS` gains `{ label: "Requests", href: "/requests", icon: "✉️" }`.
 
-Note for the implementer: the React Query default refetches on mount, on navigation, and on window focus. That default satisfies the locked badge-refresh decision (spec §9). Add no polling.
+Note for the implementer: the badge lives in `NavShell`, which is in the persistent protected layout. Next.js client navigation between protected routes does NOT remount the badge, so React Query's refetch-on-mount does not fire on navigation. The React Query default gives refetch-on-window-focus, but not refetch-on-navigation. The hook must add refetch-on-navigation itself. It reads `usePathname()` and calls `refetch()` in an effect keyed on the path. That, plus the default focus refetch, meets the locked badge-refresh decision (spec §9). Add no polling.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -628,18 +630,69 @@ Add the item to `apps/web/lib/nav.ts` (before `Settings`):
 ```ts
 // apps/web/hooks/useLinkRequestCount.ts
 "use client";
+import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { getPendingLinkRequests } from "@/lib/api/linkRequests";
 
 export function useLinkRequestCount(): number {
   const { getToken } = useAuth();
-  const { data } = useQuery({
+  const pathname = usePathname();
+  const { data, refetch } = useQuery({
     queryKey: ["link-requests-pending"],
     queryFn: () => getPendingLinkRequests(getToken)
   });
+  // The badge stays mounted across navigation, so refetch on each path change.
+  useEffect(() => {
+    refetch();
+  }, [pathname, refetch]);
   return data?.requests.length ?? 0;
 }
+```
+
+Add the hook test:
+
+```tsx
+// apps/web/hooks/__tests__/useLinkRequestCount.test.tsx
+import { renderHook } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("@clerk/nextjs", () => ({ useAuth: () => ({ getToken: vi.fn() }) }));
+
+let pathname = "/dashboard";
+vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
+
+const refetch = vi.fn();
+let queryResult: { data: unknown; refetch: () => void } = { data: { requests: [{}, {}] }, refetch };
+vi.mock("@tanstack/react-query", () => ({ useQuery: () => queryResult }));
+
+import { useLinkRequestCount } from "@/hooks/useLinkRequestCount";
+
+describe("useLinkRequestCount", () => {
+  it("returns the pending count", () => {
+    queryResult = { data: { requests: [{}, {}, {}] }, refetch };
+    const { result } = renderHook(() => useLinkRequestCount());
+    expect(result.current).toBe(3);
+  });
+
+  it("returns 0 when there is no data", () => {
+    queryResult = { data: undefined, refetch };
+    const { result } = renderHook(() => useLinkRequestCount());
+    expect(result.current).toBe(0);
+  });
+
+  it("refetches when the path changes", () => {
+    refetch.mockClear();
+    queryResult = { data: { requests: [] }, refetch };
+    pathname = "/dashboard";
+    const { rerender } = renderHook(() => useLinkRequestCount());
+    expect(refetch).toHaveBeenCalledTimes(1); // initial effect
+    pathname = "/requests";
+    rerender();
+    expect(refetch).toHaveBeenCalledTimes(2); // path changed
+  });
+});
 ```
 
 ```tsx
@@ -702,13 +755,15 @@ import { RequestsBadge } from "@/components/nav/RequestsBadge";
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd apps/web && npx vitest run components/nav/__tests__/RequestsBadge.test.tsx components/nav/__tests__/Sidebar.test.tsx`
+Run: `cd apps/web && npx vitest run components/nav/__tests__/RequestsBadge.test.tsx components/nav/__tests__/Sidebar.test.tsx hooks/__tests__/useLinkRequestCount.test.tsx`
 Expected: PASS. The existing `Sidebar.test.tsx` mocks `@/lib/nav` with no `/requests` item, so the badge does not render there and needs no query client.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run the coverage gate and lint, then commit** (Global Constraints)
 
 ```bash
-git add apps/web/lib/nav.ts apps/web/hooks/useLinkRequestCount.ts apps/web/components/nav/RequestsBadge.tsx apps/web/components/nav/Sidebar.tsx apps/web/components/nav/TopNav.tsx apps/web/components/nav/__tests__/RequestsBadge.test.tsx
+cd apps/web && npx vitest run --coverage    # lines >= 80%
+cd ../.. && npm run lint                      # 0 errors
+git add apps/web/lib/nav.ts apps/web/hooks/useLinkRequestCount.ts apps/web/hooks/__tests__/useLinkRequestCount.test.tsx apps/web/components/nav/RequestsBadge.tsx apps/web/components/nav/Sidebar.tsx apps/web/components/nav/TopNav.tsx apps/web/components/nav/__tests__/RequestsBadge.test.tsx
 git commit -m "feat: P3-04 add Requests nav item with a pending-count badge"
 ```
 
@@ -745,9 +800,10 @@ vi.mock("@/lib/api/linkRequests", () => ({
 }));
 
 const queryData: Record<string, unknown> = {};
+const queryState: { isLoading: boolean } = { isLoading: false };
 const invalidate = vi.fn();
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: ({ queryKey }: { queryKey: unknown[] }) => ({ data: queryData[String(queryKey[0])], isLoading: false }),
+  useQuery: ({ queryKey }: { queryKey: unknown[] }) => ({ data: queryData[String(queryKey[0])], isLoading: queryState.isLoading }),
   useMutation: ({ mutationFn, onSuccess }: { mutationFn: (v: unknown) => Promise<unknown>; onSuccess?: () => void }) => ({
     mutate: async (vars: unknown) => { await mutationFn(vars); onSuccess?.(); },
     isPending: false
@@ -761,6 +817,7 @@ beforeEach(() => {
   mockAccept.mockClear();
   mockDecline.mockClear();
   invalidate.mockClear();
+  queryState.isLoading = false;
   queryData["link-requests-pending"] = {
     requests: [
       { id: "lr1", kind: "FAMILY_MEMBERSHIP", direction: "PULL", requestingFamilyName: "The Smiths", targetName: "You", carryHouseholdName: null, notice: "n" }
@@ -769,17 +826,17 @@ beforeEach(() => {
 });
 
 describe("RequestsPage", () => {
-  it("lists the requesting family name and no id", () => {
+  it("lists the requesting family name and never renders the request id (isolation)", () => {
     render(<RequestsPage />);
     expect(screen.getByText("The Smiths")).toBeInTheDocument();
     expect(screen.queryByText(/lr1/)).toBeNull();
   });
 
-  it("accepts a request and invalidates the queries", async () => {
+  it("accepts a request and invalidates the pending query key", async () => {
     render(<RequestsPage />);
     await userEvent.click(screen.getByRole("button", { name: /accept/i }));
     expect(mockAccept).toHaveBeenCalledWith("lr1", expect.anything());
-    expect(invalidate).toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["link-requests-pending"] });
   });
 
   it("declines a request", async () => {
@@ -788,10 +845,34 @@ describe("RequestsPage", () => {
     expect(mockDecline).toHaveBeenCalledWith("lr1", expect.anything());
   });
 
+  it("shows the JOIN purpose text", () => {
+    queryData["link-requests-pending"] = {
+      requests: [{ id: "lr2", kind: "FAMILY_MEMBERSHIP", direction: "JOIN", requestingFamilyName: "The Roes", targetName: "Kim", carryHouseholdName: null, notice: "n" }]
+    };
+    render(<RequestsPage />);
+    expect(screen.getByText(/asks to join The Roes/i)).toBeInTheDocument();
+  });
+
+  it("shows the HOUSEHOLD_LINK purpose text and the carry-household line", () => {
+    queryData["link-requests-pending"] = {
+      requests: [{ id: "lr3", kind: "HOUSEHOLD_LINK", direction: "PULL", requestingFamilyName: "The Roes", targetName: null, targetHouseholdName: "Maple St", carryHouseholdName: "Maple St", notice: "n" }]
+    };
+    render(<RequestsPage />);
+    expect(screen.getByText(/link the household Maple St/i)).toBeInTheDocument();
+    expect(screen.getByText(/household Maple St/i)).toBeInTheDocument();
+  });
+
   it("shows an empty state when there are no requests", () => {
     queryData["link-requests-pending"] = { requests: [] };
     render(<RequestsPage />);
     expect(screen.getByText(/no pending requests/i)).toBeInTheDocument();
+  });
+
+  it("does not show the empty state while loading", () => {
+    queryState.isLoading = true;
+    queryData["link-requests-pending"] = undefined;
+    render(<RequestsPage />);
+    expect(screen.queryByText(/no pending requests/i)).toBeNull();
   });
 });
 ```
@@ -829,7 +910,7 @@ export default function RequestsPage() {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["link-requests-pending"],
     queryFn: () => getPendingLinkRequests(getToken)
   });
@@ -849,7 +930,10 @@ export default function RequestsPage() {
         Requests
       </h1>
 
-      {requests.length === 0 && (
+      {isLoading && (
+        <p style={{ fontSize: "14px", color: "var(--text-muted)" }}>Loading…</p>
+      )}
+      {!isLoading && requests.length === 0 && (
         <p style={{ fontSize: "14px", color: "var(--text-muted)" }}>You have no pending requests.</p>
       )}
 
@@ -921,9 +1005,11 @@ export default function RequestsPage() {
 Run: `cd apps/web && npx vitest run "app/(protected)/requests/__tests__/page.test.tsx"`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run the coverage gate and lint, then commit** (Global Constraints)
 
 ```bash
+cd apps/web && npx vitest run --coverage
+cd ../.. && npm run lint
 git add "apps/web/app/(protected)/requests/page.tsx" "apps/web/app/(protected)/requests/__tests__/page.test.tsx"
 git commit -m "feat: P3-04 add the consent inbox page"
 ```
@@ -985,6 +1071,15 @@ describe("ConsentAccept", () => {
     expect(screen.getByText(/you are now a member/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /accept/i })).toBeNull();
   });
+
+  it("shows an error message when the accept call fails, and does not reject", async () => {
+    mockAccept.mockRejectedValue(new Error("network"));
+    render(<ConsentAccept token="tok1" initialStatus="PENDING" />);
+    await userEvent.click(screen.getByRole("button", { name: /accept/i }));
+    expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument();
+    // The Accept control returns so the user can retry.
+    expect(screen.getByRole("button", { name: /accept/i })).toBeInTheDocument();
+  });
 });
 ```
 
@@ -1010,10 +1105,12 @@ export function ConsentAccept({ token, initialStatus }: Props) {
   const [status, setStatus] = useState(initialStatus);
   const [loading, setLoading] = useState(false);
   const [resolvedMessage, setResolvedMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function accept() {
     if (loading) return;
     setLoading(true);
+    setError(null);
     try {
       const result = await acceptConsentRequest(token);
       if (result.granted) {
@@ -1022,6 +1119,9 @@ export function ConsentAccept({ token, initialStatus }: Props) {
         setResolvedMessage("This request is no longer available.");
         setStatus(result.status);
       }
+    } catch {
+      // A network or malformed-response failure must not become an unhandled rejection.
+      setError("Something went wrong. Try again.");
     } finally {
       setLoading(false);
     }
@@ -1048,6 +1148,11 @@ export function ConsentAccept({ token, initialStatus }: Props) {
       {resolvedMessage && (
         <p style={{ textAlign: "center", fontSize: "13px", color: "var(--text-muted)", marginBottom: "16px" }}>
           {resolvedMessage}
+        </p>
+      )}
+      {error && (
+        <p style={{ textAlign: "center", fontSize: "13px", color: "#dc2626", marginBottom: "16px" }}>
+          {error}
         </p>
       )}
       <div style={{ display: "flex", justifyContent: "center" }}>
@@ -1132,9 +1237,13 @@ export default async function ConsentPage({ params }: Props) {
 Run: `cd apps/web && npx vitest run "app/consent/[token]/__tests__/ConsentAccept.test.tsx"`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+Note on the server page: `page.tsx` is a server component. The codebase does not unit-test server components (`app/rsvp/[token]/page.tsx` has no test either). The client `ConsentAccept` carries the tested behavior (pending, accepted, declined, resolved, error). The server page only fetches and passes `familyName`, `targetName`, `status`, and `notice`, and calls `notFound()` on an expired, used, or invalid token. It renders no id and no roster.
+
+- [ ] **Step 5: Run the coverage gate and lint, then commit** (Global Constraints)
 
 ```bash
+cd apps/web && npx vitest run --coverage
+cd ../.. && npm run lint
 git add "apps/web/app/consent/[token]/page.tsx" "apps/web/app/consent/[token]/ConsentAccept.tsx" "apps/web/app/consent/[token]/__tests__/ConsentAccept.test.tsx"
 git commit -m "feat: P3-04 add the public consent token page (accept only)"
 ```
@@ -1149,15 +1258,22 @@ git commit -m "feat: P3-04 add the public consent token page (accept only)"
 - Test: `apps/web/components/family/__tests__/AddMemberForm.test.tsx`
 
 **Interfaces:**
-- Consumes: `createPerson`, `addFamilyMember` (Task 3); `createLinkRequest` (Task 1); `useAuth`.
+- Consumes: `createPerson`, `addFamilyMember` (Task 3); `createLinkRequest` (Task 1); `useAuth`; `useQueryClient`.
 - Produces: `AddMemberForm({ familyId, households }: { familyId: string; households: { id: string; name: string }[] })`.
 
-The form collects a first name, a last name, and an optional email or phone. The name applies to the no-contact path only. The contact path creates the person from the contact on the server, so the create-link-request call sends no name. The form shows an adult-attestation checkbox only when the user enters a contact and gives no date of birth. The form offers a carry-household control when `households` is non-empty. The form sends `carryHouseholdId` on the link-request call only.
+The family page renders this form only for a family admin (Task 8 adds the admin check on the page). The endpoints the form calls need an INVITE_MEMBERS admin, so a non-admin never sees the form.
+
+Contact rules and the two paths:
+- The form collects a first name, a last name, an optional email, an optional phone, and an optional date of birth. The form allows **at most one** contact. If the user fills both email and phone, the form blocks submit and shows "Enter an email or a phone, not both." The API identity lookup matches on either contact, so two contacts could resolve to two different people.
+- **The date-of-birth field shows only on the no-contact path.** The `POST /api/v1/persons` call accepts a date of birth. The `POST /api/v1/link-requests` call does not. So the form hides the date-of-birth field once the user enters a contact.
+- **The adult-attestation checkbox shows only when the user enters a contact.** A contact-created passive person has no date of birth, so the API needs the attestation to treat the person as an adult. Without it the API returns `ATTESTATION_REQUIRED`. The form sends `attestedAdult: true` when the box is checked.
+- The name applies to the no-contact path only. The contact path creates the person from the contact on the server, so the create-link-request call sends no name.
+- The form offers a carry-household control when `households` is non-empty. The form sends `carryHouseholdId` on the link-request calls only. The direct member-add path does not carry a household.
 
 The submit logic obeys decision 8:
-- With a contact: call `createLinkRequest` with `targetEmail` or `targetPhone`, then show "Invitation sent, pending consent".
-- With no contact: call `createPerson`, then `addFamilyMember` with the returned id.
-- If `addFamilyMember` throws an error whose message contains `CONSENT_REQUIRED`: call `createLinkRequest` with the created `personId` as `targetPersonId`, then show "Invitation sent, pending consent" (the retry is silent).
+- With a contact: call `createLinkRequest` with `targetEmail` or `targetPhone` (and `attestedAdult` when checked, and `carryHouseholdId` when chosen), then show "Invitation sent, pending consent".
+- With no contact: call `createPerson`, then `addFamilyMember` with the returned id. On success, invalidate the family query `["family", familyId]` so the new member shows.
+- If `addFamilyMember` throws an error whose message contains `CONSENT_REQUIRED`: call `createLinkRequest` with the created `personId` as `targetPersonId` (and `carryHouseholdId` when chosen), then show "Invitation sent, pending consent" (the retry is silent).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1178,12 +1294,16 @@ vi.mock("@/lib/api/family", () => ({
 const mockCreateLR = vi.fn();
 vi.mock("@/lib/api/linkRequests", () => ({ createLinkRequest: (...a: unknown[]) => mockCreateLR(...a) }));
 
+const invalidate = vi.fn();
+vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: invalidate }) }));
+
 import { AddMemberForm } from "@/components/family/AddMemberForm";
 
 beforeEach(() => {
   mockCreatePerson.mockReset();
   mockAddMember.mockReset();
   mockCreateLR.mockReset();
+  invalidate.mockClear();
 });
 
 async function fillName() {
@@ -1192,7 +1312,7 @@ async function fillName() {
 }
 
 describe("AddMemberForm", () => {
-  it("no contact: creates a person then adds a member", async () => {
+  it("no contact: creates a person, adds a member, and invalidates the family query", async () => {
     mockCreatePerson.mockResolvedValue({ id: "p1" });
     mockAddMember.mockResolvedValue({ id: "m1", personId: "p1" });
     render(<AddMemberForm familyId="fam1" households={[]} />);
@@ -1203,22 +1323,27 @@ describe("AddMemberForm", () => {
       expect.anything()
     );
     expect(mockAddMember).toHaveBeenCalledWith("fam1", "p1", expect.anything());
+    expect(mockCreateLR).not.toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["family", "fam1"] });
   });
 
-  it("with contact: creates a link request and shows the pending message", async () => {
+  it("with contact: creates a link request, never touches the direct-add path, and sends no name", async () => {
     mockCreateLR.mockResolvedValue({ id: "lr1", status: "PENDING" });
     render(<AddMemberForm familyId="fam1" households={[]} />);
     await fillName();
     await userEvent.type(screen.getByLabelText(/email/i), "a@b.com");
+    await userEvent.click(screen.getByLabelText(/adult/i));
     await userEvent.click(screen.getByRole("button", { name: /add member/i }));
-    expect(mockCreateLR).toHaveBeenCalledWith(
-      expect.objectContaining({ familyGroupId: "fam1", direction: "PULL", targetEmail: "a@b.com" }),
-      expect.anything()
-    );
+    expect(mockCreatePerson).not.toHaveBeenCalled();
+    expect(mockAddMember).not.toHaveBeenCalled();
+    const arg = mockCreateLR.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg).toMatchObject({ familyGroupId: "fam1", direction: "PULL", targetEmail: "a@b.com", attestedAdult: true });
+    expect(arg.firstName).toBeUndefined();
+    expect(arg.lastName).toBeUndefined();
     expect(await screen.findByText(/pending consent/i)).toBeInTheDocument();
   });
 
-  it("no contact 409: retries silently as a link request", async () => {
+  it("no contact 409: retries silently as a link request by personId", async () => {
     mockCreatePerson.mockResolvedValue({ id: "p1" });
     mockAddMember.mockRejectedValue(new Error("API 409: CONSENT_REQUIRED"));
     mockCreateLR.mockResolvedValue({ id: "lr1", status: "PENDING" });
@@ -1232,11 +1357,34 @@ describe("AddMemberForm", () => {
     expect(await screen.findByText(/pending consent/i)).toBeInTheDocument();
   });
 
-  it("shows the attestation checkbox only when a contact is entered without a date of birth", async () => {
+  it("shows the attestation box when a contact is entered, and hides the date-of-birth field", async () => {
     render(<AddMemberForm familyId="fam1" households={[]} />);
     expect(screen.queryByLabelText(/adult/i)).toBeNull();
+    expect(screen.getByLabelText(/date of birth/i)).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText(/email/i), "a@b.com");
     expect(screen.getByLabelText(/adult/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/date of birth/i)).toBeNull();
+  });
+
+  it("blocks submit when both an email and a phone are entered", async () => {
+    render(<AddMemberForm familyId="fam1" households={[]} />);
+    await fillName();
+    await userEvent.type(screen.getByLabelText(/email/i), "a@b.com");
+    await userEvent.type(screen.getByLabelText(/phone/i), "+15555550123");
+    await userEvent.click(screen.getByRole("button", { name: /add member/i }));
+    expect(mockCreateLR).not.toHaveBeenCalled();
+    expect(mockCreatePerson).not.toHaveBeenCalled();
+    expect(screen.getByText(/not both/i)).toBeInTheDocument();
+  });
+
+  it("sends carryHouseholdId on the link-request path only", async () => {
+    mockCreateLR.mockResolvedValue({ id: "lr1", status: "PENDING" });
+    render(<AddMemberForm familyId="fam1" households={[{ id: "h1", name: "Home" }]} />);
+    await fillName();
+    await userEvent.type(screen.getByLabelText(/email/i), "a@b.com");
+    await userEvent.selectOptions(screen.getByLabelText(/also add to household/i), "h1");
+    await userEvent.click(screen.getByRole("button", { name: /add member/i }));
+    expect(mockCreateLR.mock.calls[0][0]).toMatchObject({ carryHouseholdId: "h1" });
   });
 });
 ```
@@ -1253,6 +1401,7 @@ Expected: FAIL with "Failed to resolve import".
 "use client";
 import { useState } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { useQueryClient } from "@tanstack/react-query";
 import { createPerson, addFamilyMember } from "@/lib/api/family";
 import { createLinkRequest } from "@/lib/api/linkRequests";
 
@@ -1272,6 +1421,7 @@ const inputStyle = {
 
 export function AddMemberForm({ familyId, households }: Props) {
   const { getToken } = useAuth();
+  const queryClient = useQueryClient();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -1282,10 +1432,18 @@ export function AddMemberForm({ familyId, households }: Props) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const hasContact = email.trim() !== "" || phone.trim() !== "";
-  const showAttestation = hasContact && dateOfBirth.trim() === "";
+  const emailFilled = email.trim() !== "";
+  const phoneFilled = phone.trim() !== "";
+  const hasContact = emailFilled || phoneFilled;
+  const bothContacts = emailFilled && phoneFilled;
+  const showAttestation = hasContact;
+  const showDateOfBirth = !hasContact;
 
   async function submit() {
+    if (bothContacts) {
+      setMessage("Enter an email or a phone, not both.");
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
@@ -1312,6 +1470,7 @@ export function AddMemberForm({ familyId, households }: Props) {
       );
       try {
         await addFamilyMember(familyId, person.id, getToken);
+        queryClient.invalidateQueries({ queryKey: ["family", familyId] });
         setMessage("Member added.");
       } catch (err) {
         if (err instanceof Error && err.message.includes("CONSENT_REQUIRED")) {
@@ -1355,9 +1514,11 @@ export function AddMemberForm({ familyId, households }: Props) {
         <label style={{ fontSize: "12px", color: "var(--text-muted)" }}>Phone (optional)
           <input aria-label="Phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
         </label>
-        <label style={{ fontSize: "12px", color: "var(--text-muted)" }}>Date of birth (optional)
-          <input aria-label="Date of birth" type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} style={inputStyle} />
-        </label>
+        {showDateOfBirth && (
+          <label style={{ fontSize: "12px", color: "var(--text-muted)" }}>Date of birth (optional)
+            <input aria-label="Date of birth" type="date" value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} style={inputStyle} />
+          </label>
+        )}
 
         {showAttestation && (
           <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "var(--text-secondary)" }}>
@@ -1404,29 +1565,52 @@ export function AddMemberForm({ familyId, households }: Props) {
 }
 ```
 
-Mount the form on the family page. In `apps/web/app/(protected)/family/[familyId]/page.tsx`, add the import and render the form under the members grid. Build the `households` prop from the page's `data.households`:
+Mount the form on the family page, but only for a family admin. In `apps/web/app/(protected)/family/[familyId]/page.tsx`:
+
+- Add imports:
 
 ```tsx
+import { getMyFamilies } from "@/lib/api/family";
 import { AddMemberForm } from "@/components/family/AddMemberForm";
 ```
 
+- Add a query for the viewer's memberships and derive `isAdmin` (place it after the existing `useQuery` for family details):
+
+```tsx
+  const { data: myFamilies } = useQuery({
+    queryKey: ["my-families"],
+    queryFn: () => getMyFamilies(getToken),
+    enabled: Boolean(familyId),
+  });
+  const isAdmin = (myFamilies ?? [])
+    .find((f) => f.familyGroup.id === familyId)?.roles.includes("ADMIN") ?? false;
+```
+
+- Render the form under the members grid, admin-gated:
+
 ```tsx
         <MemberGrid members={allMembers} familyId={familyId} />
-        <AddMemberForm
-          familyId={familyId}
-          households={households.map((h) => ({ id: h.household.id, name: h.household.name }))}
-        />
+        {isAdmin && (
+          <AddMemberForm
+            familyId={familyId}
+            households={households.map((h) => ({ id: h.household.id, name: h.household.name }))}
+          />
+        )}
 ```
+
+The existing family-page test (`app/(protected)/family/__tests__/page.test.tsx`) mocks `@/lib/api/family`. Add `getMyFamilies` to that mock returning `[]`, so the page still renders. The form and household-management surfaces stay hidden in that test (non-admin), which keeps the existing assertions valid.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd apps/web && npx vitest run components/family/__tests__/AddMemberForm.test.tsx`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run the coverage gate and lint, then commit** (Global Constraints)
 
 ```bash
-git add apps/web/components/family/AddMemberForm.tsx "apps/web/app/(protected)/family/[familyId]/page.tsx" apps/web/components/family/__tests__/AddMemberForm.test.tsx
+cd apps/web && npx vitest run --coverage
+cd ../.. && npm run lint
+git add apps/web/components/family/AddMemberForm.tsx "apps/web/app/(protected)/family/[familyId]/page.tsx" "apps/web/app/(protected)/family/__tests__/page.test.tsx" apps/web/components/family/__tests__/AddMemberForm.test.tsx
 git commit -m "feat: P3-04 add the unified add-member form"
 ```
 
@@ -1441,9 +1625,11 @@ git commit -m "feat: P3-04 add the unified add-member form"
 
 **Interfaces:**
 - Consumes: `getHousehold`, `getHouseholdAudit`, `unlinkHousehold`, `HouseholdDetail`, `AuditEntry` (Task 3); `useAuth`; `useQuery`, `useMutation`, `useQueryClient`.
-- Produces: `HouseholdSection({ householdId, familyId }: { householdId: string; familyId: string })`.
+- Produces: `HouseholdSection({ householdId, familyId, isAdmin }: { householdId: string; familyId: string; isAdmin: boolean })`.
 
-The section shows the linked family names from `getHousehold`. It shows an Activity view (a section, not a route) with the audit entries: the actor display name, the action, and the timestamp. The section has an unlink control that calls `unlinkHousehold` with the current `familyId`. A thrown error whose message contains `LAST_LINK` shows a destroy-confirm prompt. A confirm calls `unlinkHousehold` again with `destroy: true`. The section shows names only, and no id.
+The section shows the linked family names from `getHousehold` for every linked member. The audit endpoint and the unlink endpoint are admin-only, so the Activity view and the unlink control render only when `isAdmin` is true. The audit query is disabled (`enabled: isAdmin`) so a non-admin never fires the admin-only request and never sees a silent 403.
+
+The Activity view is a section, not a route. It lists the audit entries: the actor display name, the action, and the timestamp. It never renders `actorPersonId` or `actorFamilyGroupId`. The unlink control calls `unlinkHousehold` with the current `familyId`. A thrown error whose message contains `LAST_LINK` shows a destroy-confirm prompt. A confirm calls `unlinkHousehold` again with `destroy: true`. On a successful unlink the section invalidates the family query `["family", familyId]`. The section shows names only, and no id.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1463,47 +1649,68 @@ vi.mock("@/lib/api/family", () => ({
 }));
 
 const queryData: Record<string, unknown> = {};
+const invalidate = vi.fn();
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: ({ queryKey }: { queryKey: unknown[] }) => ({ data: queryData[String(queryKey[0])], isLoading: false }),
+  useQuery: ({ queryKey, enabled }: { queryKey: unknown[]; enabled?: boolean }) =>
+    ({ data: enabled === false ? undefined : queryData[String(queryKey[0])], isLoading: false }),
   useMutation: ({ mutationFn, onSuccess, onError }: { mutationFn: (v: unknown) => Promise<unknown>; onSuccess?: () => void; onError?: (e: unknown) => void }) => ({
     mutate: async (vars: unknown) => { try { await mutationFn(vars); onSuccess?.(); } catch (e) { onError?.(e); } },
     isPending: false
   }),
-  useQueryClient: () => ({ invalidateQueries: vi.fn() })
+  useQueryClient: () => ({ invalidateQueries: invalidate })
 }));
 
 import { HouseholdSection } from "@/components/family/HouseholdSection";
 
 beforeEach(() => {
   mockUnlink.mockReset();
-  queryData["household"] = { id: "h1", name: "Home", linkedFamilies: [{ name: "The Smiths" }, { name: "The Roes" }], members: [] };
-  queryData["household-audit"] = { entries: [{ id: "a1", actorDisplayName: "Al", actorFamilyName: "The Smiths", action: "RENAMED", changes: {}, createdAt: "2026-09-01T00:00:00Z" }] };
+  invalidate.mockClear();
+  // Foreign family carries an `id` (viewer is not a member of it). Audit entry carries a foreign
+  // actorFamilyGroupId. The render must show names only and never these ids (isolation).
+  queryData["household"] = {
+    id: "h1", name: "Home",
+    linkedFamilies: [{ name: "The Smiths" }, { id: "fam-foreign-999", name: "The Roes" }],
+    members: []
+  };
+  queryData["household-audit"] = {
+    entries: [{ id: "a1", actorFamilyGroupId: "fam-foreign-999", actorDisplayName: "Al", actorFamilyName: "The Smiths", action: "RENAMED", changes: {}, createdAt: "2026-09-01T00:00:00Z" }]
+  };
 });
 
 describe("HouseholdSection", () => {
-  it("shows the linked family names and no id", () => {
-    render(<HouseholdSection householdId="h1" familyId="fam1" />);
+  it("shows the linked family names and never renders a foreign family id (isolation)", () => {
+    render(<HouseholdSection householdId="h1" familyId="fam1" isAdmin />);
     expect(screen.getByText("The Smiths")).toBeInTheDocument();
     expect(screen.getByText("The Roes")).toBeInTheDocument();
-    expect(screen.queryByText(/h1/)).toBeNull();
+    expect(screen.queryByText(/fam-foreign-999/)).toBeNull();
+    expect(screen.queryByText(/^h1$/)).toBeNull();
   });
 
-  it("shows an audit entry actor name and action", () => {
-    render(<HouseholdSection householdId="h1" familyId="fam1" />);
+  it("shows an audit entry actor name and action, and never the actor family id", () => {
+    render(<HouseholdSection householdId="h1" familyId="fam1" isAdmin />);
     expect(screen.getByText(/Al/)).toBeInTheDocument();
     expect(screen.getByText(/RENAMED/)).toBeInTheDocument();
+    expect(screen.queryByText(/fam-foreign-999/)).toBeNull();
   });
 
-  it("unlinks with the current family id", async () => {
+  it("hides the Activity view and the unlink control for a non-admin viewer", () => {
+    render(<HouseholdSection householdId="h1" familyId="fam1" isAdmin={false} />);
+    expect(screen.getByText("The Smiths")).toBeInTheDocument(); // linked families still show
+    expect(screen.queryByText(/RENAMED/)).toBeNull(); // no audit
+    expect(screen.queryByRole("button", { name: /unlink/i })).toBeNull(); // no unlink
+  });
+
+  it("unlinks with the current family id and invalidates the family query", async () => {
     mockUnlink.mockResolvedValue(undefined);
-    render(<HouseholdSection householdId="h1" familyId="fam1" />);
+    render(<HouseholdSection householdId="h1" familyId="fam1" isAdmin />);
     await userEvent.click(screen.getByRole("button", { name: /unlink/i }));
     expect(mockUnlink).toHaveBeenCalledWith("h1", { familyGroupId: "fam1" }, expect.anything());
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["family", "fam1"] });
   });
 
   it("shows a destroy confirm on LAST_LINK and destroys on confirm", async () => {
     mockUnlink.mockRejectedValueOnce(new Error("API 409: LAST_LINK"));
-    render(<HouseholdSection householdId="h1" familyId="fam1" />);
+    render(<HouseholdSection householdId="h1" familyId="fam1" isAdmin />);
     await userEvent.click(screen.getByRole("button", { name: /unlink/i }));
     const destroyBtn = await screen.findByRole("button", { name: /delete the household/i });
     mockUnlink.mockResolvedValueOnce(undefined);
@@ -1531,9 +1738,10 @@ import { getHousehold, getHouseholdAudit, unlinkHousehold } from "@/lib/api/fami
 interface Props {
   householdId: string;
   familyId: string;
+  isAdmin: boolean;
 }
 
-export function HouseholdSection({ householdId, familyId }: Props) {
+export function HouseholdSection({ householdId, familyId, isAdmin }: Props) {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const [confirmDestroy, setConfirmDestroy] = useState(false);
@@ -1542,9 +1750,11 @@ export function HouseholdSection({ householdId, familyId }: Props) {
     queryKey: ["household", householdId],
     queryFn: () => getHousehold(householdId, getToken)
   });
+  // The audit endpoint is admin-only; do not fire it for a non-admin (avoids a silent 403).
   const { data: audit } = useQuery({
     queryKey: ["household-audit", householdId],
-    queryFn: () => getHouseholdAudit(householdId, getToken)
+    queryFn: () => getHouseholdAudit(householdId, getToken),
+    enabled: isAdmin
   });
 
   const unlink = useMutation({
@@ -1552,7 +1762,7 @@ export function HouseholdSection({ householdId, familyId }: Props) {
       unlinkHousehold(householdId, { familyGroupId: familyId, ...(destroy ? { destroy: true } : {}) }, getToken),
     onSuccess: () => {
       setConfirmDestroy(false);
-      queryClient.invalidateQueries({ queryKey: ["family-detail", familyId] });
+      queryClient.invalidateQueries({ queryKey: ["family", familyId] });
     },
     onError: (err: unknown) => {
       if (err instanceof Error && err.message.includes("LAST_LINK")) setConfirmDestroy(true);
@@ -1575,206 +1785,71 @@ export function HouseholdSection({ householdId, familyId }: Props) {
         ))}
       </div>
 
-      <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "4px" }}>Activity</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "16px" }}>
-        {entries.map((e) => (
-          <div key={e.id} style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-            {e.actorDisplayName} · {e.action} · {new Date(e.createdAt).toLocaleDateString("en-US")}
+      {isAdmin && (
+        <>
+          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "4px" }}>Activity</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "16px" }}>
+            {entries.map((e) => (
+              <div key={e.id} style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                {e.actorDisplayName} · {e.action} · {new Date(e.createdAt).toLocaleDateString("en-US")}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {!confirmDestroy && (
-        <button
-          onClick={() => unlink.mutate(false)}
-          disabled={unlink.isPending}
-          style={{ padding: "8px 16px", borderRadius: "8px", border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-secondary)", fontSize: "13px", cursor: "pointer" }}
-        >
-          Unlink this family
-        </button>
-      )}
+          {!confirmDestroy && (
+            <button
+              onClick={() => unlink.mutate(false)}
+              disabled={unlink.isPending}
+              style={{ padding: "8px 16px", borderRadius: "8px", border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-secondary)", fontSize: "13px", cursor: "pointer" }}
+            >
+              Unlink this family
+            </button>
+          )}
 
-      {confirmDestroy && (
-        <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-          <p style={{ marginBottom: "8px" }}>This is the last linked family. Unlinking deletes the household.</p>
-          <button
-            onClick={() => unlink.mutate(true)}
-            disabled={unlink.isPending}
-            style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: "#dc2626", color: "#fff", fontSize: "13px", cursor: "pointer" }}
-          >
-            Delete the household
-          </button>
-        </div>
+          {confirmDestroy && (
+            <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+              <p style={{ marginBottom: "8px" }}>This is the last linked family. Unlinking deletes the household.</p>
+              <button
+                onClick={() => unlink.mutate(true)}
+                disabled={unlink.isPending}
+                style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: "#dc2626", color: "#fff", fontSize: "13px", cursor: "pointer" }}
+              >
+                Delete the household
+              </button>
+            </div>
+          )}
+        </>
       )}
     </section>
   );
 }
 ```
 
-Mount the section on the family page under each household. In `apps/web/app/(protected)/family/[familyId]/page.tsx`, add the import and render a `HouseholdSection` per household:
+Mount the section on the family page under each household, passing the `isAdmin` value derived in Task 7. In `apps/web/app/(protected)/family/[familyId]/page.tsx`, add the import and render a `HouseholdSection` per household inside the Households section:
 
 ```tsx
 import { HouseholdSection } from "@/components/family/HouseholdSection";
 ```
 
 ```tsx
+        <HouseholdList households={households} familyId={familyId} />
         {households.map((h) => (
-          <HouseholdSection key={h.household.id} householdId={h.household.id} familyId={familyId} />
+          <HouseholdSection key={h.household.id} householdId={h.household.id} familyId={familyId} isAdmin={isAdmin} />
         ))}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd apps/web && npx vitest run components/family/__tests__/HouseholdSection.test.tsx`
-Expected: PASS (4 tests).
+Expected: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run the whole-suite coverage gate and lint, then commit** (Global Constraints; this is the last code task)
 
 ```bash
+cd apps/web && npx vitest run --coverage    # whole suite; lines >= 80%
+cd ../.. && npm run lint                      # 0 errors
 git add apps/web/components/family/HouseholdSection.tsx "apps/web/app/(protected)/family/[familyId]/page.tsx" apps/web/components/family/__tests__/HouseholdSection.test.tsx
 git commit -m "feat: P3-04 add the household linked-families, audit, and unlink section"
-```
-
----
-
-## Task 9: Organizer skip-notices
-
-**Files:**
-- Create: `apps/web/components/events/SkipNotices.tsx`
-- Modify: `apps/web/lib/api/events.ts` (widen the `sendInvitations` return type to include `skipped`)
-- Modify: `apps/web/app/(protected)/events/[eventId]/invite/page.tsx` (render the notices)
-- Test: `apps/web/components/events/__tests__/SkipNotices.test.tsx`
-
-**Interfaces:**
-- Consumes: nothing new — reads the `skipped` array the invite response returns.
-- Produces:
-  - `SkipNotice` = `{ displayName: string; reason: "MINOR_NON_MEMBER" | "NO_CONTACT" }`
-  - `SkipNotices({ notices }: { notices: SkipNotice[] })`
-
-The API `POST /events/:eventId/invitations` returns `{ invitations, skipped }`. The `skipped` array names each skipped resident of a HOUSEHOLD-scope invite. The notice names the resident only. The notice is not a blocker.
-
-- [ ] **Step 1: Write the failing test**
-
-```tsx
-// apps/web/components/events/__tests__/SkipNotices.test.tsx
-import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
-import { SkipNotices } from "@/components/events/SkipNotices";
-
-describe("SkipNotices", () => {
-  it("renders nothing when there are no notices", () => {
-    const { container } = render(<SkipNotices notices={[]} />);
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("names each skipped resident with a reason", () => {
-    render(<SkipNotices notices={[
-      { displayName: "Sam", reason: "MINOR_NON_MEMBER" },
-      { displayName: "Pat", reason: "NO_CONTACT" }
-    ]} />);
-    expect(screen.getByText(/Sam/)).toBeInTheDocument();
-    expect(screen.getByText(/Pat/)).toBeInTheDocument();
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `cd apps/web && npx vitest run components/events/__tests__/SkipNotices.test.tsx`
-Expected: FAIL with "Failed to resolve import".
-
-- [ ] **Step 3: Write minimal implementation**
-
-```tsx
-// apps/web/components/events/SkipNotices.tsx
-export interface SkipNotice {
-  displayName: string;
-  reason: "MINOR_NON_MEMBER" | "NO_CONTACT";
-}
-
-const REASON_TEXT: Record<SkipNotice["reason"], string> = {
-  MINOR_NON_MEMBER: "is a minor who is not a member of this family",
-  NO_CONTACT: "has no contact detail"
-};
-
-export function SkipNotices({ notices }: { notices: SkipNotice[] }) {
-  if (notices.length === 0) return null;
-  return (
-    <div style={{ marginTop: "12px", padding: "12px 14px", borderRadius: "8px", background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-      <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-muted)", marginBottom: "6px" }}>
-        Some residents were not invited
-      </div>
-      {notices.map((n, i) => (
-        <div key={i} style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-          {n.displayName} {REASON_TEXT[n.reason]}.
-        </div>
-      ))}
-    </div>
-  );
-}
-```
-
-Widen the `sendInvitations` return type in `apps/web/lib/api/events.ts`. Find the `sendInvitations` function (near line 196) and change its return type to include `skipped`:
-
-```ts
-export async function sendInvitations(
-  eventId: string,
-  invitees: InviteeEntry[],
-  getToken: GetToken
-): Promise<{ invitations: unknown[]; skipped?: { displayName: string; reason: "MINOR_NON_MEMBER" | "NO_CONTACT" }[] }> {
-```
-
-(Keep the existing body. Adjust only the return type. If the body already declares a narrower type variable, widen it to match.)
-
-Render the notices on the invite page. In `apps/web/app/(protected)/events/[eventId]/invite/page.tsx`:
-
-- Add the import:
-
-```tsx
-import { SkipNotices, type SkipNotice } from "@/components/events/SkipNotices";
-```
-
-- Add state near the other `useState` calls:
-
-```tsx
-  const [skipped, setSkipped] = useState<SkipNotice[]>([]);
-```
-
-- In `handleSend`, capture the result and set the notices instead of navigating away immediately when there are notices:
-
-```tsx
-    if (invitees.length > 0) {
-      const result = await sendInvitations(eventId, invitees, getToken);
-      const notices = (result.skipped ?? []) as SkipNotice[];
-      if (notices.length > 0) {
-        setSkipped(notices);
-        setSending(false);
-        return;
-      }
-    }
-    router.push(`/events/${eventId}`);
-```
-
-- Render `<SkipNotices notices={skipped} />` above the action buttons (before the `<div style={{ display: "flex", gap: "12px" }}>` block).
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `cd apps/web && npx vitest run components/events/__tests__/SkipNotices.test.tsx`
-Expected: PASS (2 tests).
-
-- [ ] **Step 5: Run the full coverage gate and lint**
-
-Run: `cd apps/web && npx vitest run --coverage`
-Expected: PASS, lines coverage at or above 80%.
-
-Run: `cd .. && npm run lint`
-Expected: 0 errors.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add apps/web/components/events/SkipNotices.tsx apps/web/lib/api/events.ts "apps/web/app/(protected)/events/[eventId]/invite/page.tsx" apps/web/components/events/__tests__/SkipNotices.test.tsx
-git commit -m "feat: P3-04 surface organizer skip-notices on the invite page"
 ```
 
 ---
@@ -1787,13 +1862,14 @@ git commit -m "feat: P3-04 surface organizer skip-notices on the invite page"
 - §4.3 Public consent token page (accept only) → Task 6.
 - §4.4 Unified add-member flow → Task 7 (client functions in Tasks 1 and 3).
 - §4.5 Household linked-families, audit, unlink → Task 8.
-- §4.6 Organizer skip-notices → Task 9.
+- §4.6 Organizer skip-notices → DEFERRED. The web invite page has no household-invitee kind, so the API never returns a skip notice in a web-only flow. This surface ships with the future web household-invite UI (spec §4.6, deferred 2026-09-02).
 - §5 Client layer → Tasks 1, 2, 3.
-- §6 Isolation render tests → covered in the page/component tests (no id, no roster) in Tasks 5, 6, 8.
-- §7 Coverage gate → Task 9 Step 5 runs the whole-suite coverage gate; every task runs its own tests.
+- §6 Isolation render tests → Task 5 (inbox: no request id), Task 6 (token page: no id/roster), Task 8 (audit + linked families: a foreign family id is in the fixture and asserted absent).
+- §7 Coverage gate → every task runs the whole-suite coverage gate and lint before its commit (Global Constraints); Task 8 Step 5 is the final gate.
 
-**Type consistency:** `getPendingLinkRequests` returns `{ requests: InboxRequest[] }` in Task 1 and the badge hook (Task 4) and inbox (Task 5) read `data.requests`. `createLinkRequest`, `createPerson`, `addFamilyMember` signatures match between Tasks 1/3 and Task 7. `unlinkHousehold` signature matches between Task 3 and Task 8.
+**Type consistency:** `getPendingLinkRequests` returns `{ requests: InboxRequest[] }` in Task 1 and the badge hook (Task 4) and inbox (Task 5) read `data.requests`. `createLinkRequest`, `createPerson`, `addFamilyMember` signatures match between Tasks 1/3 and Task 7. `unlinkHousehold` signature matches between Task 3 and Task 8. The family query key is `["family", familyId]` everywhere (page fetch, Task 7 invalidate, Task 8 invalidate).
 
 **Open implementation notes for the reviewer:**
 - The typed name in the add-member form (Task 7) applies to the no-contact path only. The contact path creates the person from the contact on the server, so the name is not sent. This follows the PR-2 API (`POST /api/v1/link-requests` takes no name). This is intentional, not a bug.
-- The CONSENT_REQUIRED detection uses the thrown `apiFetch` error message (`API 409: CONSENT_REQUIRED`). If PR-2 changes that error string, update the `includes("CONSENT_REQUIRED")` check.
+- The CONSENT_REQUIRED detection uses the thrown `apiFetch` error message (`API 409: CONSENT_REQUIRED`). If PR-2 changes that error string, update the `includes("CONSENT_REQUIRED")` check. The same applies to the `LAST_LINK` check in Task 8.
+- `isAdmin` on the family page is derived from `getMyFamilies` (the viewer's own `roles` for this family includes `ADMIN`). The server stays authoritative; the client gate only hides controls the API would reject anyway.

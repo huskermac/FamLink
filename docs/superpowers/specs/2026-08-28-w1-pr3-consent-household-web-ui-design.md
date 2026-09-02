@@ -124,12 +124,15 @@ viewer's own family (parent spec §3.3, amended 2026-07-15).
 The unlink control ships in the core. It calls `POST /households/:id/unlink`. A last-link
 response of `409 LAST_LINK` shows a destroy-confirm prompt.
 
-### 4.6 Organizer skip-notices
+### 4.6 Organizer skip-notices — DEFERRED (Steve, 2026-09-02)
 
-The event-invite flow creates a HOUSEHOLD-scope invitation. The API returns a notice for each
-skipped resident. A skipped resident is a passive record or a minor who is not a member of the
-event family. The invite result surfaces each notice with the resident name. The notice is not
-a blocker.
+The API returns a `skipped` notice list only for a HOUSEHOLD-scope invitation. The web invite
+page has no household-invitee entry kind. Its `InviteeEntry` union supports a person, a
+FamLink-user, and a guest only. So the web invite flow can never make the API return a skip
+notice. This surface is not reachable in a web-only slice.
+
+This surface waits for the web household-invite UI. That UI is out of the scope of this slice.
+When it ships, it adds the household-invitee kind and the skip-notice surface together.
 
 ## 5. Client layer
 
