@@ -229,9 +229,11 @@ export function declineLinkRequest(id: string, getToken: GetToken): Promise<Decl
 Run: `cd apps/web && npx vitest run lib/api/__tests__/linkRequests.client.test.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run the coverage gate and lint, then commit** (Global Constraints)
 
 ```bash
+cd apps/web && npx vitest run --coverage    # lines >= 80%
+cd ../.. && npm run lint                      # 0 errors
 git add apps/web/lib/api/linkRequests.ts apps/web/lib/api/__tests__/linkRequests.client.test.ts
 git commit -m "feat: P3-04 add link-request web API client"
 ```
@@ -353,9 +355,11 @@ export async function acceptConsentRequest(token: string): Promise<ConsentAccept
 Run: `cd apps/web && npx vitest run lib/api/__tests__/consent.client.test.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run the coverage gate and lint, then commit** (Global Constraints)
 
 ```bash
+cd apps/web && npx vitest run --coverage
+cd ../.. && npm run lint
 git add apps/web/lib/api/consent.ts apps/web/lib/api/__tests__/consent.client.test.ts
 git commit -m "feat: P3-04 add consent token web API client"
 ```
@@ -551,9 +555,11 @@ export function unlinkHousehold(
 Run: `cd apps/web && npx vitest run lib/api/__tests__/family.household.client.test.ts`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run the coverage gate and lint, then commit** (Global Constraints)
 
 ```bash
+cd apps/web && npx vitest run --coverage
+cd ../.. && npm run lint
 git add apps/web/lib/api/family.ts apps/web/lib/api/__tests__/family.household.client.test.ts
 git commit -m "feat: P3-04 add person, member, and household web API client functions"
 ```
@@ -630,7 +636,7 @@ Add the item to `apps/web/lib/nav.ts` (before `Settings`):
 ```ts
 // apps/web/hooks/useLinkRequestCount.ts
 "use client";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
@@ -643,8 +649,15 @@ export function useLinkRequestCount(): number {
     queryKey: ["link-requests-pending"],
     queryFn: () => getPendingLinkRequests(getToken)
   });
-  // The badge stays mounted across navigation, so refetch on each path change.
+  // The badge stays mounted across navigation, so refetch on each path CHANGE. Skip the first
+  // run — the initial fetch already comes from useQuery on mount, so refetching there would
+  // duplicate that request on every page load.
+  const firstRun = useRef(true);
   useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
     refetch();
   }, [pathname, refetch]);
   return data?.requests.length ?? 0;
@@ -682,15 +695,15 @@ describe("useLinkRequestCount", () => {
     expect(result.current).toBe(0);
   });
 
-  it("refetches when the path changes", () => {
+  it("refetches on a path change but not on the initial mount", () => {
     refetch.mockClear();
     queryResult = { data: { requests: [] }, refetch };
     pathname = "/dashboard";
     const { rerender } = renderHook(() => useLinkRequestCount());
-    expect(refetch).toHaveBeenCalledTimes(1); // initial effect
+    expect(refetch).toHaveBeenCalledTimes(0); // initial mount: useQuery already fetched
     pathname = "/requests";
     rerender();
-    expect(refetch).toHaveBeenCalledTimes(2); // path changed
+    expect(refetch).toHaveBeenCalledTimes(1); // path changed
   });
 });
 ```
