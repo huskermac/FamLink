@@ -30,16 +30,23 @@ Steve locked the scope in this brainstorm session.
 
 ## 3. API surface consumed (no change in this PR)
 
-PR-2 built these endpoints.
+PR-2 built these endpoints. The route names below match the live code. Some names differ from
+the parent design. This spec uses the live names.
 
-- `GET /link-requests/pending` — the consent inbox list.
-- `POST /link-requests/:id/accept` and `POST /link-requests/:id/decline`.
-- `POST /families/:familyId/link-requests` — create a membership pull request.
-- `POST /families/:familyId/members` — the direct data-entry add. It returns
-  `409 CONSENT_REQUIRED` when the target is a reachable party.
-- The public consent token endpoints for the get, accept, and decline of `/consent/{token}`.
-- `GET /households/:id` — now returns `linkedFamilies: [{id?, name}]`.
-- `GET /households/:id/audit` and `POST /households/:id/unlink`.
+- `GET /api/v1/link-requests/pending` — the consent inbox list.
+- `POST /api/v1/link-requests/:id/accept` and `POST /api/v1/link-requests/:id/decline`.
+- `POST /api/v1/link-requests` — create a membership request. The family id goes in the request
+  body as `familyGroupId`. This is the live route. The parent design named
+  `/families/:familyId/link-requests`. The code put the family id in the body instead.
+- `POST /api/v1/families/:familyId/members` — the direct data-entry add. The body needs an
+  existing `personId`. It returns `409 CONSENT_REQUIRED` when the target is a reachable party.
+- `POST /api/v1/persons` — create a Person. The body takes a name and an optional
+  `familyGroupId`. A create with `familyGroupId` and no account stamps `createdByFamilyGroupId`,
+  which makes the record a data-entry record that the family owns.
+- The public consent token endpoints for the get and the accept of `/consent/{token}`. The
+  public path has an accept endpoint only. It has no decline endpoint.
+- `GET /api/v1/households/:id` — returns `linkedFamilies: [{id?, name}]`.
+- `GET /api/v1/households/:id/audit` and `POST /api/v1/households/:id/unlink`.
 
 ## 4. Surfaces
 
@@ -72,27 +79,40 @@ shared household data (invariant 6).
 
 The Accept control verifies control of the contact on the server. The server sets
 `emailVerifiedAt` or `phoneVerifiedAt`, the same as the W3b "Y" reply. The Accept control then
-grants the membership. The Decline control records the decline. The page needs no login.
+grants the membership. The page needs no login.
+
+**The public path has an accept endpoint only (Steve, 2026-09-02).** The token page shows an
+Accept control. It shows no Decline control. A passive target who does not want to join ignores
+the link. The request expires after the time-to-live. A later slice can add a public decline
+endpoint and a Decline control. That slice is a small additive change.
 
 The page renders a state for each token condition: valid, expired, already used, accepted,
-declined, and invalid. The page never shows a roster or an id (invariants 4 and 6).
+declined, and invalid. The declined state and the accepted state come from the get response.
+The page never shows a roster or an id (invariants 4 and 6).
 
 ### 4.4 Unified add-member flow
 
-Rework the existing add-member control on the family page into one form. The form collects a
-name and an optional email or phone. The form shows an adult-attestation checkbox only when the
-user enters a contact and the age is unknown (parent spec §11).
+The family page has no add-member control today. This slice adds a new add-member form to the
+family page. The form collects a name and an optional email or phone. The form shows an
+adult-attestation checkbox only when the user enters a contact and the age is unknown (parent
+spec §11).
 
-The submit logic obeys decision 8:
+The submit logic obeys decision 8. The endpoint names are the live names from §3.
 
-- If the user enters a contact, the form calls `POST /families/:id/link-requests`. The form
-  then shows "Invitation sent, pending consent".
-- If the user enters no contact, the form calls `POST /families/:id/members`.
-- If `POST /families/:id/members` returns `409 CONSENT_REQUIRED`, the form calls the
-  link-request endpoint and shows the consent outcome.
+- If the user enters a contact, the form calls `POST /api/v1/link-requests`. The body sets
+  `familyGroupId`, `kind: "FAMILY_MEMBERSHIP"`, `direction: "PULL"`, and the contact as
+  `targetEmail` or `targetPhone`. The server creates the passive Person from the contact. The
+  form then shows "Invitation sent, pending consent".
+- If the user enters no contact, the form first calls `POST /api/v1/persons` with the name and
+  the `familyGroupId`. The server returns a Person id. The form then calls
+  `POST /api/v1/families/:id/members` with that `personId`.
+- If `POST /api/v1/families/:id/members` returns `409 CONSENT_REQUIRED`, the form calls
+  `POST /api/v1/link-requests` with the `personId` as `targetPersonId`. The form then shows
+  "Invitation sent, pending consent" (decision on 2026-09-02: the retry is silent).
 
 The form offers an optional `carryHouseholdId` control when the family has a household. The
-control reads "also add to household {name}".
+control reads "also add to household {name}". The form sends `carryHouseholdId` on the
+link-request call only. The direct member-add path does not carry a household in.
 
 ### 4.5 Household linked-families and audit
 
