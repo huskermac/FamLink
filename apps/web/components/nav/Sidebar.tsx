@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import { NAV_ITEMS, type NavItem } from "@/lib/nav";
+import { RequestsBadge } from "@/components/nav/RequestsBadge";
 
 function ChevronIcon({ open }: { open: boolean }) {
   return (
@@ -83,6 +84,7 @@ function NavItemRow({ item, depth = 0 }: { item: NavItem; depth?: number }) {
       {depth === 0 && <span style={{ fontSize: "15px" }}>{item.icon}</span>}
       {depth > 0 && <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>·</span>}
       {item.label}
+      {item.href === "/requests" && <RequestsBadge />}
     </Link>
   );
 }

@@ -24,7 +24,9 @@ export default defineConfig({
       "app/**/__tests__/**/*.test.tsx",
       "app/**/__tests__/**/*.test.ts",
       "components/**/__tests__/**/*.test.tsx",
-      "components/**/__tests__/**/*.test.ts"
+      "components/**/__tests__/**/*.test.ts",
+      "hooks/**/__tests__/**/*.test.tsx",
+      "hooks/**/__tests__/**/*.test.ts"
     ],
     passWithNoTests: true
   }
