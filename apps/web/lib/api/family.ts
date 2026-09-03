@@ -125,3 +125,86 @@ export function updatePersonPhoto(
     body: JSON.stringify({ key })
   });
 }
+
+// ── PR-3: person create, member add, household detail ──────────────────────────
+
+export interface CreatePersonInput {
+  firstName: string;
+  lastName: string;
+  preferredName?: string;
+  dateOfBirth?: string;
+  ageGateLevel?: string;
+  familyGroupId?: string;
+}
+
+export function createPerson(input: CreatePersonInput, getToken: GetToken): Promise<PersonBrief> {
+  return apiFetch<PersonBrief>("/api/v1/persons", {
+    getToken,
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function addFamilyMember(
+  familyId: string,
+  personId: string,
+  getToken: GetToken
+): Promise<{ id: string; personId: string }> {
+  return apiFetch<{ id: string; personId: string }>(
+    `/api/v1/families/${encodeURIComponent(familyId)}/members`,
+    { getToken, method: "POST", body: JSON.stringify({ personId, roles: ["MEMBER"] }) }
+  );
+}
+
+export interface HouseholdMemberEntry {
+  id: string;
+  personId: string;
+  role: string | null;
+  joinedAt: string;
+  displayName: string;
+}
+
+export type HouseholdDetail = HouseholdSummary & {
+  linkedFamilies: { id?: string; name: string }[];
+  members: HouseholdMemberEntry[];
+};
+
+export function getHousehold(householdId: string, getToken: GetToken): Promise<HouseholdDetail> {
+  return apiFetch<HouseholdDetail>(`/api/v1/households/${encodeURIComponent(householdId)}`, {
+    getToken,
+    method: "GET"
+  });
+}
+
+export interface AuditEntry {
+  id: string;
+  actorPersonId?: string;
+  actorFamilyGroupId?: string;
+  actorDisplayName: string;
+  actorFamilyName: string;
+  action: string;
+  changes: unknown;
+  createdAt: string;
+}
+
+export function getHouseholdAudit(
+  householdId: string,
+  getToken: GetToken
+): Promise<{ entries: AuditEntry[] }> {
+  return apiFetch<{ entries: AuditEntry[] }>(
+    `/api/v1/households/${encodeURIComponent(householdId)}/audit`,
+    { getToken, method: "GET" }
+  );
+}
+
+export function unlinkHousehold(
+  householdId: string,
+  input: { familyGroupId: string; destroy?: boolean },
+  getToken: GetToken
+): Promise<void> {
+  return apiFetch<void>(`/api/v1/households/${encodeURIComponent(householdId)}/unlink`, {
+    getToken,
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}

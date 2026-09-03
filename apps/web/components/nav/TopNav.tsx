@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { NAV_ITEMS, type NavItem } from "@/lib/nav";
+import { RequestsBadge } from "@/components/nav/RequestsBadge";
 
 function DropdownItem({ item }: { item: NavItem }) {
   const [open, setOpen] = useState(false);
@@ -15,6 +16,7 @@ function DropdownItem({ item }: { item: NavItem }) {
         style={{ padding: "8px 12px", color: "var(--text-secondary)", textDecoration: "none", fontSize: "13px" }}
       >
         {item.label}
+        {item.href === "/requests" && <RequestsBadge />}
       </Link>
     );
   }

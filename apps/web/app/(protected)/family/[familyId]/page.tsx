@@ -3,9 +3,11 @@
 import { useParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
-import { getFamilyDetails } from "@/lib/api/family";
+import { getFamilyDetails, getMyFamilies } from "@/lib/api/family";
 import { MemberGrid } from "@/components/family/MemberGrid";
 import { HouseholdList } from "@/components/family/HouseholdList";
+import { AddMemberForm } from "@/components/family/AddMemberForm";
+import { HouseholdSection } from "@/components/family/HouseholdSection";
 
 function SectionSkeleton() {
   return (
@@ -26,6 +28,14 @@ export default function FamilyDetailPage() {
     queryFn: () => getFamilyDetails(familyId, getToken),
     enabled: Boolean(familyId),
   });
+
+  const { data: myFamilies } = useQuery({
+    queryKey: ["my-families"],
+    queryFn: () => getMyFamilies(getToken),
+    enabled: Boolean(familyId),
+  });
+  const isAdmin = (myFamilies ?? [])
+    .find((f) => f.familyGroup.id === familyId)?.roles.includes("ADMIN") ?? false;
 
   if (isLoading) {
     return (
@@ -54,11 +64,20 @@ export default function FamilyDetailPage() {
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Members</h2>
         <MemberGrid members={allMembers} familyId={familyId} />
+        {isAdmin && (
+          <AddMemberForm
+            familyId={familyId}
+            households={households.map((h) => ({ id: h.household.id, name: h.household.name }))}
+          />
+        )}
       </section>
 
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Households</h2>
         <HouseholdList households={households} familyId={familyId} />
+        {households.map((h) => (
+          <HouseholdSection key={h.household.id} householdId={h.household.id} familyId={familyId} isAdmin={isAdmin} />
+        ))}
       </section>
     </div>
   );
