@@ -7,6 +7,7 @@ import { getFamilyDetails, getMyFamilies } from "@/lib/api/family";
 import { MemberGrid } from "@/components/family/MemberGrid";
 import { HouseholdList } from "@/components/family/HouseholdList";
 import { AddMemberForm } from "@/components/family/AddMemberForm";
+import { HouseholdSection } from "@/components/family/HouseholdSection";
 
 function SectionSkeleton() {
   return (
@@ -74,6 +75,9 @@ export default function FamilyDetailPage() {
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>Households</h2>
         <HouseholdList households={households} familyId={familyId} />
+        {households.map((h) => (
+          <HouseholdSection key={h.household.id} householdId={h.household.id} familyId={familyId} isAdmin={isAdmin} />
+        ))}
       </section>
     </div>
   );
