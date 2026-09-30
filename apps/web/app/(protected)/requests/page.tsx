@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -27,13 +28,27 @@ export default function RequestsPage() {
     queryFn: () => getPendingLinkRequests(getToken)
   });
   const requests = data?.requests ?? [];
+  const [failedId, setFailedId] = useState<string | null>(null);
 
   function invalidate() {
+    setFailedId(null);
     queryClient.invalidateQueries({ queryKey: ["link-requests-pending"] });
   }
 
-  const accept = useMutation({ mutationFn: (id: string) => acceptLinkRequest(id, getToken), onSuccess: invalidate });
-  const decline = useMutation({ mutationFn: (id: string) => declineLinkRequest(id, getToken), onSuccess: invalidate });
+  function onError(_err: unknown, id: string) {
+    setFailedId(id);
+  }
+
+  const accept = useMutation({
+    mutationFn: (id: string) => acceptLinkRequest(id, getToken),
+    onSuccess: invalidate,
+    onError
+  });
+  const decline = useMutation({
+    mutationFn: (id: string) => declineLinkRequest(id, getToken),
+    onSuccess: invalidate,
+    onError
+  });
   const busy = accept.isPending || decline.isPending;
 
   return (
@@ -73,7 +88,10 @@ export default function RequestsPage() {
             )}
             <div style={{ display: "flex", gap: "10px" }}>
               <button
-                onClick={() => accept.mutate(r.id)}
+                onClick={() => {
+                  setFailedId(null);
+                  accept.mutate(r.id);
+                }}
                 disabled={busy}
                 style={{
                   padding: "8px 18px",
@@ -89,7 +107,10 @@ export default function RequestsPage() {
                 Accept
               </button>
               <button
-                onClick={() => decline.mutate(r.id)}
+                onClick={() => {
+                  setFailedId(null);
+                  decline.mutate(r.id);
+                }}
                 disabled={busy}
                 style={{
                   padding: "8px 18px",
@@ -104,6 +125,11 @@ export default function RequestsPage() {
                 Decline
               </button>
             </div>
+            {failedId === r.id && (
+              <p style={{ fontSize: "13px", color: "#dc2626", marginTop: "12px" }}>
+                Something went wrong. Try again.
+              </p>
+            )}
           </div>
         ))}
       </div>
